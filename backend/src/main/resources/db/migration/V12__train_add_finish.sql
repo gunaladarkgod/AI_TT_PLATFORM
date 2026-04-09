@@ -1,0 +1,8 @@
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+ALTER TABLE  `train_task` ADD COLUMN `finish_date` DATETIME;
+ALTER TABLE `train_task` ADD COLUMN `run_state` INTEGER;
+
+SET FOREIGN_KEY_CHECKS = 1;

@@ -1,0 +1,1 @@
+ALTER TABLE template_mapping AUTO_INCREMENT = 1;

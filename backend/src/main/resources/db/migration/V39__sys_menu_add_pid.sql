@@ -1,0 +1,7 @@
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+ALTER TABLE  `sys_menu` ADD COLUMN `parent_id` int DEFAULT 0;
+
+SET FOREIGN_KEY_CHECKS = 1;

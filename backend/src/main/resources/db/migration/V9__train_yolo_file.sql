@@ -1,0 +1,35 @@
+/*
+ Navicat Premium Dump SQL
+
+ Source Server         : localhost_3307
+ Source Server Type    : MySQL
+ Source Server Version : 80039 (8.0.39)
+ Source Host           : localhost:3307
+ Source Schema         : ai_zm
+
+ Target Server Type    : MySQL
+ Target Server Version : 80039 (8.0.39)
+ File Encoding         : 65001
+
+ Date: 20/10/2024 16:24:20
+*/
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ----------------------------
+-- Table structure for train_yolo_file
+-- ----------------------------
+DROP TABLE IF EXISTS `train_yolo_file`;
+CREATE TABLE `train_yolo_file`  (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `created_date` datetime NULL DEFAULT NULL,
+  `remark` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_type_time`(`type` ASC, `created_date` ASC) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;
+
+SET FOREIGN_KEY_CHECKS = 1;

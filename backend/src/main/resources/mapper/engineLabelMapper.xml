@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xgls.web.mapper.EngineLabelMapper">
+  <resultMap id="myResultMap" type="com.xgls.web.entity.TrainLabel">
+    <result property="name" column="name" />
+    <result property="merge" column="merge" />
+  </resultMap>
+  <select id="queryDistinctNames">
+        SELECT DISTINCT name FROM engine_label
+    <where>
+      <if test="project_id != null">  
+           project_id != #{project_id}  
+      </if>
+    </where>
+  </select>
+  <select id="queryNewLabels" resultMap="myResultMap">
+       SELECT t1.`name`,t2.`merge` from  (SELECT DISTINCT `name` from engine_label) t1 
+       LEFT JOIN train_label t2 on t1.`name`=t2.`name`
+       Where  t2.`merge` is  null
+  </select>
+  <select id="queryProjectsByOrLabels">
+       SELECT DISTINCT project_id from engine_label WHERE name in 
+    <foreach item="item" collection="labels" open="(" separator="," close=")">  
+            #{item}  
+    </foreach>
+  </select>
+  <select id="queryProjectLabels">
+      SELECT 
+        t1.project_id,t1.labels,t2.a_n,t2.a_l,t2.a_s,t2.a_g 
+      from 
+      (SELECT 
+        project_id, GROUP_CONCAT(name ORDER BY id ASC) as labels 
+        FROM engine_label GROUP BY project_id
+      )t1
+       INNER JOIN  
+       (SELECT id,a_n,a_l,a_s,a_g  from  engine_project 
+            Where 1=1 
+    <if test="a_l != null">  
+                AND a_l = #{a_l}  
+    </if>
+    <if test="a_s != null">  
+                AND a_s = #{a_s}  
+    </if>
+    <if test="a_g != null">  
+                AND a_g = #{a_g}  
+    </if> 
+        )t2  
+    on t1.project_id=t2.id 
+    <if test="user_id != null">  
+    INNER JOIN 
+      (SELECT project_id FROM sys_user_project WHERE user_id = #{user_id}) t3 
+    ON t1.project_id = t3.project_id
+    </if>
+  </select>
+</mapper>

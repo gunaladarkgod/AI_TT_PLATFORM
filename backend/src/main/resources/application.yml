@@ -1,0 +1,120 @@
+server:
+  port: 8081
+  tomcat:
+    uri-encoding: UTF-8
+  servlet:
+    encoding:
+      enabled: true
+      force: true
+      charset: UTF-8
+
+spring:
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 500MB
+  web:
+    resources:
+      static-locations: >
+        file:/home/omen1/AI_TT_Platform/ai_zm_web_master/static/,
+        file:/home/omen1/AI_TT_Platform/mmdet_run/myfiles/
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/ai_zm_master?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=GMT%2B8&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+  data:
+    redis:
+      database: 3
+      host: 127.0.0.1
+      port: 6379
+      lettuce:
+        pool:
+          max-wait: 1000ms
+  flyway:
+    enabled: false
+    clean-disabled: true
+    mixed: true
+    baseline-on-migrate: true
+    baseline-version: 0
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: false
+
+
+knife4j:
+  enable: true
+  production: false
+  setting:
+    language: zh_cn
+    swagger-model-name: 实体类
+  
+  basic:
+    enable: false
+    username: xgls
+    password: 12345
+sys:
+  license: /home/omen1/AI_TT_Platform/ai_zm_web_master/config/license.lic
+  jwt-key: xgls!123#hk
+  encode-src: false
+  enable-token: true
+  tensorboard:
+    url: 6008
+  cpu_server: http://127.0.0.1:8099/api/cpu
+  cvat:
+    api-server: http://localhost:8080
+#    api-username: api_user
+#    api-password: Kiasdjfeb234d!
+    api-username: carlos
+    api-password: csc303
+  conda: /home/omen1/miniconda3/condabin/conda
+  original-dataset-root: /home/omen1/AI_TT_Platform/data/original_dataset
+  task-dataset-root: /home/omen1/AI_TT_Platform/data/task_dataset
+  instance-dataset-root: /home/omen1/AI_TT_Platform/data/instance_dataset
+  root-logger: /home/omen1/AI_TT_Platform/mmdet_run/logs/
+  root-upload: /home/omen1/AI_TT_Platform/mmdet_run/myfiles/
+  modelcfg:
+    local-model-path:
+      faster-rcnn:
+        resnet: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/CNN/faster_rcnn/faster_rcnn_resnet.py"
+        convnext: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/CNN/faster_rcnn/faster_rcnn_convnext.py"
+        swint: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/CNN/faster_rcnn/faster_rcnn_swint.py"
+      cascade-rcnn:
+        resnet: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/CNN/cascade_rcnn/cascade_rcnn_resnet.py"
+        convnext: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/CNN/cascade_rcnn/cascade_rcnn_convnext.py"
+        swint: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/CNN/cascade_rcnn/cascade_rcnn_swint.py"
+      detectors:
+        resnet: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/CNN/detectors/detectors_resnet.py"
+      detr:
+        resnet: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/DETR/detr/detr_r50_8xb2-150e_coco.py"
+        swint: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/DETR/detr/detr_swin_8xb2-150e_coco.py"
+      dino:
+        resnet: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/DETR/dino/dino-4scale_r50_8xb2-12e_coco.py"
+        swint: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/DETR/dino/dino-5scale_swin-l_8xb2-12e_coco.py"
+      deformable-detr:
+        resnet: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/DETR/deformable_detr/deformable-detr_r50_16xb2-50e_coco.py"
+        swint: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/DETR/deformable_detr/deformable-detr_swin_16xb2-50e_coco.py"
+    local-data-path: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/dataset.py"
+    local-train-path: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/schedule.py"
+    local-runtime-path: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/default_runtime.py"
+  instancecfg:
+    script-storage-dir: "/home/omen1/AI_TT_Platform/data/preprocess_scripts/"
+    instancedata-root: "/home/omen1/AI_TT_Platform/data/instance_dataset/"  # 实例数据集根目录
+    python-path: "/home/omen1/miniconda3/envs/platform/bin/python"  # Python 解释器路径
+
+
+  runner:
+    train-url: "http://127.0.0.1:8009/api/runner/train"
+
+
+
+
+
+app:
+  flyway:
+    enabled: false          # 总开关：false 时 DatabaseInit 将跳过 Flyway（等同不用）
+    mode: migrate           # 取值：migrate / repair / disable（当 enabled=false 时此项被忽略）
+    out-of-order: false     # 若需要执行乱序版本（如保留了 V48..V52 且已存在 V53），改为 true
+    locations: classpath:db/migration  # 迁移脚本目录
+

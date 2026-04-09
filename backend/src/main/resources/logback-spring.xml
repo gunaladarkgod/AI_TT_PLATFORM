@@ -1,0 +1,99 @@
+<configuration>
+    <appender name="ROLLING" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/main/main.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- 日志文件名，每天生成一个日志 -->
+            <fileNamePattern>logs/%d{yyyy-MM-dd}.main.log</fileNamePattern>
+            <!-- 保存最近30天的日志 -->
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- 监控日志 -->
+    <appender name="trainAppender" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/train/train.log</file>
+        <!-- <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy"> -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>logs/train/%d{yyyy-MM-dd}.%i.train.log</fileNamePattern>
+            <maxHistory>7</maxHistory>
+            <maxFileSize>30MB</maxFileSize>
+        </rollingPolicy>
+        <encoder charset="UTF-8">
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    <appender name="transAppender" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/trans/trans.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>logs/trans/%d{yyyy-MM-dd}.%i.trans.log</fileNamePattern>
+            <maxHistory>7</maxHistory>
+            <maxFileSize>30MB</maxFileSize>
+        </rollingPolicy>
+        <encoder charset="UTF-8">
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    <appender name="valAppender" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/val/val.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>logs/val/%d{yyyy-MM-dd}.%i.val.log</fileNamePattern>
+            <maxHistory>7</maxHistory>
+            <maxFileSize>30MB</maxFileSize>
+        </rollingPolicy>
+        <encoder charset="UTF-8">
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    <appender name="predictAppender" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/predict/predict.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>logs/predict/%d{yyyy-MM-dd}.%i.predict.log</fileNamePattern>
+            <maxHistory>7</maxHistory>
+            <maxFileSize>30MB</maxFileSize>
+        </rollingPolicy>
+        <encoder charset="UTF-8">
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    <appender name="dataAppender" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/data/data.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>logs/data/%d{yyyy-MM-dd}.%i.data.log</fileNamePattern>
+            <maxHistory>7</maxHistory>
+            <maxFileSize>30MB</maxFileSize>
+        </rollingPolicy>
+        <encoder charset="UTF-8">
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="ROLLING" />
+        <appender-ref ref="CONSOLE" />
+    </root>
+
+    <logger name="trainLogger" additivity="false" level="INFO">
+        <appender-ref ref="trainAppender" />
+    </logger>
+    <logger name="transLogger" additivity="false" level="INFO">
+        <appender-ref ref="transAppender" />
+    </logger>
+    <logger name="valLogger" additivity="false" level="INFO">
+        <appender-ref ref="valAppender" />
+    </logger>
+    <logger name="predictLogger" additivity="false" level="INFO">
+        <appender-ref ref="predictAppender" />
+    </logger>
+    <logger name="dataLogger" additivity="false" level="INFO">
+        <appender-ref ref="dataAppender" />
+    </logger>
+
+</configuration>

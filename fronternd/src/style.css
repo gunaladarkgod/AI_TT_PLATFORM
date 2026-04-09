@@ -1,0 +1,291 @@
+body {
+  margin: 0;
+}
+
+#app {
+  margin: 0 auto;
+  padding: 0rem;
+  height: 100%;
+  font-weight: normal;
+}
+
+/*不可选中样式*/
+.not-select {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -o-user-select: none;
+  user-select: none;
+}
+
+/* 表单 required  对齐占位**/
+.label-before:before {
+  content: "*";
+  color: transparent;
+  margin-right: 4px;
+}
+
+/*滚动条样式**/
+::-webkit-scrollbar {
+  width: 2px;
+  height: 2px;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #eaecf1;
+  border-radius: 3px;
+}
+
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.flex-wrap{
+  flex-wrap: wrap;
+}
+.flex-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.flex-start {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.flex-end {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.margin_0 {
+  margin: 0px;
+}
+
+.text-white {
+  color: white;
+}
+
+.text-blue {
+  color: rgb(73, 73, 244);
+}
+
+.text-red {
+  color: lightcoral;
+}
+
+.text-yellow {
+  color: lightyellow;
+}
+
+.text-orange {
+  color: orange;
+}
+
+.text-black {
+  color: black;
+}
+
+.text-green {
+  color: lightgreen;
+}
+
+.text-light-blue {
+  color: lightskyblue;
+}
+
+.text-grey {
+  color: grey;
+}
+
+.text-primary {
+  color: #2153a9;
+}
+
+.text-success {
+  color: #43984a;
+}
+
+.text-warning {
+  color: #163262;
+}
+
+.text-danger {
+  color: #e11a31;
+}
+
+.text-error {
+  color: #b80f0f;
+}
+
+.text-info {
+  color: #52676e;
+}
+
+.text-weigh-300 {
+  font-weight: 300;
+}
+
+.text-weigh-400 {
+  font-weight: 400;
+}
+
+.text-weigh-500 {
+  font-weight: 500;
+}
+
+.text-weigh-600 {
+  font-weight: 600;
+}
+
+.text-weigh-700 {
+  font-weight: 700;
+}
+
+.text-weigh-800 {
+  font-weight: 800;
+}
+
+.font-size-18 {
+  font-size: 18px;
+}
+
+.font-size-20 {
+  font-size: 20px;
+}
+
+.font-size-24 {
+  font-size: 24px;
+}
+
+.font-size-28 {
+  font-size: 28px;
+}
+
+.font-size-30 {
+  font-size: 30px;
+}
+
+.el-loading-spinner {
+  --el-loading-spinner-size: 20px;
+}
+
+/* .btn-primary {
+  background: #074080;
+  color: white;
+}
+.btn-primary .el-text {
+  color: white;
+} */
+.content-div {
+  height: calc(100% - 16px - 24px);
+  background-color: #fff;
+  border-radius: 3px;
+  box-shadow: 0px 0px 12px rgba(0, 0, 0, 0.12);
+  padding: 20px !important;
+}
+
+.page-content {
+  padding: 0 15px 15px !important;
+}
+
+/* 全局样式或组件样式文件中 */
+.el-table__header-wrapper th {
+  background-color: #dbdada !important;
+  /* 更改表头背景颜色 */
+  color: rgb(104, 99, 99);
+}
+
+/* 表格操作栏图标颜色样式 */
+.fontSpan {
+  /* margin-right: 3px; */
+  padding: 0 3px;
+  font-size: 12px;
+  color: #868585;
+  /* color: #494848dd; */
+  vertical-align: baseline !important;
+}
+
+/* 表格操作栏按钮颜色 */
+.linkDelete {
+  color: red;
+  vertical-align: baseline !important;
+}
+
+.btnSpan {
+  /* color: #2a75c9; */
+  color: #409EFF;
+  vertical-align: baseline !important;
+}
+
+.fontSpan1 {
+  color: white;
+  vertical-align: baseline !important;
+}
+
+.fontSpan2 {
+  padding: 0 3px;
+  font-size: 12px;
+  vertical-align: baseline !important;
+}
+
+/* 备注小手样式 */
+.linkStyle {
+  cursor: pointer;
+}
+
+.width-100 {
+  width: 100px;
+}
+
+.width-150 {
+  width: 150px;
+}
+
+.width-200 {
+  width: 200px;
+}
+
+.width-250 {
+  width: 250px;
+}
+
+.width-300 {
+  width: 300px;
+}
+
+.width-400 {
+  width: 400px;
+}
+
+.my-select-prop .el-select-dropdown__wrap {
+  max-height: 500px;
+}
+
+/* 下拉框边框去掉 */
+.el-tooltip__trigger:focus-visible {
+  outline: unset;
+} 
+
+
+
+
+/* fileView组件父级div样式 */
+.fileViewDialog{
+  max-height:75vh; 
+  min-height:40vh;
+  overflow: hidden;
+  box-sizing: border-box;
+  display: flex;
+}
+
+/* 弹框的pre文本弹框 */
+.preBox{
+  max-height:60vh; 
+  min-height:40vh;
+  overflow: auto;
+}
