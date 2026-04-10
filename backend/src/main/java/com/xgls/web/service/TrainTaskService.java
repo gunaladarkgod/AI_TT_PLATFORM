@@ -341,45 +341,40 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
     }
 
     public void startTrain(Integer id) {
-        // 1) 取任务
         TrainTask task = baseMapper.selectById(id);
         if (task == null) {
             log.warn("[startTrain] task not found, id={}", id);
             return;
         }
-
-        // 2) mmdet 分流（兼容 "mmdet" 与 "1"）
         if (isMmdetType(task.getType())) {
-            log.info("[startTrain] mmdet via Python Runner, taskId={}, runId={}", id, task.getName());
-
-            // 置 RUN（不写 run_name）
-            updateStartStatus(id, null);
-
-            boolean ok = false;
-            String remarkTail = "runner:unknown";
-
-            try {
-                RunnerTrainResponse runnerResp = trainRunnerService.startByRunId(task.getName());
-                ok = runnerResp.isOk();
-                remarkTail = applyRunnerResult(task, runnerResp, "startTrain");
-            } catch (Exception e) {
-                ok = false;
-                remarkTail = "runner:exception=" + e.getMessage();
-                log.error("Python Runner call failed, runId={}", task.getName(), e);
-            } finally {
-                updateStopStatus(id, null, ok ? CodeMap.TRAIN_FINISH_SUCCESS : CodeMap.TRAIN_FINISH_ERROR);
-                try {
-                    TrainTask upd = new TrainTask();
-                    upd.setId(id);
-                    String base = task.getRemark();
-                    upd.setRemark((base == null || base.isEmpty()) ? remarkTail : (base + "; " + remarkTail));
-                    baseMapper.updateById(upd);
-                } catch (Exception ignore) {}
-            }
-            return; // mmdet 流程已完成
+            startMmdetTrain(task);
+            return;
         }
+        startLegacyTrain(task);
+    }
 
-        // 3) 非 mmdet：沿用原有脚本流程
+    private void startMmdetTrain(TrainTask task) {
+        Integer id = task.getId();
+        log.info("[startTrain] mmdet via Python Runner, taskId={}, runId={}", id, task.getName());
+
+        updateStartStatus(id, null);
+        boolean ok = false;
+        String remarkTail = "runner:unknown";
+        try {
+            RunnerTrainResponse runnerResp = trainRunnerService.startByRunId(task.getName());
+            ok = runnerResp.isOk();
+            remarkTail = applyRunnerResult(task, runnerResp, "startTrain");
+        } catch (Exception e) {
+            remarkTail = "runner:exception=" + e.getMessage();
+            log.error("Python Runner call failed, runId={}", task.getName(), e);
+        } finally {
+            updateStopStatus(id, null, ok ? CodeMap.TRAIN_FINISH_SUCCESS : CodeMap.TRAIN_FINISH_ERROR);
+            appendTrainRemark(id, task.getRemark(), remarkTail);
+        }
+    }
+
+    private void startLegacyTrain(TrainTask task) {
+        Integer id = task.getId();
         String type = task.getType();
         TrainScript script = tScriptMapper.selectById(type);
         if (script == null) {
@@ -389,18 +384,15 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         }
 
         TrainArgs args = tArgsMapper.selectById(id);
-
-        log.info("^_* start train:#{}:{}", id);
+        log.info("^_* start train:#{}:{}", id, task.getName());
         Path tPath = Path.of(rootPath, CodeMap.DIR_SRC, CodeMap.DIR_TRAIN_TASK, id.toString());
         Path filePath = tPath.resolve(CodeMap.DIR_TRAIN_FILE);
         Path runPath = tPath.resolve(CodeMap.DIR_TRAIN_RUN);
         String expName = getExpName(runPath);
         Integer node = args.getNode();
-
         String suff = script.getSuff();
         Path scriptPath = Paths.get(rootPath, CodeMap.DIR_SRC, CodeMap.DIR_SCRIPT, script.getId() + suff);
 
-        // 拓展参数
         TrainExt ext = trainExtMapper.selectById(id);
         cn.hutool.json.JSONObject ext_params = new cn.hutool.json.JSONObject();
         String ext_file = null;
@@ -422,12 +414,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
             switch (cmd) {
                 case "yolo":
                     pBuilder = new ProcessBuilder(
-                            "bash",
-                            scriptPath.toString(),
-                            id.toString(),
-                            node.toString(),
-                            cmd,
-                            "train",
+                            "bash", scriptPath.toString(), id.toString(), node.toString(), cmd, "train",
                             "data=" + filePath.resolve("data.yaml"),
                             "model=" + filePath.resolve("weights_" + args.getWeights() + ".pt"),
                             "device=" + args.getDevice(),
@@ -440,8 +427,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
                             "exist_ok=True"
                     );
                     for (String key : ext_params.keySet()) {
-                        String val = ext_params.getStr(key);
-                        pBuilder.command().add(key + "=" + val);
+                        pBuilder.command().add(key + "=" + ext_params.getStr(key));
                     }
                     if (ext_file != null) {
                         pBuilder.command().add("ext_file=" + filePath.resolve(ext_file));
@@ -449,12 +435,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
                     break;
                 case "python":
                     pBuilder = new ProcessBuilder(
-                            "bash",
-                            scriptPath.toString(),
-                            id.toString(),
-                            node.toString(),
-                            cmd,
-                            script.getMain(),
+                            "bash", scriptPath.toString(), id.toString(), node.toString(), cmd, script.getMain(),
                             "--data", filePath.resolve("data.yaml").toString(),
                             "--weights", filePath.resolve("weights_" + args.getWeights() + ".pt").toString(),
                             "--cfg", filePath.resolve("cfg_" + args.getCfg() + ".yaml").toString(),
@@ -470,9 +451,8 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
                             "--sync-bn"
                     );
                     for (String key : ext_params.keySet()) {
-                        String val = ext_params.getStr(key);
                         pBuilder.command().add("--" + key);
-                        pBuilder.command().add(val);
+                        pBuilder.command().add(ext_params.getStr(key));
                     }
                     if (ext_file != null) {
                         pBuilder.command().add("--ext_file");
@@ -490,14 +470,8 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
                     int numClasses = labels.size();
                     String classes = labels.stream().map(TrainLabel::getName).collect(java.util.stream.Collectors.joining("+"));
                     pBuilder = new ProcessBuilder(
-                            "bash",
-                            scriptPath.toString(),
-                            id.toString(),
-                            node.toString(),
-                            cmd,
-                            script.getMain(),
-                            "--weights",
-                            filePath.resolve("weights_" + args.getWeights() + ".pt").toString().replace("\\", "/"),
+                            "bash", scriptPath.toString(), id.toString(), node.toString(), cmd, script.getMain(),
+                            "--weights", filePath.resolve("weights_" + args.getWeights() + ".pt").toString().replace("\\", "/"),
                             "--device", args.getDevice(),
                             "--batch-size", args.getBatch_size().toString(),
                             "--img-width", args.getImg_w().toString(),
@@ -518,13 +492,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
             switch (cmd) {
                 case "yolo":
                     pBuilder = new ProcessBuilder(
-                            "cmd.exe",
-                            "/c",
-                            scriptPath.toString(),
-                            id.toString(),
-                            node.toString(),
-                            cmd,
-                            "train",
+                            "cmd.exe", "/c", scriptPath.toString(), id.toString(), node.toString(), cmd, "train",
                             "data::" + filePath.resolve("data.yaml"),
                             "model::" + filePath.resolve("weights_" + args.getWeights() + ".pt"),
                             "device::" + args.getDevice(),
@@ -537,8 +505,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
                             "exist_ok::True"
                     );
                     for (String key : ext_params.keySet()) {
-                        String val = ext_params.getStr(key);
-                        pBuilder.command().add(key + "::" + val);
+                        pBuilder.command().add(key + "::" + ext_params.getStr(key));
                     }
                     if (ext_file != null) {
                         pBuilder.command().add("ext_file::" + filePath.resolve(ext_file));
@@ -546,13 +513,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
                     break;
                 case "python":
                     pBuilder = new ProcessBuilder(
-                            "cmd.exe",
-                            "/c",
-                            scriptPath.toString(),
-                            id.toString(),
-                            node.toString(),
-                            cmd,
-                            script.getMain(),
+                            "cmd.exe", "/c", scriptPath.toString(), id.toString(), node.toString(), cmd, script.getMain(),
                             "--data", filePath.resolve("data.yaml").toString(),
                             "--weights", filePath.resolve("weights_" + args.getWeights() + ".pt").toString(),
                             "--cfg", filePath.resolve("cfg_" + args.getCfg() + ".yaml").toString(),
@@ -568,9 +529,8 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
                             "--sync-bn"
                     );
                     for (String key : ext_params.keySet()) {
-                        String val = ext_params.getStr(key);
                         pBuilder.command().add("--" + key);
-                        pBuilder.command().add(val);
+                        pBuilder.command().add(ext_params.getStr(key));
                     }
                     if (ext_file != null) {
                         pBuilder.command().add("--ext_file");
@@ -588,15 +548,8 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
                     int numClasses2 = labels2.size();
                     String classes2 = labels2.stream().map(TrainLabel::getName).collect(java.util.stream.Collectors.joining("+"));
                     pBuilder = new ProcessBuilder(
-                            "cmd.exe",
-                            "/c",
-                            scriptPath.toString(),
-                            id.toString(),
-                            node.toString(),
-                            cmd,
-                            script.getMain(),
-                            "--weights",
-                            filePath.resolve("weights_" + args.getWeights() + ".pt").toString().replace("\\", "/"),
+                            "cmd.exe", "/c", scriptPath.toString(), id.toString(), node.toString(), cmd, script.getMain(),
+                            "--weights", filePath.resolve("weights_" + args.getWeights() + ".pt").toString().replace("\\", "/"),
                             "--device", args.getDevice(),
                             "--batch-size", args.getBatch_size().toString(),
                             "--img-width", args.getImg_w().toString(),
@@ -641,7 +594,6 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
                 exitCode = -1;
             }
             run_state = (exitCode == 0) ? CodeMap.TRAIN_FINISH_SUCCESS : CodeMap.TRAIN_FINISH_ERROR;
-
         } catch (IOException | InterruptedException e) {
             log.warn("train err:{}", e.getMessage());
             run_state = CodeMap.TRAIN_FINISH_ERROR;
@@ -652,6 +604,15 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
                 cn.hutool.core.io.FileUtil.del(expPath);
             }
         }
+    }
+
+    private void appendTrainRemark(Integer id, String baseRemark, String remarkTail) {
+        try {
+            TrainTask upd = new TrainTask();
+            upd.setId(id);
+            upd.setRemark((baseRemark == null || baseRemark.isEmpty()) ? remarkTail : (baseRemark + "; " + remarkTail));
+            baseMapper.updateById(upd);
+        } catch (Exception ignore) {}
     }
 
     public String applyRunnerResult(TrainTask task, RunnerTrainResponse runnerResp, String source) {
