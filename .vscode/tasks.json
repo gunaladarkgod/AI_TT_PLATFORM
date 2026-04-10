@@ -1,0 +1,17 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "后端编译(跳过测试)",
+      "type": "shell",
+      "command": "mvn -q -DskipTests clean compile",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "problemMatcher": [
+        "$javac"
+      ],
+      "group": "build"
+    }
+  ]
+}
