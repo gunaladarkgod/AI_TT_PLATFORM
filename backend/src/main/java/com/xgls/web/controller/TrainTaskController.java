@@ -25,6 +25,7 @@ import com.xgls.web.base.AjaxResult;
 import com.xgls.web.base.CodeMap;
 import com.xgls.web.base.ErrorCode;
 import com.xgls.web.runner.TaskQueue;
+import com.xgls.web.runner.TrainRunnerService;
 import com.xgls.web.service.*;
 import com.xgls.web.utils.MyUtils;
 import com.xgls.web.utils.SessionUtil;
@@ -117,6 +118,14 @@ public class TrainTaskController {
     PredictTaskService predictTaskService;
     @Autowired
     private InstanceDatasetinfoService instanceDatasetinfoService;
+    @Autowired
+    private TrainRunnerService trainRunnerService;
+
+    @Operation(summary = "MMDet Python Runner 健康检查", description = "探测 sys.runner.train-url 对应服务的 /health")
+    @PostMapping("runner/health")
+    public AjaxResult runnerHealth() {
+        return AjaxResult.success(trainRunnerService.probeHealth());
+    }
 
     @Operation(summary = "打包配置并准备训练")
     @PostMapping(value = "/pack",

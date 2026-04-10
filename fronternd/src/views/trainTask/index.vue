@@ -35,7 +35,7 @@
     <!-- 表格 -->
     <div class="table-div">
       <el-table class="my-table" :data="tableData" stripe style="width: 100%" size="small"
-        v-el-height-adaptive-table="{ bottomOffset: 70, isUse: true }">
+        v-el-height-adaptive-table="{ bottomOffset: 110, isUse: true }">
 
 
         <el-table-column prop="id" label="id" align="center" width="80" fixed="left">
@@ -203,6 +203,21 @@
         @current-change="handleCurrentChange" @size-change="handleCurrentChange" />
     </div>
 
+    <div class="runner-status-footer">
+      <el-alert
+        :type="runnerHealthOk === true ? 'success' : (runnerHealthOk === false ? 'error' : 'info')"
+        :closable="false"
+        show-icon
+      >
+        <template #title>
+          <span class="runner-status-title">MMDet 训练服务（Runner）</span>
+        </template>
+        <div class="runner-status-row">
+          <el-text size="small" class="runner-status-text">{{ runnerHealthDetail }}</el-text>
+          <el-button type="primary" link size="small" @click="refreshRunnerHealth">刷新</el-button>
+        </div>
+      </el-alert>
+    </div>
 
   </div>
 
@@ -2074,6 +2089,34 @@ const currentSize = ref(10);
 const total = ref(0);
 const tableData = ref([]);
 const showExt = ref(false)
+
+const runnerHealthOk = ref(null)
+const runnerHealthDetail = ref('正在检测 Runner 服务…')
+let runnerHealthTimer = null
+const refreshRunnerHealth = async () => {
+  try {
+    const res = await TrainTaskService.runnerHealth({})
+    if (res.code === 0 && res.data) {
+      const d = res.data
+      runnerHealthOk.value = !!d.ok
+      const bits = []
+      if (d.healthUrl) bits.push(d.healthUrl)
+      if (d.latencyMs != null) bits.push(`延迟 ${d.latencyMs} ms`)
+      if (d.httpStatus != null) bits.push(`HTTP ${d.httpStatus}`)
+      if (d.bodyPreview) bits.push(d.bodyPreview)
+      if (d.error) bits.push(d.error)
+      runnerHealthDetail.value = d.ok
+        ? `Runner 正常，MMDet 训练可发起。${bits.length ? ' ' + bits.join(' · ') : ''}`
+        : `Runner 不可用，发布 mmdet 任务将很快失败。${d.error ? ' ' + d.error : bits.length ? ' ' + bits.join(' · ') : ' 请确认已启动 Python 服务或在 IDE 运行配置中开启 RUNNER_AUTO_START。'}`
+    } else {
+      runnerHealthOk.value = false
+      runnerHealthDetail.value = (res && res.msg) ? res.msg : '健康检查接口返回异常'
+    }
+  } catch (e) {
+    runnerHealthOk.value = false
+    runnerHealthDetail.value = '请求健康检查失败：' + (e && e.message ? e.message : String(e))
+  }
+}
 
 const handleCurrentChange = () => {
   let time_range = searchCreateRange.value
@@ -4290,9 +4333,15 @@ const wsConnect = () => {
 
 onMounted(() => {
   wsConnect();
+  refreshRunnerHealth();
+  runnerHealthTimer = setInterval(refreshRunnerHealth, 30000);
 })
 
 onBeforeUnmount(() => {
+  if (runnerHealthTimer) {
+    clearInterval(runnerHealthTimer);
+    runnerHealthTimer = null;
+  }
   clearInterval(heartInter);
   wscloseflg = true;
   if (ws) {
@@ -4436,6 +4485,34 @@ const labelsHandleClose = (val) => {
 <style scoped>
 .content-div {
   padding: 10px;
+}
+
+.runner-status-footer {
+  margin-top: 10px;
+}
+
+.runner-status-footer :deep(.el-alert) {
+  border-radius: 4px;
+  align-items: flex-start;
+}
+
+.runner-status-title {
+  font-weight: 500;
+}
+
+.runner-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.runner-status-text {
+  flex: 1;
+  min-width: 200px;
+  color: var(--el-text-color-regular);
 }
 
 .table-div {

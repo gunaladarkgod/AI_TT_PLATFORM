@@ -6,7 +6,10 @@
       "name": "WebApplication",
       "request": "launch",
       "mainClass": "com.xgls.web.WebApplication",
-      "projectName": "web_ai"
+      "projectName": "web_ai",
+      "env": {
+        "RUNNER_AUTO_START": "true"
+      }
     },
     {
       "type": "java",
@@ -15,7 +18,10 @@
       "preLaunchTask": "后端编译(跳过测试)",
       "mainClass": "com.xgls.web.WebApplication",
       "cwd": "${workspaceFolder}/backend",
-      "projectName": "backend"
+      "projectName": "backend",
+      "env": {
+        "RUNNER_AUTO_START": "true"
+      }
     }
   ]
 }

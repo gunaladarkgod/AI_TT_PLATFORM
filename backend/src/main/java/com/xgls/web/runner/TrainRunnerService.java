@@ -1,6 +1,7 @@
 package com.xgls.web.runner;
 
 import lombok.extern.slf4j.Slf4j;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import org.springframework.beans.factory.annotation.Value;
@@ -13,6 +14,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -20,6 +23,46 @@ public class TrainRunnerService {
 
     @Value("${sys.runner.train-url:http://127.0.0.1:8009/api/runner/train}")
     private String runnerTrainUrl;
+
+    /** 探测 Runner HTTP 服务是否可用（GET /health，与 train-url 同主机端口）。 */
+    public Map<String, Object> probeHealth() {
+        Map<String, Object> out = new LinkedHashMap<>();
+        URI health = runnerHealthUri();
+        out.put("healthUrl", health.toString());
+        long t0 = System.nanoTime();
+        try {
+            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+            HttpRequest req = HttpRequest.newBuilder(health).timeout(Duration.ofSeconds(5)).GET().build();
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            long ms = (System.nanoTime() - t0) / 1_000_000L;
+            out.put("latencyMs", ms);
+            out.put("httpStatus", resp.statusCode());
+            boolean ok = resp.statusCode() >= 200 && resp.statusCode() < 300;
+            out.put("ok", ok);
+            String body = resp.body();
+            if (StrUtil.isNotBlank(body)) {
+                out.put("bodyPreview", StrUtil.maxLength(body, 200));
+            }
+        } catch (Exception e) {
+            out.put("ok", false);
+            out.put("latencyMs", (System.nanoTime() - t0) / 1_000_000L);
+            out.put("error", e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
+        return out;
+    }
+
+    private URI runnerHealthUri() {
+        URI train = URI.create(runnerTrainUrl);
+        int port = train.getPort();
+        if (port < 0) {
+            port = "https".equalsIgnoreCase(train.getScheme()) ? 443 : 80;
+        }
+        try {
+            return new URI(train.getScheme(), null, train.getHost(), port, "/health", null, null);
+        } catch (Exception e) {
+            throw new IllegalStateException("invalid sys.runner.train-url: " + runnerTrainUrl, e);
+        }
+    }
 
     /** 同步启动训练（等待 Python Runner 返回） */
     public RunnerTrainResponse startByRunId(String runId) {
