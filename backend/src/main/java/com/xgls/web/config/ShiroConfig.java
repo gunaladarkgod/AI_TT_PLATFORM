@@ -73,8 +73,6 @@ public class ShiroConfig {
 //  新增：实例数据集预览 / 图片 / 标注
         chain.put("/instanceDataset/**", "anon");
 
-        chain.put("/trainTask/runner/health", "anon");
-
         // ！！最后一条兜底规则必须在末尾！！
         chain.put("/**", enableToken ? "jwt" : "anon");
 

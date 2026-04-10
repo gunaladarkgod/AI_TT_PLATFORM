@@ -16,12 +16,14 @@ import com.xgls.web.base.AjaxResult;
 import com.xgls.web.base.CodeMap;
 import com.xgls.web.base.ErrorCode;
 import com.xgls.web.entity.EngineTask;
+import com.xgls.web.runner.TrainRunnerService;
 import com.xgls.web.service.EngineTaskService;
 import com.xgls.web.service.WebhookService;
 import com.xgls.web.utils.SessionUtil;
 
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.json.JSONObject;
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,6 +43,14 @@ public class ApiController {
     WebhookService webhookService;
     @Autowired
     EngineTaskService engineTaskService;
+    @Autowired
+    TrainRunnerService trainRunnerService;
+
+    @Operation(summary = "MMDet Python Runner 健康检查", description = "探测 sys.runner.train-url 对应服务的 /health（走 /api 已 anon，无需登录）")
+    @PostMapping("/runner/health")
+    public AjaxResult runnerHealthProbe() {
+        return AjaxResult.success(trainRunnerService.probeHealth());
+    }
 
     @RequestMapping("webhook/project")
     public AjaxResult project(@RequestBody String body) {

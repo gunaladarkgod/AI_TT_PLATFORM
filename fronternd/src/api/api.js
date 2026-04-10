@@ -168,7 +168,7 @@ export class TrainTaskService {
         return request('/trainTask/enqueue', params, 'post');
     }
     static async runnerHealth(params) {
-        return request('/trainTask/runner/health', params || {}, 'post');
+        return request('/api/runner/health', params || {}, 'post');
     }
     static async stop(params) {
         return request('/trainTask/stop', params, 'post');
