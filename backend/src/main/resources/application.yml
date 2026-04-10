@@ -1,5 +1,5 @@
 server:
-  port: 8081
+  port: ${SERVER_PORT:8081}
   tomcat:
     uri-encoding: UTF-8
   servlet:
@@ -16,18 +16,18 @@ spring:
   web:
     resources:
       static-locations: >
-        file:/home/omen1/AI_TT_Platform/ai_zm_web_master/static/,
-        file:/home/omen1/AI_TT_Platform/mmdet_run/myfiles/
+        file:${STATIC_ROOT:/home/omen1/AI_TT_Platform/ai_zm_web_master/static}/,
+        file:${MMDET_UPLOAD_ROOT:/home/omen1/AI_TT_Platform/mmdet_run/myfiles}/
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/ai_zm_master?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=GMT%2B8&allowPublicKeyRetrieval=true
-    username: root
-    password: 123456
+    url: ${DB_URL:jdbc:mysql://localhost:3306/ai_zm_master?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=GMT%2B8&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:123456}
   data:
     redis:
-      database: 3
-      host: 127.0.0.1
-      port: 6379
+      database: ${REDIS_DB:3}
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
       lettuce:
         pool:
           max-wait: 1000ms
@@ -52,28 +52,28 @@ knife4j:
   
   basic:
     enable: false
-    username: xgls
-    password: 12345
+    username: ${KNIFE4J_USERNAME:xgls}
+    password: ${KNIFE4J_PASSWORD:12345}
 sys:
-  license: /home/omen1/AI_TT_Platform/ai_zm_web_master/config/license.lic
-  jwt-key: xgls!123#hk
+  license: ${SYS_LICENSE:/home/omen1/AI_TT_Platform/ai_zm_web_master/config/license.lic}
+  jwt-key: ${SYS_JWT_KEY:xgls!123#hk}
   encode-src: false
   enable-token: true
   tensorboard:
     url: 6008
-  cpu_server: http://127.0.0.1:8099/api/cpu
+  cpu_server: ${CPU_SERVER_URL:http://127.0.0.1:8099/api/cpu}
   cvat:
-    api-server: http://localhost:8080
+    api-server: ${CVAT_API_SERVER:http://localhost:8080}
 #    api-username: api_user
 #    api-password: Kiasdjfeb234d!
-    api-username: carlos
-    api-password: csc303
-  conda: /home/omen1/miniconda3/condabin/conda
-  original-dataset-root: /home/omen1/AI_TT_Platform/data/original_dataset
-  task-dataset-root: /home/omen1/AI_TT_Platform/data/task_dataset
-  instance-dataset-root: /home/omen1/AI_TT_Platform/data/instance_dataset
-  root-logger: /home/omen1/AI_TT_Platform/mmdet_run/logs/
-  root-upload: /home/omen1/AI_TT_Platform/mmdet_run/myfiles/
+    api-username: ${CVAT_API_USERNAME:carlos}
+    api-password: ${CVAT_API_PASSWORD:csc303}
+  conda: ${CONDA_BIN:/home/omen1/miniconda3/condabin/conda}
+  original-dataset-root: ${ORIGINAL_DATASET_ROOT:/home/omen1/AI_TT_Platform/data/original_dataset}
+  task-dataset-root: ${TASK_DATASET_ROOT:/home/omen1/AI_TT_Platform/data/task_dataset}
+  instance-dataset-root: ${INSTANCE_DATASET_ROOT:/home/omen1/AI_TT_Platform/data/instance_dataset}
+  root-logger: ${MMDET_LOG_ROOT:/home/omen1/AI_TT_Platform/mmdet_run/logs/}
+  root-upload: ${MMDET_UPLOAD_ROOT:/home/omen1/AI_TT_Platform/mmdet_run/myfiles/}
   modelcfg:
     local-model-path:
       faster-rcnn:
@@ -99,13 +99,13 @@ sys:
     local-train-path: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/schedule.py"
     local-runtime-path: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/default_runtime.py"
   instancecfg:
-    script-storage-dir: "/home/omen1/AI_TT_Platform/data/preprocess_scripts/"
-    instancedata-root: "/home/omen1/AI_TT_Platform/data/instance_dataset/"  # 实例数据集根目录
-    python-path: "/home/omen1/miniconda3/envs/platform/bin/python"  # Python 解释器路径
+    script-storage-dir: "${INSTANCE_SCRIPT_DIR:/home/omen1/AI_TT_Platform/data/preprocess_scripts/}"
+    instancedata-root: "${INSTANCE_DATA_ROOT:/home/omen1/AI_TT_Platform/data/instance_dataset/}"  # 实例数据集根目录
+    python-path: "${INSTANCE_PYTHON_PATH:/home/omen1/miniconda3/envs/platform/bin/python}"  # Python 解释器路径
 
 
   runner:
-    train-url: "http://127.0.0.1:8009/api/runner/train"
+    train-url: "${RUNNER_TRAIN_URL:http://127.0.0.1:8009/api/runner/train}"
 
 
 

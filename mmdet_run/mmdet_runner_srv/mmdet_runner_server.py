@@ -17,15 +17,15 @@ from fastapi.responses import JSONResponse
 app = FastAPI(title="MMDet Runner Server (sync)")
 
 # 1) 训练用的 Python 解释器
-PY_EXE = "/home/omen1/miniconda3/envs/platform_mmdet/bin/python"
+PY_EXE = os.getenv("MMDET_PY_EXE", "/home/omen1/miniconda3/envs/platform_mmdet/bin/python")
 # 2) mmdetection 仓库根目录
-REPO_ROOT = "/home/omen1/AI_TT_Platform/mmdet_run/mmdetection-3.0.0"
+REPO_ROOT = os.getenv("MMDET_REPO_ROOT", "/home/omen1/AI_TT_Platform/mmdet_run/mmdetection-3.0.0")
 # 3) train.py 路径（用 REPO_ROOT 拼出来，避免写两份）
 TRAIN_PY = str(Path(REPO_ROOT) / "tools" / "train.py")
 # 4) 前端/Java 上传的配置文件根目录
-ROOT_UPLOAD = "/home/omen1/AI_TT_Platform/mmdet_run/myfiles"
+ROOT_UPLOAD = os.getenv("MMDET_UPLOAD_ROOT", "/home/omen1/AI_TT_Platform/mmdet_run/myfiles")
 # 5) 训练产出目录根路径
-DEFAULT_WORK_ROOT = "/home/omen1/AI_TT_Platform/artifacts/mmdet_runs"
+DEFAULT_WORK_ROOT = os.getenv("MMDET_WORK_ROOT", "/home/omen1/AI_TT_Platform/artifacts/mmdet_runs")
 
 # 追加的可选参数（保持你之前成功用过的设置）
 EXTRA_ARGS = ["--cfg-options", "default_scope=mmdet"]
@@ -170,6 +170,11 @@ def write_coco_txt(work_dir: Path, text: str) -> Path:
         f.write(content)
     return out
 
+def api_response(ok: bool, code: int, message: str, **kwargs):
+    payload = {"ok": ok, "code": code, "message": message}
+    payload.update(kwargs)
+    return payload
+
 # =========================
 # API
 # =========================
@@ -181,7 +186,7 @@ def start_train(
     cfg_path = find_cfg_path(runId)
     if not cfg_path.exists():
         return JSONResponse(
-            content={"ok": False, "error": f"cfg_path not found: {str(cfg_path)}"},
+            content=api_response(False, 400, "cfg_path not found", error=f"cfg_path not found: {str(cfg_path)}"),
             status_code=400,
         )
 
@@ -214,7 +219,7 @@ def start_train(
             exit_code = proc.wait()
     except Exception as e:
         return JSONResponse(
-            content={"ok": False, "error": f"failed to start or wait process: {e}"},
+            content=api_response(False, 500, "failed to run process", error=f"failed to start or wait process: {e}"),
             status_code=500,
         )
 
@@ -238,7 +243,7 @@ def start_train(
 
     # 9) 返回 JSON
     resp = {
-        "ok": exit_code == 0,
+        **api_response(exit_code == 0, 0 if exit_code == 0 else 500, "training finished" if exit_code == 0 else "training failed"),
         "exit_code": exit_code,
         "pid": proc.pid if 'proc' in locals() else None,
         "cfg_path": str(cfg_path),
@@ -255,7 +260,7 @@ def start_train(
 # 健康检查
 @app.get("/health")
 def health():
-    return {"ok": True, "time": now_str()}
+    return api_response(True, 0, "ok", time=now_str())
 
 
 if __name__ == "__main__":

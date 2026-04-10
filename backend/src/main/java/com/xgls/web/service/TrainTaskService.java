@@ -31,6 +31,7 @@ import com.xgls.web.mapper.TrainDataMapper;
 import com.xgls.web.mapper.TrainExtMapper;
 import com.xgls.web.mapper.TrainScriptMapper;
 import com.xgls.web.mapper.TrainTaskMapper;
+import com.xgls.web.runner.RunnerTrainResponse;
 import com.xgls.web.runner.TrainRunnerService;
 import com.xgls.web.utils.StreamGobbler;
 import com.xgls.web.vo.TrainForm;
@@ -358,29 +359,20 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
             String remarkTail = "runner:unknown";
 
             try {
-                String resp = trainRunnerService.startByRunId(task.getName());
-                cn.hutool.json.JSONObject jo = cn.hutool.json.JSONUtil.parseObj(resp);
-                ok = jo.getBool("ok", false);
+                RunnerTrainResponse runnerResp = trainRunnerService.startByRunId(task.getName());
+                ok = runnerResp.isOk();
 
-                String workDir    = jo.getStr("work_dir");
-                String logPath    = jo.getStr("log");
-                String resultsTxt = jo.getStr("results_txt");
-                if (resultsTxt == null) {
-                    resultsTxt = jo.getStr("result_txt");
+                if (runnerResp.getRawBody() != null) {
+                    cn.hutool.json.JSONObject jo = cn.hutool.json.JSONUtil.parseObj(runnerResp.getRawBody());
+                    // ★ 解析并入库
+                    try {
+                        saveCocoResultFromRunner(task, jo);
+                    } catch (Exception e) {
+                        log.warn("saveCocoResultFromRunner failed in startTrain, id={}, name={}, err={}",
+                                id, task.getName(), e.toString());
+                    }
                 }
-
-                // ★ 解析并入库
-                try {
-                    saveCocoResultFromRunner(task, jo);
-                } catch (Exception e) {
-                    log.warn("saveCocoResultFromRunner failed in startTrain, id={}, name={}, err={}",
-                            id, task.getName(), e.toString());
-                }
-
-                remarkTail = (ok ? "runner:success" : "runner:error")
-                        + (workDir    != null ? (", workDir=" + workDir) : "")
-                        + (logPath    != null ? (", log=" + logPath) : "")
-                        + (resultsTxt != null ? (", result=" + resultsTxt) : "");
+                remarkTail = runnerResp.summary();
             } catch (Exception e) {
                 ok = false;
                 remarkTail = "runner:exception=" + e.getMessage();

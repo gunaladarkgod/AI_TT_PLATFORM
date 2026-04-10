@@ -14,9 +14,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 
-import cn.hutool.json.JSONUtil;
-import cn.hutool.json.JSONObject;
-
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -76,29 +73,19 @@ public class TrainQueueWorker {
             String remarkTail;
             try {
                 // 同步等待 Python Runner 返回
-                String resp = trainRunnerService.startByRunId(head.getName());
-                JSONObject jo = JSONUtil.parseObj(resp);
-                ok = jo.getBool("ok", false);
-
-                String workDir    = jo.getStr("work_dir");
-                String logPath    = jo.getStr("log"); // 避免遮蔽 @Slf4j 的 log
-                // 兼容老/新字段：result_text vs results_txt
-                String resultsTxt = jo.getStr("results_txt");
-                if (resultsTxt == null) {
-                    resultsTxt = jo.getStr("result_text");
-                }
+                RunnerTrainResponse runnerResp = trainRunnerService.startByRunId(head.getName());
+                ok = runnerResp.isOk();
 
                 try {
-                    taskService.saveCocoResultFromRunner(head, jo);
+                    if (runnerResp.getRawBody() != null) {
+                        taskService.saveCocoResultFromRunner(head, cn.hutool.json.JSONUtil.parseObj(runnerResp.getRawBody()));
+                    }
                 } catch (Exception e) {
                     // 这里用 @Slf4j 的 log，不会被局部变量遮蔽
                     log.warn("saveCocoResultFromRunner failed, id={}, name={}, err={}", headId, head.getName(), e.toString());
                 }
 
-                remarkTail = (ok ? "python-runner:success" : "python-runner:error")
-                        + (workDir    != null ? (", workDir=" + workDir) : "")
-                        + (logPath    != null ? (", log=" + logPath) : "")
-                        + (resultsTxt != null ? (", result=" + resultsTxt) : "");
+                remarkTail = runnerResp.summary();
             } catch (Exception e) {
                 ok = false;
                 remarkTail = "python-runner:exception:" + e.getMessage();

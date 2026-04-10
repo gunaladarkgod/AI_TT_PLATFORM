@@ -57,7 +57,7 @@ axios.interceptors.request.use(
 axios.interceptors.response.use(
     response => {
         if (response.status == 200) {
-            return response.data
+            return normalizeApiResponse(response.data)
         } else {
             return Promise.reject(response.data)
         }
@@ -88,6 +88,23 @@ axios.interceptors.response.use(
         }
     }
 )
+
+function normalizeApiResponse(payload) {
+    if (!payload || typeof payload !== 'object') {
+        return payload
+    }
+    const normalized = { ...payload }
+    if (normalized.code === 200) {
+        normalized.code = 0
+    }
+    if (normalized.message && !normalized.msg) {
+        normalized.msg = normalized.message
+    }
+    if (normalized.msg && !normalized.message) {
+        normalized.message = normalized.msg
+    }
+    return normalized
+}
 
 export function request(url = '', params = {}, type = 'POST', contentType = 'application/x-www-form-urlencoded;chartset=utf-8', responseType = 'text', onUploadProgress = null) {
     let token = useLoginStore()?.token;
@@ -176,7 +193,7 @@ export function request(url = '', params = {}, type = 'POST', contentType = 'app
 export const apiRequest = async (api, params) => {
     try {
         let res = await api(params)
-        if (res && res.code === 0) {
+        if (res && (res.code === 0 || res.code === 200)) {
             return res.data
         }
         return []
