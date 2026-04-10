@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "WebApplication",
+      "request": "launch",
+      "mainClass": "com.xgls.web.WebApplication",
+      "projectName": "web_ai"
+    },
+    {
+      "type": "java",
+      "name": "运行 WebApplication",
+      "request": "launch",
+      "preLaunchTask": "后端编译(跳过测试)",
+      "mainClass": "com.xgls.web.WebApplication",
+      "cwd": "${workspaceFolder}/backend",
+      "projectName": "backend"
+    }
+  ]
+}
