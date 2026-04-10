@@ -1,0 +1,4 @@
+# 供运行本目录 FastAPI 服务（与 MMDet 训练环境可分离安装）
+fastapi>=0.100.0
+uvicorn[standard]>=0.22.0
+typing_extensions>=4.8.0
