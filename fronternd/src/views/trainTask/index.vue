@@ -2106,8 +2106,8 @@ const refreshRunnerHealth = async () => {
       if (d.bodyPreview) bits.push(d.bodyPreview)
       if (d.error) bits.push(d.error)
       runnerHealthDetail.value = d.ok
-        ? `Runner 正常，MMDet 训练可发起。${bits.length ? ' ' + bits.join(' · ') : ''}`
-        : `Runner 不可用，发布 mmdet 任务将很快失败。${d.error ? ' ' + d.error : bits.length ? ' ' + bits.join(' · ') : ' 请确认已启动 Python 服务或在 IDE 运行配置中开启 RUNNER_AUTO_START。'}`
+        ? `Runner 正常，MMDet 训练可发起。${bits.length ? ' ' + bits.join(' · ') : ''} 若仍失败请手动执行 mmdet_run/mmdet_runner_srv/start_runner.sh 或检查 8009 端口。`
+        : `Runner 不可用，发布 mmdet 任务将很快失败。${d.error ? ' ' + d.error : bits.length ? ' ' + bits.join(' · ') : ' 请启动 Runner（IDE 可设 RUNNER_AUTO_START=true）或执行 start_runner.sh；停止后端时 Runner 默认保留。'}`
     } else {
       runnerHealthOk.value = false
       runnerHealthDetail.value = (res && res.msg) ? res.msg : '健康检查接口返回异常'

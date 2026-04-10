@@ -40,6 +40,10 @@ public class MmdetRunnerAutoStart implements ApplicationListener<ApplicationRead
     @Value("${sys.runner.auto-start-log}")
     private String autoStartLogPath;
 
+    /** 为 false 时，停止后端 JVM 不结束已拉起的 Runner（适合 IDE 反复调试；需彻底退出可设 true 或手动杀8009） */
+    @Value("${sys.runner.auto-stop-on-shutdown:false}")
+    private boolean autoStopOnShutdown;
+
     private final AtomicReference<Process> processRef = new AtomicReference<>();
 
     @Override
@@ -66,7 +70,8 @@ public class MmdetRunnerAutoStart implements ApplicationListener<ApplicationRead
         try {
             Process p = pb.start();
             processRef.set(p);
-            log.info("[runner-autostart] 已启动 MMDet Runner 子进程，pid={}，日志: {}", p.pid(), logFile);
+            log.info("[runner-autostart] 已启动 MMDet Runner 子进程，pid={}，日志: {}；停止后端时{}结束 Runner（sys.runner.auto-stop-on-shutdown={}）",
+                    p.pid(), logFile, autoStopOnShutdown ? "将" : "默认不", autoStopOnShutdown);
         } catch (IOException e) {
             log.error("[runner-autostart] 启动失败: {}", e.getMessage());
         }
@@ -98,6 +103,11 @@ public class MmdetRunnerAutoStart implements ApplicationListener<ApplicationRead
 
     @Override
     public void destroy() {
+        if (!autoStopOnShutdown) {
+            log.info("[runner-autostart] auto-stop-on-shutdown=false，保留 MMDet Runner进程（端口与 sys.runner.train-url 一致）");
+            processRef.set(null);
+            return;
+        }
         Process p = processRef.getAndSet(null);
         if (p == null) {
             return;
