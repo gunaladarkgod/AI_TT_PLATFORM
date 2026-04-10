@@ -349,7 +349,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         }
 
         // 2) mmdet 分流（兼容 "mmdet" 与 "1"）
-        if ("mmdet".equalsIgnoreCase(task.getType()) || "1".equalsIgnoreCase(task.getType())) {
+        if (isMmdetType(task.getType())) {
             log.info("[startTrain] mmdet via Python Runner, taskId={}, runId={}", id, task.getName());
 
             // 置 RUN（不写 run_name）
@@ -361,18 +361,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
             try {
                 RunnerTrainResponse runnerResp = trainRunnerService.startByRunId(task.getName());
                 ok = runnerResp.isOk();
-
-                if (runnerResp.getRawBody() != null) {
-                    cn.hutool.json.JSONObject jo = cn.hutool.json.JSONUtil.parseObj(runnerResp.getRawBody());
-                    // ★ 解析并入库
-                    try {
-                        saveCocoResultFromRunner(task, jo);
-                    } catch (Exception e) {
-                        log.warn("saveCocoResultFromRunner failed in startTrain, id={}, name={}, err={}",
-                                id, task.getName(), e.toString());
-                    }
-                }
-                remarkTail = runnerResp.summary();
+                remarkTail = applyRunnerResult(task, runnerResp, "startTrain");
             } catch (Exception e) {
                 ok = false;
                 remarkTail = "runner:exception=" + e.getMessage();
@@ -663,6 +652,29 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
                 cn.hutool.core.io.FileUtil.del(expPath);
             }
         }
+    }
+
+    public String applyRunnerResult(TrainTask task, RunnerTrainResponse runnerResp, String source) {
+        if (runnerResp == null) {
+            return "runner:error, error=empty response";
+        }
+        if (task == null) {
+            return runnerResp.summary();
+        }
+        if (runnerResp.getRawBody() != null) {
+            try {
+                cn.hutool.json.JSONObject jo = cn.hutool.json.JSONUtil.parseObj(runnerResp.getRawBody());
+                saveCocoResultFromRunner(task, jo);
+            } catch (Exception e) {
+                log.warn("saveCocoResultFromRunner failed in {}, id={}, name={}, err={}",
+                        source, task.getId(), task.getName(), e.toString());
+            }
+        }
+        return runnerResp.summary();
+    }
+
+    private boolean isMmdetType(String type) {
+        return "mmdet".equalsIgnoreCase(type) || "1".equalsIgnoreCase(type);
     }
 
     private void updateStartStatus(Integer id, String expName) {

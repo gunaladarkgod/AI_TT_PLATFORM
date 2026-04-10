@@ -41,12 +41,12 @@ public class TrainQueueWorker {
         if (headId == null) return;
 
         TrainTask head = taskService.getById(headId);
-        TrainScript script = trainScriptService.getById(Integer.valueOf(head.getType()));
-        String algName = script != null ? script.getName() : null;
         if (head == null) {
             TaskQueue.takeIfHead(headId); // 清理脏队列
             return;
         }
+        TrainScript script = trainScriptService.getById(Integer.valueOf(head.getType()));
+        String algName = script != null ? script.getName() : null;
         if (!CodeMap.TRAIN_TASK_STATUS_QUEUE.equals(head.getStatus())) {
             TaskQueue.takeIfHead(headId); // 清理异常状态
             return;
@@ -75,17 +75,7 @@ public class TrainQueueWorker {
                 // 同步等待 Python Runner 返回
                 RunnerTrainResponse runnerResp = trainRunnerService.startByRunId(head.getName());
                 ok = runnerResp.isOk();
-
-                try {
-                    if (runnerResp.getRawBody() != null) {
-                        taskService.saveCocoResultFromRunner(head, cn.hutool.json.JSONUtil.parseObj(runnerResp.getRawBody()));
-                    }
-                } catch (Exception e) {
-                    // 这里用 @Slf4j 的 log，不会被局部变量遮蔽
-                    log.warn("saveCocoResultFromRunner failed, id={}, name={}, err={}", headId, head.getName(), e.toString());
-                }
-
-                remarkTail = runnerResp.summary();
+                remarkTail = taskService.applyRunnerResult(head, runnerResp, "queueWorker");
             } catch (Exception e) {
                 ok = false;
                 remarkTail = "python-runner:exception:" + e.getMessage();
