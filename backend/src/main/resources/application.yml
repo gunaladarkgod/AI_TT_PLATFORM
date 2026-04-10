@@ -106,6 +106,10 @@ sys:
 
   runner:
     train-url: "${RUNNER_TRAIN_URL:http://127.0.0.1:8009/api/runner/train}"
+    # 是否在启动 Spring Boot 时自动拉起 MMDet Runner（子进程）。生产建议 false，用 Docker/systemd 单独托管。
+    auto-start: ${RUNNER_AUTO_START:false}
+    launch-script: "${RUNNER_LAUNCH_SCRIPT:/home/omen1/AI_TT_Platform/mmdet_run/mmdet_runner_srv/start_runner.sh}"
+    auto-start-log: "${RUNNER_AUTO_START_LOG:/home/omen1/AI_TT_Platform/mmdet_run/logs/runner-autostart.log}"
 
 
 

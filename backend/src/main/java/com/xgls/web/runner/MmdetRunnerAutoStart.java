@@ -1,0 +1,119 @@
+package com.xgls.web.runner;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+
+import org.springframework.beans.factory.DisposableBean;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationListener;
+import org.springframework.stereotype.Component;
+
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * 可选：与 Spring Boot 同进程生命周期内拉起 MMDet Runner（Python uvicorn）。
+ * <p>
+ * 生产环境更推荐 Docker Compose / systemd 单独托管 Runner；此处适合本机一键开发。
+ * 开启：sys.runner.auto-start=true（或环境变量 RUNNER_AUTO_START=true）。
+ */
+@Slf4j
+@Component
+@ConditionalOnProperty(name = "sys.runner.auto-start", havingValue = "true")
+public class MmdetRunnerAutoStart implements ApplicationListener<ApplicationReadyEvent>, DisposableBean {
+
+    @Value("${sys.runner.train-url:http://127.0.0.1:8009/api/runner/train}")
+    private String trainUrl;
+
+    @Value("${sys.runner.launch-script}")
+    private String launchScript;
+
+    @Value("${sys.runner.auto-start-log}")
+    private String autoStartLogPath;
+
+    private final AtomicReference<Process> processRef = new AtomicReference<>();
+
+    @Override
+    public void onApplicationEvent(ApplicationReadyEvent event) {
+        if (runnerRespondedOk()) {
+            log.info("[runner-autostart] 检测到 Runner 已可用，跳过启动（{}）", healthUri());
+            return;
+        }
+        Path script = Path.of(launchScript).toAbsolutePath().normalize();
+        if (!Files.isRegularFile(script)) {
+            log.error("[runner-autostart] 启动脚本不存在: {}（可设置 sys.runner.launch-script）", script);
+            return;
+        }
+        Path logFile = Path.of(autoStartLogPath).toAbsolutePath().normalize();
+        try {
+            Files.createDirectories(logFile.getParent());
+        } catch (IOException e) {
+            log.warn("[runner-autostart] 无法创建日志目录: {}", e.getMessage());
+        }
+        ProcessBuilder pb = new ProcessBuilder("bash", script.toString());
+        pb.directory(script.getParent().toFile());
+        pb.redirectErrorStream(true);
+        pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()));
+        try {
+            Process p = pb.start();
+            processRef.set(p);
+            log.info("[runner-autostart] 已启动 MMDet Runner 子进程，pid={}，日志: {}", p.pid(), logFile);
+        } catch (IOException e) {
+            log.error("[runner-autostart] 启动失败: {}", e.getMessage());
+        }
+    }
+
+    private URI healthUri() {
+        URI train = URI.create(trainUrl);
+        int port = train.getPort();
+        if (port < 0) {
+            port = "https".equalsIgnoreCase(train.getScheme()) ? 443 : 80;
+        }
+        try {
+            return new URI(train.getScheme(), null, train.getHost(), port, "/health", null, null);
+        } catch (Exception e) {
+            throw new IllegalStateException("invalid sys.runner.train-url: " + trainUrl, e);
+        }
+    }
+
+    private boolean runnerRespondedOk() {
+        try {
+            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+            HttpRequest req = HttpRequest.newBuilder(healthUri()).timeout(Duration.ofSeconds(3)).GET().build();
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+            return resp.statusCode() >= 200 && resp.statusCode() < 300;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @Override
+    public void destroy() {
+        Process p = processRef.getAndSet(null);
+        if (p == null) {
+            return;
+        }
+        if (!p.isAlive()) {
+            return;
+        }
+        log.info("[runner-autostart] 正在停止 MMDet Runner 子进程 pid={}", p.pid());
+        p.destroy();
+        try {
+            if (!p.waitFor(8, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            p.destroyForcibly();
+        }
+    }
+}
