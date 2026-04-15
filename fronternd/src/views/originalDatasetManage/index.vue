@@ -53,6 +53,20 @@
           重置筛选
         </el-button>
         <el-button
+          size="small"
+          type="success"
+          plain
+          @click="openImportDialog"
+        >
+          导入外来数据集
+        </el-button>
+        <el-button
+          size="small"
+          @click="goCvatHome"
+        >
+          查看CVAT主页
+        </el-button>
+        <el-button
           type="primary"
           size="small"
           :loading="loading"
@@ -98,6 +112,19 @@
         >
           <template #default="scope">
             <el-text size="small" truncated>{{ scope.row.name }}</el-text>
+          </template>
+        </el-table-column>
+
+        <el-table-column
+          prop="source"
+          label="数据来源"
+          width="120"
+          align="center"
+        >
+          <template #default="scope">
+            <el-tag size="small" :type="scope.row.source === '外部导入' ? 'success' : 'info'">
+              {{ scope.row.source || 'CVAT' }}
+            </el-tag>
           </template>
         </el-table-column>
 
@@ -231,10 +258,10 @@
           </template>
         </el-table-column>
 
-        <!-- 示例按钮 -->
+        <!-- 操作 -->
         <el-table-column
-          label="示例按钮"
-          width="100"
+          label="操作"
+          width="150"
           align="center"
           fixed="right"
         >
@@ -246,6 +273,14 @@
               @click="openPreview(scope.row)"
             >
               示例
+            </el-button>
+            <el-button
+              size="small"
+              type="danger"
+              link
+              @click="handleDeleteDataset(scope.row)"
+            >
+              删除
             </el-button>
           </template>
         </el-table-column>
@@ -267,6 +302,47 @@
       />
     </div>
 
+    <el-dialog
+      v-model="importDialogVisible"
+      title="导入外来数据集"
+      width="560px"
+      :close-on-click-modal="false"
+    >
+      <el-form label-width="110px">
+        <el-form-item label="数据集路径">
+          <el-input
+            v-model="importForm.path"
+            readonly
+            placeholder="请输入绝对路径，例如 /mnt/data/my_dataset"
+          >
+            <template #append>
+              <el-button @click="pickLocalDir">选择目录</el-button>
+            </template>
+          </el-input>
+        </el-form-item>
+        <el-form-item label="显示名称">
+          <el-input
+            v-model="importForm.name"
+            placeholder="例如：自定义项目_V1"
+            clearable
+          />
+        </el-form-item>
+      </el-form>
+
+      <div v-if="importStatus.msg" :style="{ color: importStatus.ok ? '#67c23a' : '#f56c6c', marginBottom: '8px' }">
+        {{ importStatus.msg }}
+      </div>
+      <div v-if="importStatus.ok" style="font-size: 12px; color: #606266;">
+        读取结果：图片 {{ importStatus.imgNum }}，标注框 {{ importStatus.annoNum }}，类别 {{ importStatus.classNum }}
+      </div>
+
+      <template #footer>
+        <el-button @click="importDialogVisible = false">取消</el-button>
+        <el-button :loading="importChecking" @click="checkImportPath">校验路径</el-button>
+        <el-button type="primary" :loading="importing" @click="confirmImport">确认导入</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 示例弹窗（保留原有样式与功能） -->
     <div v-if="showPreview" class="modal-mask" @click.self="closePreview">
       <div class="modal">
@@ -275,7 +351,10 @@
             示例预览：{{ (previewRow && previewRow.name) || '' }}
             <span class="muted">（共 {{ previewCount }} 张）</span>
           </div>
-          <button class="modal-close" @click="closePreview" aria-label="关闭">×</button>
+          <div class="modal-actions">
+            <button class="btn btn-primary" :disabled="previewLoading" @click="refreshPreviewSamples">换一换</button>
+            <button class="modal-close" @click="closePreview" aria-label="关闭">×</button>
+          </div>
         </div>
 
         <div class="modal-body">
@@ -371,6 +450,22 @@ const stateKey = ref(0)
 const allDatasets = ref([])
 const loading = ref(false)
 
+/* 外部导入弹窗 */
+const importDialogVisible = ref(false)
+const importChecking = ref(false)
+const importing = ref(false)
+const importForm = ref({
+  path: '',
+  name: ''
+})
+const importStatus = ref({
+  ok: false,
+  msg: '',
+  imgNum: 0,
+  annoNum: 0,
+  classNum: 0
+})
+
 /* 分页（前端分页） */
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -410,17 +505,21 @@ function mapDatasetRow(r) {
     classes,
     imageCount: Number.isFinite(imgNum) ? imgNum : 0,
     sampleCount: Number.isFinite(annoNum) ? annoNum : 0,
-    user: username
+    user: username,
+    source: r.data_source ?? r.dataSource ?? (r.is_external ? '外部导入' : 'CVAT'),
+    isExternal: !!r.is_external,
+    externalPath: r.external_path ?? r.externalPath ?? r.path ?? '',
+    error: r.error || ''
   }
 }
 
-/* 推导筛选项（传入原始 items） */
+/* 推导筛选项（传入行数据） */
 function deriveOptionsFromDatasets(items) {
   const sset = new Set()
   const tset = new Set()
   items.forEach(r => {
-    const s = r.sensor_type ?? r.sensorType
-    const t = r.target_type ?? r.targetType
+    const s = r.sensor
+    const t = Array.isArray(r.targets) && r.targets.length ? r.targets[0] : null
     if (s) sset.add(s)
     if (t) tset.add(t)
   })
@@ -439,9 +538,12 @@ async function loadDatasets() {
       order: 'desc'
     }
     const raw = await OriginalDatasetService.list(params)
+    const rawExternal = await OriginalDatasetService.listExternal()
 
     const obj = typeof raw === 'string' ? JSON.parse(raw) : raw
+    const extObj = typeof rawExternal === 'string' ? JSON.parse(rawExternal) : rawExternal
     const dataNode = obj && obj.data !== undefined ? obj.data : obj
+    const extNode = extObj && extObj.data !== undefined ? extObj.data : extObj
     const items = Array.isArray(dataNode?.items)
       ? dataNode.items
       : Array.isArray(obj?.items)
@@ -449,9 +551,11 @@ async function loadDatasets() {
       : Array.isArray(obj)
       ? obj
       : []
+    const extItems = Array.isArray(extNode) ? extNode : []
 
-    deriveOptionsFromDatasets(items)
-    allDatasets.value = items.map(mapDatasetRow)
+    const rows = [...items, ...extItems].map(mapDatasetRow)
+    deriveOptionsFromDatasets(rows)
+    allDatasets.value = rows
   } catch (e) {
     console.error('[loadDatasets error]', e)
     allDatasets.value = []
@@ -538,6 +642,111 @@ function resetFilters() {
   stateKey.value++
 }
 
+function resetImportStatus() {
+  importStatus.value = {
+    ok: false,
+    msg: '',
+    imgNum: 0,
+    annoNum: 0,
+    classNum: 0
+  }
+}
+
+function openImportDialog() {
+  importDialogVisible.value = true
+  importForm.value = { path: '', name: '' }
+  resetImportStatus()
+}
+
+function inferDatasetNameFromPath(rawPath) {
+  const p = String(rawPath || '').trim()
+  if (!p) return ''
+  const normalized = p.replace(/\\/g, '/').replace(/\/+$/, '')
+  if (!normalized) return ''
+  const idx = normalized.lastIndexOf('/')
+  return idx >= 0 ? normalized.slice(idx + 1) : normalized
+}
+
+async function pickLocalDir() {
+  try {
+    const res = await OriginalDatasetService.pickExternalDir()
+    if (res?.code === 0 && res?.data?.path) {
+      const pickedPath = String(res.data.path)
+      importForm.value.path = pickedPath
+      importForm.value.name = inferDatasetNameFromPath(pickedPath)
+      resetImportStatus()
+      ElMessage.success('已获取目录路径')
+    } else {
+      ElMessage.error(res?.msg || '未选择目录')
+    }
+  } catch (e) {
+    ElMessage.error(`打开本机文件选择器失败：${e?.message || e}`)
+  }
+}
+
+async function checkImportPath() {
+  const p = (importForm.value.path || '').trim()
+  if (!p) {
+    importStatus.value = { ok: false, msg: '请先填写数据集路径', imgNum: 0, annoNum: 0, classNum: 0 }
+    return
+  }
+  importChecking.value = true
+  try {
+    const res = await OriginalDatasetService.validateExternal({ path: p })
+    if (res?.code === 0) {
+      const d = res.data || {}
+      importStatus.value = {
+        ok: true,
+        msg: '路径有效，已检测到可用数据集',
+        imgNum: d.imgNum ?? 0,
+        annoNum: d.annoNum ?? 0,
+        classNum: d.classNum ?? 0
+      }
+      if (!importForm.value.name) {
+        importForm.value.name = d.suggestName || ''
+      }
+    } else {
+      importStatus.value = { ok: false, msg: res?.msg || '路径校验失败', imgNum: 0, annoNum: 0, classNum: 0 }
+    }
+  } catch (e) {
+    importStatus.value = { ok: false, msg: `路径校验失败：${e?.message || e}`, imgNum: 0, annoNum: 0, classNum: 0 }
+  } finally {
+    importChecking.value = false
+  }
+}
+
+async function confirmImport() {
+  const path = (importForm.value.path || '').trim()
+  const name = (importForm.value.name || '').trim()
+  if (!path || !name) {
+    ElMessage.warning('请先填写路径和显示名称')
+    return
+  }
+  importing.value = true
+  try {
+    const res = await OriginalDatasetService.importExternal({ name, path })
+    if (res?.code === 0) {
+      ElMessage.success(res?.msg || '导入成功')
+      importDialogVisible.value = false
+      await loadDatasets()
+    } else {
+      ElMessage.error(res?.msg || '导入失败')
+    }
+  } catch (e) {
+    ElMessage.error(`导入失败：${e?.message || e}`)
+  } finally {
+    importing.value = false
+  }
+}
+
+/* 跳转 CVAT 首页（可在 localStorage.cvatHomeUrl 覆盖默认地址） */
+function goCvatHome() {
+  const customUrl = String(localStorage.getItem('cvatHomeUrl') || '').trim()
+  const fallback = `${window.location.protocol}//${window.location.hostname}:8080`
+  const url = customUrl || fallback
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
 /* 分页事件 */
 function handlePageChange(page) {
   currentPage.value = page
@@ -553,6 +762,7 @@ const previewRow = ref(null)
 const previewGroups = ref([])
 const previewCount = ref(0)
 const previewLoading = ref(false)
+const previewKeys = ref([])
 
 /* 标注缓存与工具 */
 const objectsMeta = ref({})
@@ -564,6 +774,7 @@ function objectsUrlFromImageUrl(imgUrl) {
 
 async function ensureAnnoFor(src) {
   if (objectsMeta.value[src]) return
+  if (!src || src.indexOf('/original-dataset/external/image?') >= 0) return
   try {
     const url = objectsUrlFromImageUrl(src)
     const resp = await fetch(url)
@@ -585,41 +796,37 @@ function pointsAttr(points) {
 }
 
 async function openPreview(row) {
+  if (row?.error) {
+    ElMessage.warning('当前数据集路径异常，无法预览')
+    return
+  }
   showPreview.value = true
   previewLoading.value = true
   previewRow.value = row
   previewGroups.value = []
   previewCount.value = 0
+  previewKeys.value = []
+  objectsMeta.value = {}
 
   try {
-    // 从后端拉取每个标签的示例图片（每类 3 张）
-    const raw = await OriginalDatasetService.preview(row.id, 3)
-    const obj = typeof raw === 'string' ? JSON.parse(raw) : raw
-
-    const items = Array.isArray(obj?.data?.items)
-      ? obj.data.items
-      : Array.isArray(obj?.items)
-      ? obj.items
-      : Array.isArray(obj)
-      ? obj
-      : []
-
-    const groups = items.map(it => {
-      const name = it.label || it.className || it.name || '未命名'
-      const images = Array.isArray(it.images)
-        ? it.images
-        : Array.isArray(it.urls)
-        ? it.urls
-        : []
-      return { name, images }
+    const raw = await OriginalDatasetService.randomSample({
+      id: row.id,
+      isExternal: !!row.isExternal,
+      path: row.externalPath || '',
+      exclude: []
     })
+    const obj = typeof raw === 'string' ? JSON.parse(raw) : raw
+    if (obj && obj.code !== undefined && obj.code !== 0) {
+      throw new Error(obj.msg || '加载示例失败')
+    }
+    const data = obj?.data || obj || {}
+    const images = Array.isArray(data.images) ? data.images : []
+    const keys = Array.isArray(data.keys) ? data.keys : []
+    const groups = images.length ? [{ name: '随机样例', images }] : []
 
     previewGroups.value = groups
-    previewCount.value = groups.reduce(
-      (sum, g) =>
-        sum + (Array.isArray(g.images) ? g.images.length : 0),
-      0
-    )
+    previewKeys.value = keys
+    previewCount.value = images.length
 
     // 预取每张图片的标注（不阻塞显示）
     setTimeout(() => {
@@ -631,6 +838,62 @@ async function openPreview(row) {
     ElMessage.error(`加载示例失败：${e?.message || e}`)
   } finally {
     previewLoading.value = false
+  }
+}
+
+async function refreshPreviewSamples() {
+  const row = previewRow.value
+  if (!row) return
+  previewLoading.value = true
+  try {
+    const raw = await OriginalDatasetService.randomSample({
+      id: row.id,
+      isExternal: !!row.isExternal,
+      path: row.externalPath || '',
+      exclude: previewKeys.value || []
+    })
+    const obj = typeof raw === 'string' ? JSON.parse(raw) : raw
+    if (obj && obj.code !== undefined && obj.code !== 0) {
+      throw new Error(obj.msg || '换一换失败')
+    }
+    const data = obj?.data || obj || {}
+    const images = Array.isArray(data.images) ? data.images : []
+    const keys = Array.isArray(data.keys) ? data.keys : []
+    previewGroups.value = images.length ? [{ name: '随机样例', images }] : []
+    previewKeys.value = keys
+    previewCount.value = images.length
+    objectsMeta.value = {}
+    setTimeout(() => {
+      images.forEach(src => ensureAnnoFor(src))
+    }, 0)
+  } catch (e) {
+    ElMessage.error(`换一换失败：${e?.message || e}`)
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+async function handleDeleteDataset(row) {
+  if (!row?.isExternal) {
+    ElMessage.warning('目标来源为cvat，请在cvat主页进行操作')
+    return
+  }
+  try {
+    const res = await OriginalDatasetService.deleteExternal({
+      name: row.name || '',
+      path: row.externalPath || ''
+    })
+    if (res?.code === 0) {
+      ElMessage.success('删除成功')
+      allDatasets.value = allDatasets.value.filter(
+        it => !(it.isExternal && it.name === row.name && it.externalPath === row.externalPath)
+      )
+      total.value = filtered.value.length
+      return
+    }
+    ElMessage.error(res?.msg || '删除失败')
+  } catch (e) {
+    ElMessage.error(`删除失败：${e?.message || e}`)
   }
 }
 
@@ -753,6 +1016,18 @@ onUnmounted(() => {
   background: #f3f4f6;
   color: #000;
   cursor: pointer;
+}
+
+.btn-primary {
+  border-color: #409eff;
+  color: #fff;
+  background: #409eff;
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .modal-mask {

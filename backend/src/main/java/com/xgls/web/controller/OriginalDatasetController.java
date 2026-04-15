@@ -7,7 +7,9 @@ import com.xgls.web.service.OriginalDatasetService;
 import com.xgls.web.vo.dataset.MarkSubsetsReq;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -59,6 +61,95 @@ public class OriginalDatasetController {
     public AjaxResult all(@RequestParam(required = false) Long projectId,
                           @RequestParam(required = false) Integer dataFormat) {
         return AjaxResult.success(originalDatasetService.listAll(projectId, dataFormat));
+    }
+
+    /** 外部导入记录列表（用于“原始数据集页”合并展示） */
+    @GetMapping("/external")
+    public AjaxResult listExternal() {
+        return AjaxResult.success(originalDatasetService.listExternalDatasets());
+    }
+
+    /** 浏览可导入目录（文件浏览器） */
+    @GetMapping("/external/browse")
+    public AjaxResult browseExternal(@RequestParam(required = false) String base) {
+        return originalDatasetService.browseExternalDirs(base);
+    }
+
+    /** 仅验证外部数据集路径，不写入记录 */
+    @PostMapping("/external/validate")
+    public AjaxResult validateExternal(@RequestBody Map<String, String> req) {
+        String path = req != null ? req.get("path") : null;
+        return originalDatasetService.validateExternalDatasetPath(path);
+    }
+
+    /** 本机目录选择器（同机部署场景） */
+    @PostMapping("/external/pick-dir")
+    public AjaxResult pickExternalDir() {
+        return originalDatasetService.pickLocalDirectory();
+    }
+
+    /** 导入外部数据集（写入注册表） */
+    @PostMapping("/external/import")
+    public AjaxResult importExternal(@RequestBody Map<String, String> req) {
+        String name = req != null ? req.get("name") : null;
+        String path = req != null ? req.get("path") : null;
+        return originalDatasetService.importExternalDataset(name, path);
+    }
+
+    /** 删除外部导入记录（仅删除记录，不删物理文件） */
+    @PostMapping("/external/delete")
+    public AjaxResult deleteExternal(@RequestBody Map<String, String> req) {
+        String name = req != null ? req.get("name") : null;
+        String path = req != null ? req.get("path") : null;
+        return originalDatasetService.deleteExternalDatasetRecord(name, path);
+    }
+
+    /** 导入外部数据集（el 测试版：本地目录上传） */
+    @PostMapping(value = "/external/import-upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public AjaxResult importExternalUpload(@RequestParam("name") String name,
+                                           @RequestParam("files") List<MultipartFile> files,
+                                           @RequestParam(value = "relPaths", required = false) List<String> relPaths) {
+        return originalDatasetService.importExternalDatasetByUpload(name, files, relPaths);
+    }
+
+    /** 外部导入图片直出：基于传入数据集 path + img 相对路径 */
+    @GetMapping("/external/image")
+    public void externalImage(@RequestParam("path") String datasetPath,
+                              @RequestParam("img") String relImgPath,
+                              HttpServletResponse response) throws IOException {
+        originalDatasetService.streamExternalImage(datasetPath, relImgPath, response);
+    }
+
+    /** 随机样例（默认 3 张，可排除上一批） */
+    @PostMapping("/sample-random")
+    public AjaxResult sampleRandom(@RequestBody Map<String, Object> req,
+                                   HttpServletRequest request) {
+        Long id = null;
+        Object idObj = req != null ? req.get("id") : null;
+        if (idObj instanceof Number) {
+            id = ((Number) idObj).longValue();
+        } else if (idObj != null) {
+            try {
+                id = Long.parseLong(String.valueOf(idObj));
+            } catch (Exception ignore) {}
+        }
+        boolean isExternal = false;
+        Object extObj = req != null ? req.get("isExternal") : null;
+        if (extObj instanceof Boolean) {
+            isExternal = (Boolean) extObj;
+        } else if (extObj != null) {
+            isExternal = "true".equalsIgnoreCase(String.valueOf(extObj));
+        }
+        String path = req != null ? String.valueOf(req.getOrDefault("path", "")) : "";
+
+        List<String> exclude = new ArrayList<>();
+        Object exObj = req != null ? req.get("exclude") : null;
+        if (exObj instanceof List<?>) {
+            for (Object o : (List<?>) exObj) {
+                if (o != null) exclude.add(String.valueOf(o));
+            }
+        }
+        return originalDatasetService.randomSampleImages(id, isExternal, path, exclude, 3, buildBaseUrl(request));
     }
 
     /* ====================== 批量标记子集 ====================== */

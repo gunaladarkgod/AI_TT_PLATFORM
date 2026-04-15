@@ -405,6 +405,30 @@ export class OriginalDatasetService {
     return request('/original-dataset', params, 'get', 'application/json')
   }
 
+  static async listExternal() {
+    return request('/original-dataset/external', {}, 'get', 'application/json')
+  }
+
+  static async validateExternal(payload) {
+    return request('/original-dataset/external/validate', payload, 'post', 'application/json')
+  }
+
+  static async pickExternalDir() {
+    return request('/original-dataset/external/pick-dir', {}, 'post', 'application/json')
+  }
+
+  static async importExternal(payload) {
+    return request('/original-dataset/external/import', payload, 'post', 'application/json')
+  }
+
+  static async deleteExternal(payload) {
+    return request('/original-dataset/external/delete', payload, 'post', 'application/json')
+  }
+
+  static async randomSample(payload) {
+    return request('/original-dataset/sample-random', payload, 'post', 'application/json')
+  }
+
   static async markSubsets(payload) {
     // 后端路由：POST /original-dataset/mark-subsets
     // payload 形如：{ target:[1,2], train:[3,4], fatherName:'任务数据集名称' }

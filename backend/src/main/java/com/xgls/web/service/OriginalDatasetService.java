@@ -1,6 +1,7 @@
 package com.xgls.web.service;
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -20,16 +21,22 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import javax.swing.JFileChooser;
+import javax.swing.SwingUtilities;
+import java.awt.GraphicsEnvironment;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * OriginalDataset 相关服务
@@ -45,6 +52,10 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
     /** 可选：对外基础 URL（如 http://127.0.0.1:8081），若不配置将使用默认 */
     @Value("${sys.public-base-url:}")
     private String publicBaseUrl;
+
+    /** 原始数据集根目录（用于保存外部导入注册表） */
+    @Value("${sys.original-dataset-root:/home/omen1/AI_TT_Platform/data/original_dataset}")
+    private String originalDatasetRoot;
 
     /** 当库里 data_path 为空时的回落目录（你提供的实际根） */
     private static final Path DEFAULT_DATA_ROOT =
@@ -214,6 +225,391 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         return this.list(wrapper);
     }
 
+    /* ====================== 外部导入数据集（注册表） ====================== */
+
+    public AjaxResult validateExternalDatasetPath(String rawPath) {
+        ScanStat stat = scanExternalDataset(rawPath);
+        if (!stat.valid) {
+            return AjaxResult.error(stat.errorMsg);
+        }
+        Map<String, Object> data = new LinkedHashMap<String, Object>();
+        data.put("path", stat.datasetRoot.toString().replace("\\", "/"));
+        data.put("suggestName", stat.datasetRoot.getFileName() != null ? stat.datasetRoot.getFileName().toString() : "external_dataset");
+        data.put("imgNum", stat.imageCount);
+        data.put("annoNum", stat.boxCount);
+        data.put("classNum", stat.classMap.size());
+        data.put("classList", JSONUtil.toJsonStr(stat.classMap));
+        return AjaxResult.success(data);
+    }
+
+    public AjaxResult pickLocalDirectory() {
+        // 优先走 Linux 桌面选择器（同机部署最直观）
+        // 兼容“后端进程未继承 DISPLAY”场景：自动探测 :1 / :0 等
+        List<String> displays = new ArrayList<String>();
+        String envDisplay = System.getenv("DISPLAY");
+        if (StrUtil.isNotBlank(envDisplay)) {
+            displays.add(envDisplay.trim());
+        }
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(Paths.get("/tmp/.X11-unix"), "X*")) {
+            for (Path p : ds) {
+                String n = p.getFileName().toString();
+                if (n.length() > 1) {
+                    String d = ":" + n.substring(1);
+                    if (!displays.contains(d)) displays.add(d);
+                }
+            }
+        } catch (Exception ignore) {
+        }
+        if (!displays.contains(":1")) displays.add(":1");
+        if (!displays.contains(":0")) displays.add(":0");
+
+        String xauth = firstNonBlank(System.getenv("XAUTHORITY"), System.getProperty("user.home") + "/.Xauthority");
+        String lastErr = null;
+        for (String d : displays) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder("bash", "-lc", "zenity --file-selection --directory");
+                pb.environment().put("DISPLAY", d);
+                if (StrUtil.isNotBlank(xauth)) {
+                    pb.environment().put("XAUTHORITY", xauth);
+                }
+                Process p = pb.start();
+                int code = p.waitFor();
+                String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+                String err = new String(p.getErrorStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+                if (code == 0 && StrUtil.isNotBlank(out)) {
+                    Map<String, Object> data = new LinkedHashMap<String, Object>();
+                    data.put("path", out.replace("\\", "/"));
+                    data.put("display", d);
+                    return AjaxResult.success(data);
+                }
+                if (StrUtil.isNotBlank(err)) {
+                    lastErr = "DISPLAY=" + d + " -> " + err;
+                }
+            } catch (Exception e) {
+                lastErr = "DISPLAY=" + d + " -> " + e.getMessage();
+            }
+        }
+
+        if (GraphicsEnvironment.isHeadless()) {
+            return AjaxResult.error("当前环境无图形界面，无法打开本机目录选择器"
+                    + (StrUtil.isNotBlank(lastErr) ? ("；" + lastErr) : ""));
+        }
+
+        final String[] selected = new String[1];
+        final String[] err = new String[1];
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                try {
+                    JFileChooser chooser = new JFileChooser();
+                    chooser.setDialogTitle("选择外来数据集目录");
+                    chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+                    chooser.setAcceptAllFileFilterUsed(false);
+                    int ret = chooser.showOpenDialog(null);
+                    if (ret == JFileChooser.APPROVE_OPTION && chooser.getSelectedFile() != null) {
+                        selected[0] = chooser.getSelectedFile().getAbsolutePath();
+                    }
+                } catch (Exception e) {
+                    err[0] = e.getMessage();
+                }
+            });
+        } catch (Exception e) {
+            err[0] = e.getMessage();
+        }
+
+        if (StrUtil.isNotBlank(err[0])) {
+            return AjaxResult.error("打开目录选择器失败: " + err[0]);
+        }
+        if (StrUtil.isBlank(selected[0])) {
+            return AjaxResult.error("未选择目录");
+        }
+        Map<String, Object> data = new LinkedHashMap<String, Object>();
+        data.put("path", selected[0].replace("\\", "/"));
+        return AjaxResult.success(data);
+    }
+
+    public AjaxResult importExternalDataset(String name, String rawPath) {
+        String dsName = StrUtil.trimToEmpty(name);
+        if (StrUtil.isBlank(dsName)) {
+            return AjaxResult.error("数据集显示名称不能为空");
+        }
+        ScanStat stat = scanExternalDataset(rawPath);
+        if (!stat.valid) {
+            return AjaxResult.error(stat.errorMsg);
+        }
+
+        try {
+            List<RegistryItem> items = readExternalRegistry();
+            for (RegistryItem it : items) {
+                if (dsName.equals(it.name)) {
+                    return AjaxResult.error("名称已存在，请更换后再导入");
+                }
+            }
+            RegistryItem n = new RegistryItem();
+            n.name = dsName;
+            n.path = stat.datasetRoot.toString().replace("\\", "/");
+            n.createdTime = LocalDateTime.now().toString();
+            items.add(n);
+            writeExternalRegistry(items);
+            return AjaxResult.success("导入记录已保存");
+        } catch (Exception e) {
+            log.warn("importExternalDataset failed, name={}, path={}", dsName, rawPath, e);
+            return AjaxResult.error("写入导入记录失败: " + e.getMessage());
+        }
+    }
+
+    public AjaxResult deleteExternalDatasetRecord(String name, String path) {
+        String n = StrUtil.trimToEmpty(name);
+        String p = StrUtil.trimToEmpty(path);
+        if (StrUtil.isBlank(n) || StrUtil.isBlank(p)) {
+            return AjaxResult.error("缺少删除参数");
+        }
+        try {
+            List<RegistryItem> items = readExternalRegistry();
+            int before = items.size();
+            items.removeIf(it -> n.equals(it.name) && p.equals(it.path));
+            if (items.size() == before) {
+                return AjaxResult.error("未找到对应导入记录");
+            }
+            writeExternalRegistry(items);
+            return AjaxResult.success("删除成功");
+        } catch (Exception e) {
+            return AjaxResult.error("删除失败: " + e.getMessage());
+        }
+    }
+
+    public AjaxResult importExternalDatasetByUpload(String name, List<MultipartFile> files, List<String> relPaths) {
+        String dsName = StrUtil.trimToEmpty(name);
+        if (StrUtil.isBlank(dsName)) {
+            return AjaxResult.error("数据集显示名称不能为空");
+        }
+        if (files == null || files.isEmpty()) {
+            return AjaxResult.error("未选择任何文件");
+        }
+        Path uploadedRoot = null;
+        try {
+            Path base = Paths.get(firstNonBlank(originalDatasetRoot, DEFAULT_DATA_ROOT.toString()))
+                    .resolve("external_uploaded")
+                    .resolve(System.currentTimeMillis() + "_" + UUID.randomUUID().toString().replace("-", ""))
+                    .normalize();
+            Files.createDirectories(base);
+
+            String firstSegment = null;
+            for (int i = 0; i < files.size(); i++) {
+                MultipartFile mf = files.get(i);
+                if (mf == null || mf.isEmpty()) {
+                    continue;
+                }
+                String rel = normalizeRelativeUploadPath(relPaths, i, mf.getOriginalFilename());
+                if (StrUtil.isBlank(rel)) {
+                    continue;
+                }
+                if (firstSegment == null) {
+                    int k = rel.indexOf('/');
+                    firstSegment = k > 0 ? rel.substring(0, k) : rel;
+                }
+                Path target = base.resolve(rel).normalize();
+                if (!target.startsWith(base)) {
+                    return AjaxResult.error("非法相对路径: " + rel);
+                }
+                Files.createDirectories(target.getParent());
+                mf.transferTo(target);
+            }
+            if (StrUtil.isBlank(firstSegment)) {
+                return AjaxResult.error("未解析到有效目录结构");
+            }
+            uploadedRoot = base.resolve(firstSegment).normalize();
+            if (!Files.isDirectory(uploadedRoot)) {
+                return AjaxResult.error("上传后目录结构异常");
+            }
+            return importExternalDataset(dsName, uploadedRoot.toString());
+        } catch (Exception e) {
+            log.warn("importExternalDatasetByUpload failed, name={}", dsName, e);
+            return AjaxResult.error("上传导入失败: " + e.getMessage());
+        }
+    }
+
+    public List<Map<String, Object>> listExternalDatasets() {
+        List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+        List<RegistryItem> items = readExternalRegistry();
+        for (int i = 0; i < items.size(); i++) {
+            RegistryItem it = items.get(i);
+            ScanStat stat = scanExternalDataset(it.path);
+            Map<String, Object> row = new LinkedHashMap<String, Object>();
+            row.put("id", "ext-" + i + "-" + Math.abs(Objects.hash(it.name, it.path)));
+            row.put("name", it.name);
+            row.put("sensor_type", "外部");
+            row.put("target_type", "外部导入");
+            row.put("username", "manual");
+            row.put("data_source", "外部导入");
+            row.put("is_external", true);
+            row.put("external_path", it.path);
+            if (stat.valid) {
+                row.put("img_num", stat.imageCount);
+                row.put("anno_num", stat.boxCount);
+                row.put("class_num", stat.classMap.size());
+                row.put("class_list", JSONUtil.toJsonStr(stat.classMap));
+            } else {
+                row.put("img_num", 0);
+                row.put("anno_num", 0);
+                row.put("class_num", 0);
+                row.put("class_list", "{}");
+                row.put("error", stat.errorMsg);
+            }
+            out.add(row);
+        }
+        return out;
+    }
+
+    public AjaxResult browseExternalDirs(String base) {
+        Path root = resolveBrowseRoot();
+        Path cur = StrUtil.isBlank(base) ? root : Paths.get(base).normalize();
+        if (!cur.startsWith(root)) {
+            return AjaxResult.error("非法路径：超出可浏览范围");
+        }
+        if (!Files.isDirectory(cur)) {
+            return AjaxResult.error("目录不存在");
+        }
+        try {
+            List<String> dirs = new ArrayList<String>();
+            try (DirectoryStream<Path> ds = Files.newDirectoryStream(cur)) {
+                for (Path p : ds) {
+                    if (Files.isDirectory(p)) {
+                        dirs.add(p.getFileName().toString());
+                    }
+                }
+            }
+            dirs.sort(String::compareToIgnoreCase);
+            Map<String, Object> data = new LinkedHashMap<String, Object>();
+            data.put("root", root.toString().replace("\\", "/"));
+            data.put("base", cur.toString().replace("\\", "/"));
+            Path parent = cur.getParent();
+            data.put("parent", (parent != null && parent.startsWith(root)) ? parent.toString().replace("\\", "/") : null);
+            data.put("dirs", dirs);
+            return AjaxResult.success(data);
+        } catch (Exception e) {
+            return AjaxResult.error("读取目录失败: " + e.getMessage());
+        }
+    }
+
+    public AjaxResult randomSampleImages(Long datasetId,
+                                         boolean isExternal,
+                                         String externalPath,
+                                         List<String> exclude,
+                                         int size,
+                                         String baseUrl) {
+        int n = size <= 0 ? 3 : Math.min(size, 10);
+        Path imagesDir;
+        String extPathNormalized = null;
+        if (isExternal) {
+            String p = StrUtil.trimToEmpty(externalPath);
+            if (StrUtil.isBlank(p)) {
+                return AjaxResult.error("外部数据集缺少路径");
+            }
+            Path root = Paths.get(p).normalize();
+            imagesDir = resolveImagesDir(root);
+            extPathNormalized = root.toString().replace("\\", "/");
+            if (imagesDir == null) {
+                return AjaxResult.error("外部数据集下未找到可用图片目录（应为数据集根目录或 images 目录）");
+            }
+        } else {
+            if (datasetId == null) {
+                return AjaxResult.error("缺少数据集ID");
+            }
+            OriginalDataset od = this.getById(datasetId);
+            if (od == null) return AjaxResult.error("数据集不存在");
+            if (StrUtil.isNotBlank(od.getDataPath())) {
+                imagesDir = resolveImagesDir(Paths.get(od.getDataPath()).normalize());
+            } else {
+                imagesDir = resolveImagesDir(DEFAULT_DATA_ROOT.resolve(String.valueOf(od.getProjectId())).normalize());
+            }
+            if (imagesDir == null) {
+                return AjaxResult.error("数据集图片目录不存在");
+            }
+        }
+
+        List<Path> allImgs;
+        try (Stream<Path> s = Files.walk(imagesDir)) {
+            allImgs = s.filter(Files::isRegularFile).filter(this::isImageFile).collect(Collectors.toList());
+        } catch (Exception e) {
+            return AjaxResult.error("读取图片失败: " + e.getMessage());
+        }
+        if (allImgs.isEmpty()) {
+            return AjaxResult.error("该数据集下没有可预览图片");
+        }
+
+        Set<String> excludes = new HashSet<>();
+        if (exclude != null) {
+            excludes.addAll(exclude.stream().filter(Objects::nonNull).map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toSet()));
+        }
+        List<Path> candidate = new ArrayList<>();
+        for (Path p : allImgs) {
+            String key = toRelUnix(imagesDir, p);
+            if (!excludes.contains(key)) {
+                candidate.add(p);
+            }
+        }
+        if (candidate.size() < n) {
+            candidate = new ArrayList<>(allImgs);
+        }
+        Collections.shuffle(candidate);
+        List<Path> picked = candidate.subList(0, Math.min(n, candidate.size()));
+
+        String base = ensureBaseUrl(baseUrl);
+        List<String> images = new ArrayList<>();
+        List<String> keys = new ArrayList<>();
+        for (Path p : picked) {
+            String key = toRelUnix(imagesDir, p);
+            keys.add(key);
+            if (isExternal) {
+                images.add(base + "/original-dataset/external/image?path="
+                        + urlEncode(extPathNormalized) + "&img=" + urlEncode(key));
+            } else {
+                images.add(base + "/original-dataset/" + datasetId + "/image?img=" + urlEncode(key));
+            }
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("images", images);
+        data.put("keys", keys);
+        data.put("count", images.size());
+        return AjaxResult.success(data);
+    }
+
+    public void streamExternalImage(String datasetPath, String relImgPath,
+                                    jakarta.servlet.http.HttpServletResponse resp) throws java.io.IOException {
+        if (StrUtil.isBlank(datasetPath) || StrUtil.isBlank(relImgPath)) {
+            resp.setStatus(404);
+            return;
+        }
+        Path root = Paths.get(datasetPath).normalize();
+        Path imagesDir = resolveImagesDir(root);
+        if (imagesDir == null) {
+            resp.setStatus(404);
+            return;
+        }
+        String rel = relImgPath.replace("\\", "/");
+        while (rel.startsWith("/")) rel = rel.substring(1);
+        if (rel.contains("..")) {
+            resp.setStatus(404);
+            return;
+        }
+        Path file = imagesDir.resolve(rel).normalize();
+        if (!file.startsWith(imagesDir) || !Files.exists(file) || Files.isDirectory(file)) {
+            resp.setStatus(404);
+            return;
+        }
+        String ctype = Files.probeContentType(file);
+        if (StrUtil.isBlank(ctype)) {
+            ctype = "application/octet-stream";
+        }
+        resp.setContentType(ctype);
+        resp.setHeader("Cache-Control", "max-age=3600");
+        resp.setHeader("Access-Control-Allow-Origin", "*");
+        try (java.io.OutputStream os = resp.getOutputStream()) {
+            Files.copy(file, os);
+            os.flush();
+        }
+    }
+
     /* ====================== 预览接口（返回绝对 URL） ====================== */
 
     /**
@@ -285,14 +681,13 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
 
         Path base;
         if (StrUtil.isNotBlank(od.getDataPath())) {
-            // data_path 约定指向 images 目录：.../original_dataset/{projectId}/images
-            base = Paths.get(od.getDataPath()).normalize();
+            base = resolveImagesDir(Paths.get(od.getDataPath()).normalize());
         } else {
-            // ✅ 回退：original_dataset_root/{projectId}/images
-            base = DEFAULT_DATA_ROOT
-                    .resolve(String.valueOf(od.getProjectId()))
-                    .resolve("images")
-                    .normalize();
+            base = resolveImagesDir(DEFAULT_DATA_ROOT.resolve(String.valueOf(od.getProjectId())).normalize());
+        }
+        if (base == null) {
+            resp.setStatus(404);
+            return;
         }
 
         Path file = base.resolve(safeName).normalize();
@@ -432,6 +827,252 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
     }
 
     /* ====================== 私有工具 ====================== */
+
+    private static class RegistryItem {
+        String name;
+        String path;
+        String createdTime;
+    }
+
+    private static class ScanStat {
+        boolean valid;
+        String errorMsg;
+        Path datasetRoot;
+        int imageCount;
+        int boxCount;
+        Map<String, Integer> classMap = new LinkedHashMap<String, Integer>();
+    }
+
+    private Path externalRegistryPath() {
+        String root = firstNonBlank(originalDatasetRoot, DEFAULT_DATA_ROOT.toString());
+        Path base = Paths.get(root).normalize();
+        try {
+            Files.createDirectories(base);
+        } catch (Exception e) {
+            log.warn("create original dataset root failed: {}", base, e);
+        }
+        return base.resolve("external_dataset_registry.json");
+    }
+
+    private List<RegistryItem> readExternalRegistry() {
+        List<RegistryItem> out = new ArrayList<RegistryItem>();
+        Path file = externalRegistryPath();
+        try {
+            if (!Files.exists(file)) {
+                return out;
+            }
+            String txt = Files.readString(file, StandardCharsets.UTF_8);
+            if (StrUtil.isBlank(txt)) {
+                return out;
+            }
+            JSONObject obj = JSONUtil.parseObj(txt);
+            JSONArray arr = obj.getJSONArray("datasets");
+            if (arr == null) {
+                return out;
+            }
+            for (Object item : arr) {
+                if (!(item instanceof JSONObject)) {
+                    continue;
+                }
+                JSONObject one = (JSONObject) item;
+                String name = StrUtil.trimToEmpty(one.getStr("name"));
+                String path = StrUtil.trimToEmpty(one.getStr("path"));
+                if (StrUtil.isBlank(name) || StrUtil.isBlank(path)) {
+                    continue;
+                }
+                RegistryItem ri = new RegistryItem();
+                ri.name = name;
+                ri.path = path;
+                ri.createdTime = one.getStr("createdTime");
+                out.add(ri);
+            }
+        } catch (Exception e) {
+            log.warn("read external registry failed: {}", file, e);
+        }
+        return out;
+    }
+
+    private void writeExternalRegistry(List<RegistryItem> items) throws Exception {
+        Path file = externalRegistryPath();
+        JSONObject obj = new JSONObject();
+        JSONArray arr = new JSONArray();
+        for (RegistryItem it : items) {
+            JSONObject one = new JSONObject();
+            one.put("name", it.name);
+            one.put("path", it.path);
+            one.put("createdTime", it.createdTime);
+            arr.add(one);
+        }
+        obj.put("datasets", arr);
+        Files.writeString(file, JSONUtil.toJsonPrettyStr(obj), StandardCharsets.UTF_8);
+    }
+
+    private ScanStat scanExternalDataset(String rawPath) {
+        ScanStat stat = new ScanStat();
+        String p = StrUtil.trimToEmpty(rawPath);
+        if (StrUtil.isBlank(p)) {
+            stat.valid = false;
+            stat.errorMsg = "路径不能为空";
+            return stat;
+        }
+        Path root = Paths.get(p).normalize();
+        stat.datasetRoot = root;
+        if (!Files.isDirectory(root)) {
+            stat.valid = false;
+            stat.errorMsg = "路径无效：目录不存在";
+            return stat;
+        }
+
+        Path imagesDir = root.resolve("images").normalize();
+        if (!Files.isDirectory(imagesDir)) {
+            stat.valid = false;
+            stat.errorMsg = "路径无效：缺少 images 目录";
+            return stat;
+        }
+
+        Path annDir = root.resolve("annotations").normalize();
+        if (!Files.isDirectory(annDir)) {
+            stat.valid = false;
+            stat.errorMsg = "路径无效：缺少 annotations 目录";
+            return stat;
+        }
+
+        try {
+            long imgCnt;
+            try (java.util.stream.Stream<Path> s = Files.walk(imagesDir)) {
+                imgCnt = s.filter(Files::isRegularFile).filter(this::isImageFile).count();
+            }
+            stat.imageCount = (int) Math.min(Integer.MAX_VALUE, imgCnt);
+
+            int boxCnt = 0;
+            Map<Integer, String> cocoCateMap = new LinkedHashMap<Integer, String>();
+            try (java.util.stream.Stream<Path> s = Files.walk(annDir)) {
+                List<Path> files = s.filter(Files::isRegularFile).collect(Collectors.toList());
+                List<Path> txtFiles = files.stream()
+                        .filter(f -> f.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".txt"))
+                        .collect(Collectors.toList());
+                for (Path f : txtFiles) {
+                    List<String> lines = Files.readAllLines(f, StandardCharsets.UTF_8);
+                    for (String line : lines) {
+                        if (StrUtil.isBlank(line)) {
+                            continue;
+                        }
+                        String[] parts = line.trim().split("\\s+");
+                        if (parts.length < 9) {
+                            continue;
+                        }
+                        String cls = parts[8].trim();
+                        if (StrUtil.isBlank(cls)) {
+                            continue;
+                        }
+                        boxCnt++;
+                        stat.classMap.put(cls, stat.classMap.getOrDefault(cls, 0) + 1);
+                    }
+                }
+
+                if (stat.classMap.isEmpty()) {
+                    List<Path> jsonFiles = files.stream()
+                            .filter(f -> f.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".json"))
+                            .collect(Collectors.toList());
+                    for (Path jf : jsonFiles) {
+                        parseCocoJsonStat(jf, stat.classMap, cocoCateMap);
+                    }
+                    for (Map.Entry<String, Integer> e : stat.classMap.entrySet()) {
+                        boxCnt += Math.max(0, e.getValue());
+                    }
+                }
+            }
+            stat.boxCount = boxCnt;
+            if (stat.imageCount <= 0) {
+                stat.valid = false;
+                stat.errorMsg = "路径无效：images 目录下未发现图片";
+                return stat;
+            }
+            if (stat.classMap.isEmpty()) {
+                stat.valid = false;
+                stat.errorMsg = "路径无效：未发现可解析的标注类别";
+                return stat;
+            }
+            stat.valid = true;
+            return stat;
+        } catch (Exception e) {
+            stat.valid = false;
+            stat.errorMsg = "读取数据集失败: " + e.getMessage();
+            return stat;
+        }
+    }
+
+    private boolean isImageFile(Path f) {
+        String n = f.getFileName().toString().toLowerCase(Locale.ROOT);
+        return n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png")
+                || n.endsWith(".bmp") || n.endsWith(".tif") || n.endsWith(".tiff") || n.endsWith(".webp");
+    }
+
+    private String toRelUnix(Path base, Path file) {
+        return base.relativize(file).toString().replace("\\", "/");
+    }
+
+    private String normalizeRelativeUploadPath(List<String> relPaths, int idx, String fallbackFileName) {
+        String rel = null;
+        if (relPaths != null && idx < relPaths.size()) {
+            rel = relPaths.get(idx);
+        }
+        if (StrUtil.isBlank(rel)) {
+            rel = fallbackFileName;
+        }
+        rel = StrUtil.trimToEmpty(rel).replace("\\", "/");
+        while (rel.startsWith("/")) rel = rel.substring(1);
+        if (rel.contains("..")) {
+            return null;
+        }
+        return rel;
+    }
+
+    private Path resolveBrowseRoot() {
+        String root = firstNonBlank(originalDatasetRoot, DEFAULT_DATA_ROOT.toString());
+        Path p = Paths.get(root).normalize();
+        Path parent = p.getParent();
+        return parent != null ? parent : p;
+    }
+
+    private void parseCocoJsonStat(Path jsonFile, Map<String, Integer> classMap, Map<Integer, String> cateMap) {
+        try {
+            String txt = Files.readString(jsonFile, StandardCharsets.UTF_8);
+            JSONObject obj = JSONUtil.parseObj(txt);
+            JSONArray categories = obj.getJSONArray("categories");
+            if (categories != null) {
+                for (Object c : categories) {
+                    if (!(c instanceof JSONObject)) {
+                        continue;
+                    }
+                    JSONObject cj = (JSONObject) c;
+                    Integer id = cj.getInt("id");
+                    String name = StrUtil.trimToEmpty(cj.getStr("name"));
+                    if (id != null && StrUtil.isNotBlank(name)) {
+                        cateMap.put(id, name);
+                        classMap.putIfAbsent(name, 0);
+                    }
+                }
+            }
+            JSONArray anns = obj.getJSONArray("annotations");
+            if (anns != null && !cateMap.isEmpty()) {
+                for (Object a : anns) {
+                    if (!(a instanceof JSONObject)) {
+                        continue;
+                    }
+                    JSONObject aj = (JSONObject) a;
+                    Integer cid = aj.getInt("category_id");
+                    String cn = cid != null ? cateMap.get(cid) : null;
+                    if (StrUtil.isBlank(cn)) {
+                        continue;
+                    }
+                    classMap.put(cn, classMap.getOrDefault(cn, 0) + 1);
+                }
+            }
+        } catch (Exception e) {
+            // ignore this json and keep scanning others
+        }
+    }
 
     private static class Aggregate {
         List<String> ids = new ArrayList<String>();
@@ -645,10 +1286,6 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         // 去掉常见前缀：images/
         if (s.startsWith("images/")) s = s.substring("images/".length());
 
-        // 你当前落盘是“扁平化文件名”，取最后一段最保险
-        int slash = s.lastIndexOf('/');
-        if (slash >= 0) s = s.substring(slash + 1);
-
         s = StrUtil.trimToNull(s);
         if (s == null) return null;
 
@@ -656,5 +1293,17 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         if (s.contains("..")) return null;
 
         return s;
+    }
+
+    /**
+     * 兼容两种输入：
+     * 1) 数据集根目录（其下包含 images 子目录）
+     * 2) images 目录本身
+     */
+    private Path resolveImagesDir(Path candidate) {
+        if (candidate == null || !Files.isDirectory(candidate)) return null;
+        Path byChild = candidate.resolve("images").normalize();
+        if (Files.isDirectory(byChild)) return byChild;
+        return candidate;
     }
 }
