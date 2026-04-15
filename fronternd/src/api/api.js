@@ -465,8 +465,12 @@ export class TaskDatasetMergeService {
 //     }
 // }
 export class SourceInstanceDatasetService {
-  static async list() {
-    const res = await request('/instance/sourcedatasets', {}, 'get')
+  /**
+   * @param {{ presentOnDisk?: boolean }} [opts] presentOnDisk 为 true 时仅返回磁盘路径完整、含训练样本的源数据集
+   */
+  static async list(opts = {}) {
+    const q = opts.presentOnDisk ? '?presentOnDisk=true' : ''
+    const res = await request(`/instance/sourcedatasets${q}`, {}, 'get')
     return res // ✅ 返回完整 { code, message, data }
   }
 }
@@ -483,6 +487,11 @@ export class InstanceDatasetService {
 
     static async getNames() {
         return request('/instance/getNames', {}, 'post');
+    }
+
+    /** MMDet 等创建训练任务：仅返回磁盘可用、含类别配置的实例数据集名称 */
+    static async getTrainableNames() {
+        return request('/instance/getTrainableNames', {}, 'post');
     }
 
 

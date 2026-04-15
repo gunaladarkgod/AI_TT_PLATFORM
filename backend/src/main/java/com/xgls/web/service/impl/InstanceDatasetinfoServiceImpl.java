@@ -11,12 +11,17 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.xgls.web.utils.InstanceDatasetPathUtil;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class InstanceDatasetinfoServiceImpl
@@ -37,6 +42,30 @@ public class InstanceDatasetinfoServiceImpl
     public List<InstanceDatasetinfo> getAllInstanceDatasets() {
         // 查询所有实例数据集
         return instanceDatasetinfoMapper.selectList(new QueryWrapper<>());
+    }
+
+    @Override
+    public List<String> listMmdetTrainableDatasetNames() {
+        List<InstanceDatasetinfo> all = getAllInstanceDatasets();
+        List<String> names = new ArrayList<>();
+        for (InstanceDatasetinfo info : all) {
+            if (!InstanceDatasetPathUtil.hasMmdetTrainableClassList(info.getClassList())) {
+                continue;
+            }
+            Optional<InstanceDatasetPathUtil.ResolvedInstanceDiskPaths> paths =
+                    InstanceDatasetPathUtil.tryResolveTarget(info, instanceDataRoot);
+            if (paths.isEmpty()) {
+                continue;
+            }
+            if (!InstanceDatasetPathUtil.targetHasUsableTrainContent(paths.get())) {
+                continue;
+            }
+            if (info.getName() != null && !info.getName().isBlank()) {
+                names.add(info.getName());
+            }
+        }
+        names.sort(Comparator.comparing(String::toLowerCase));
+        return names;
     }
 
     @Override

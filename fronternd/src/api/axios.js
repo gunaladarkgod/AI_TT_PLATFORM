@@ -35,19 +35,21 @@ axios.defaults.withCredentials = true
 
 axios.interceptors.request.use(
     config => {
-        config.headers = {
-            'content-type': config.contentType,   // 传参方式
-            // 'Content-Type': 'application/json;chartset=UTF-8',
-            // 'Authorization': config.token,
+        const isFormData =
+            typeof FormData !== 'undefined' && config.data instanceof FormData;
+        const headers = {};
+        // FormData 必须由 axios/浏览器设置 multipart boundary；手动写 multipart/form-data 会缺 boundary → 服务端 400
+        if (!isFormData && config.contentType) {
+            headers['content-type'] = config.contentType;
         }
         if (config.token) {
-            config.headers['Authorization'] = config.token
+            headers['Authorization'] = config.token;
         }
         if (config.cacheType) {
-            config.headers['Cache-Control'] = config.cacheType
+            headers['Cache-Control'] = config.cacheType;
         }
-        // config.headers['content-type'] = contentType
-        return config
+        config.headers = headers;
+        return config;
     },
     error => {
         return Promise.reject(error)

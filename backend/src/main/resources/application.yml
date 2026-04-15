@@ -63,7 +63,7 @@ sys:
     url: 6008
   cpu_server: ${CPU_SERVER_URL:http://127.0.0.1:8099/api/cpu}
   cvat:
-    api-server: ${CVAT_API_SERVER:http://localhost:8080}
+    api-server: ${CVAT_API_' SERVER:http://localhost:8080}
 #    api-username: api_user
 #    api-password: Kiasdjfeb234d!
     api-username: ${CVAT_API_USERNAME:carlos}

@@ -47,6 +47,20 @@ public class InstanceDatasetinfoController {
         }
     }
 
+    /**
+     * 创建 MMDet 等训练任务时下拉框使用：仅返回磁盘可用、含有效类别配置的实例数据集名称。
+     */
+    @PostMapping("/getTrainableNames")
+    public AjaxResult getTrainableNames() {
+        try {
+            List<String> names = instanceDatasetinfoService.listMmdetTrainableDatasetNames();
+            return AjaxResult.success(names);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return AjaxResult.error("服务器内部错误，获取可用实例数据集列表失败。");
+        }
+    }
+
     @DeleteMapping("/instancedatasets/{id}")
     public AjaxResult deleteInstanceDataset(@PathVariable Long id) {
         System.out.println(">>> 收到删除请求，id=" + id);

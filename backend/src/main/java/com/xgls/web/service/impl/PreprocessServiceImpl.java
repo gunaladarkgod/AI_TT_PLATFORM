@@ -71,20 +71,25 @@ public class PreprocessServiceImpl implements PreprocessService {
                 throw new RuntimeException("源实例数据集不存在: ID=" + sourceId);
             }
 
-            // 2.2 自动生成唯一输出名称
+            // 2.2 自动生成唯一输出名称（Path 拼接，避免根目录漏写末尾 / 时路径粘连错误）
             String outputName = generateOutputName(source.getName());
-            String basePath = instanceDataRoot;
+            Path instanceRoot = Paths.get(instanceDataRoot.trim().replaceAll("/+$", ""));
+            Path datasetOut = instanceRoot.resolve(outputName);
 
-            String outputTrainImgPath = basePath + outputName + "/images/train/";
-            String outputTrainAnnoPath = basePath + outputName + "/annotations/train/";
-            String outputTestImgPath = basePath + outputName + "/images/test/";
-            String outputTestAnnoPath = basePath + outputName + "/annotations/test/";
+            Path outputTrainImgPath = datasetOut.resolve("images").resolve("train");
+            Path outputTrainAnnoPath = datasetOut.resolve("annotations").resolve("train");
+            Path outputTestImgPath = datasetOut.resolve("images").resolve("test");
+            Path outputTestAnnoPath = datasetOut.resolve("annotations").resolve("test");
 
-            // 创建最终输出目录
-            new File(outputTrainImgPath).mkdirs();
-            new File(outputTrainAnnoPath).mkdirs();
-            new File(outputTestImgPath).mkdirs();
-            new File(outputTestAnnoPath).mkdirs();
+            Files.createDirectories(outputTrainImgPath);
+            Files.createDirectories(outputTrainAnnoPath);
+            Files.createDirectories(outputTestImgPath);
+            Files.createDirectories(outputTestAnnoPath);
+
+            String outputTrainImgPathStr = pathWithTrailingSlash(outputTrainImgPath);
+            String outputTrainAnnoPathStr = pathWithTrailingSlash(outputTrainAnnoPath);
+            String outputTestImgPathStr = pathWithTrailingSlash(outputTestImgPath);
+            String outputTestAnnoPathStr = pathWithTrailingSlash(outputTestAnnoPath);
 
             // 2.3 构建脚本参数
             List<String> enhanceArgs = buildScriptArgs(enhanceScript, enhanceParams);
@@ -93,12 +98,15 @@ public class PreprocessServiceImpl implements PreprocessService {
             // ===========================================
             // ✅【关键修改】为训练集创建临时中间目录
             // ===========================================
-            String tempRoot = basePath + "temp_preprocess_" + UUID.randomUUID().toString() + "/";
-            String tempEnhancedImgPath = tempRoot + "images/";
-            String tempEnhancedAnnoPath = tempRoot + "annotations/";
+            Path tempRoot = instanceRoot.resolve("temp_preprocess_" + UUID.randomUUID());
+            Path tempEnhancedImgPath = tempRoot.resolve("images");
+            Path tempEnhancedAnnoPath = tempRoot.resolve("annotations");
 
-            new File(tempEnhancedImgPath).mkdirs();
-            new File(tempEnhancedAnnoPath).mkdirs();
+            Files.createDirectories(tempEnhancedImgPath);
+            Files.createDirectories(tempEnhancedAnnoPath);
+            String tempRootStr = pathWithTrailingSlash(tempRoot);
+            String tempEnhancedImgPathStr = pathWithTrailingSlash(tempEnhancedImgPath);
+            String tempEnhancedAnnoPathStr = pathWithTrailingSlash(tempEnhancedAnnoPath);
 
             try {
                 // 2.4 对训练集：先增强 → 到临时目录
@@ -106,24 +114,24 @@ public class PreprocessServiceImpl implements PreprocessService {
                 runPython(enhanceScript.getScript_path(),
                         source.getTrainImagePath(),
                         source.getTrainAnnoPath(),
-                        tempEnhancedImgPath,
-                        tempEnhancedAnnoPath,
+                        tempEnhancedImgPathStr,
+                        tempEnhancedAnnoPathStr,
                         enhanceArgs.toArray(new String[0])
                 );
 
                 // 2.5 对训练集：再增广 → 从临时目录读，写入最终目录
                 System.out.println("【训练集】增广处理 → 最终目录: " + outputName);
                 runPython(augmentScript.getScript_path(),
-                        tempEnhancedImgPath,
-                        tempEnhancedAnnoPath,
-                        outputTrainImgPath,
-                        outputTrainAnnoPath,
+                        tempEnhancedImgPathStr,
+                        tempEnhancedAnnoPathStr,
+                        outputTrainImgPathStr,
+                        outputTrainAnnoPathStr,
                         augmentArgs.toArray(new String[0])
                 );
 
             } finally {
                 // 2.6 清理临时目录（即使出错也清理）
-                deleteDirectory(tempRoot);
+                deleteDirectory(tempRootStr);
             }
 
             // ===========================================
@@ -134,14 +142,14 @@ public class PreprocessServiceImpl implements PreprocessService {
                 runPython(enhanceScript.getScript_path(),
                         source.getTestImagePath(),
                         source.getTestAnnoPath(),
-                        outputTestImgPath,
-                        outputTestAnnoPath,
+                        outputTestImgPathStr,
+                        outputTestAnnoPathStr,
                         enhanceArgs.toArray(new String[0])
                 );
             } else {
                 // 如果没有测试集，创建空目录（保持结构一致）
-                new File(outputTestImgPath).mkdirs();
-                new File(outputTestAnnoPath).mkdirs();
+                Files.createDirectories(outputTestImgPath);
+                Files.createDirectories(outputTestAnnoPath);
             }
 
             // 2.7 保存结果记录
@@ -154,10 +162,10 @@ public class PreprocessServiceImpl implements PreprocessService {
             result.setAnnoNum(source.getAnnoNum());
             result.setClassNum(source.getClassNum());
             result.setClassList(source.getClassList());
-            result.setTrainImagePath(outputTrainImgPath);
-            result.setTrainAnnoPath(outputTrainAnnoPath);
-            result.setTestImagePath(outputTestImgPath);
-            result.setTestAnnoPath(outputTestAnnoPath);
+            result.setTrainImagePath(outputTrainImgPathStr);
+            result.setTrainAnnoPath(outputTrainAnnoPathStr);
+            result.setTestImagePath(outputTestImgPathStr);
+            result.setTestAnnoPath(outputTestAnnoPathStr);
             result.setDataFormat(source.getDataFormat());
             result.setUsername(source.getUsername());
             result.setCreatedTime(LocalDateTime.now());
@@ -181,6 +189,12 @@ public class PreprocessServiceImpl implements PreprocessService {
         }
 
         return results;
+    }
+
+    /** 与历史库中记录风格一致：POSIX 路径且以 / 结尾，便于前端与训练侧展示 */
+    private static String pathWithTrailingSlash(Path p) {
+        String s = p.normalize().toString().replace("\\", "/");
+        return s.endsWith("/") ? s : s + "/";
     }
 
     // 自动生成带时间戳的名称

@@ -12,6 +12,11 @@ public interface InstanceDatasetinfoService extends IService<InstanceDatasetinfo
     List<InstanceDatasetinfo> getAllInstanceDatasets();
 
     /**
+     * 仅返回磁盘上目录完整、且具备 MMDet 训练所需类别信息的实例数据集名称（用于创建训练任务下拉框）。
+     */
+    List<String> listMmdetTrainableDatasetNames();
+
+    /**
      * 根据 ID 删除实例数据集（包括数据库记录和本地文件）
      *
      * @param id 实例数据集的主键 ID

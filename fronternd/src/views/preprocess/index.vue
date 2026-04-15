@@ -780,7 +780,7 @@ const loadPreprocessScripts = async () => {
 const loadSourceDatasetsForSelection = async () => {
   datasetsLoading.value = true
   try {
-    const res = await SourceInstanceDatasetService.list()
+    const res = await SourceInstanceDatasetService.list({ presentOnDisk: true })
     let rawData = res
     if (typeof rawData === 'string') {
       try {
@@ -803,6 +803,9 @@ const loadSourceDatasetsForSelection = async () => {
     }
     selectionData.value = data
     filteredSelectionData.value = [...data]
+    if (!data.length) {
+      ElMessage.info('未找到磁盘上路径完整且含训练样本的源实例数据集，请先在任务数据集中生成实例数据')
+    }
     const users = [...new Set(data.map(i => i.username).filter(Boolean))]
     const sensors = [...new Set(data.map(i => i.sensorType).filter(Boolean))]
     const targets = [...new Set(data.map(i => i.targetType).filter(Boolean))]

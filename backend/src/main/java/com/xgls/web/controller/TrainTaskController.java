@@ -8,6 +8,7 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.stream.Collectors;
 
+import com.xgls.web.utils.InstanceDatasetPathUtil;
 import com.xgls.web.utils.MmdetConfigUtil;
 import com.xgls.web.entity.*;
 import org.apache.shiro.util.StringUtils;
@@ -16,6 +17,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.multipart.MultipartHttpServletRequest;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.OrderItem;
@@ -56,6 +60,10 @@ public class TrainTaskController {
 
     @Value("${sys.root-upload}")
     private String rootPath;
+
+    /** 与预处理落盘一致：实例数据集根目录（INSTANCE_DATA_ROOT / sys.instancecfg.instancedata-root） */
+    @Value("${sys.instancecfg.instancedata-root:/home/omen1/AI_TT_Platform/data/instance_dataset/}")
+    private String instanceDataRoot;
 
     // 三个基础模板：data / train / runtime
     @Value("${sys.modelcfg.local-data-path}")
@@ -122,10 +130,15 @@ public class TrainTaskController {
     @PostMapping(value = "/pack",
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
-    public AjaxResult pack(
-            @RequestPart("params") String paramsJson,
-            @RequestPart("weight_file") MultipartFile weightFile
-    ) {
+    public AjaxResult pack(HttpServletRequest request) {
+        if (!(request instanceof MultipartHttpServletRequest mreq)) {
+            return AjaxResult.error("请使用 multipart/form-data 提交");
+        }
+        String paramsJson = mreq.getParameter("params");
+        if (!StringUtils.hasText(paramsJson)) {
+            return AjaxResult.error("缺少表单字段 params（JSON 字符串）");
+        }
+        MultipartFile weightFile = mreq.getFile("weight_file");
         try {
             JSONObject params = JSONUtil.parseObj(paramsJson);
 
@@ -138,9 +151,11 @@ public class TrainTaskController {
 
             if (!StringUtils.hasText(net))  return AjaxResult.error("缺少参数：mmdet_network");
             if (!StringUtils.hasText(back)) return AjaxResult.error("缺少参数：mmdet_backbone");
-            if (weightFile == null || weightFile.isEmpty()) {
-                return AjaxResult.error("缺少权重文件：weight_file");
-            }
+
+            boolean useCustomPretrained = resolveUseCustomPretrained(params, weightFile);
+            AjaxResult pretrainedErr = validatePretrainedChoice(net, back, useCustomPretrained, weightFile, params);
+            if (pretrainedErr != null) return pretrainedErr;
+
             // === 新增：DETR 分支 ===
 //            if ("detr".equals(net)) {
 //                if (!"resnet".equals(back)) {
@@ -149,18 +164,18 @@ public class TrainTaskController {
 //                return packDetr(params, weightFile);
 //            }
             if ("detr".equals(net)) {
-                return packDetr(params, back, weightFile);
+                return packDetr(params, back, weightFile, useCustomPretrained);
             }else if ("dino".equals(net)) {
-                return packDINO(params, back, weightFile);
+                return packDINO(params, back, weightFile, useCustomPretrained);
             }else if ("deformable detr".equals(net)) {
-                return packDeformableDetr(params, back, weightFile);
+                return packDeformableDetr(params, back, weightFile, useCustomPretrained);
             }
             if ("faster-rcnn".equals(net)) {
-                return packFasterRcnn(params, back, weightFile);
+                return packFasterRcnn(params, back, weightFile, useCustomPretrained);
             } else if ("cascade-rcnn".equals(net)) {
-                return packCascadeRcnn(params, back, weightFile);
+                return packCascadeRcnn(params, back, weightFile, useCustomPretrained);
             } else if ("detectors".equals(net)) {
-                return packDetectors(params, back, weightFile);
+                return packDetectors(params, back, weightFile, useCustomPretrained);
             } else {
                 return AjaxResult.error("不支持的网络类型：" + rawNetwork);
             }
@@ -171,9 +186,73 @@ public class TrainTaskController {
         }
     }
 
+    /**
+     * 是否使用「自定义预训练」（上传文件或填写地址）。未传参时：有上传文件则视为自定义，否则沿用模板内默认（如 torchvision://、https://）。
+     */
+    private boolean resolveUseCustomPretrained(JSONObject params, MultipartFile weightFile) {
+        if (!params.containsKey("mmdet_use_custom_pretrained")) {
+            return weightFile != null && !weightFile.isEmpty();
+        }
+        Object v = params.get("mmdet_use_custom_pretrained");
+        if (v instanceof Boolean) {
+            return (Boolean) v;
+        }
+        String s = String.valueOf(v).trim();
+        if ("true".equalsIgnoreCase(s) || "1".equals(s)) return true;
+        if ("false".equalsIgnoreCase(s) || "0".equals(s)) return false;
+        return weightFile != null && !weightFile.isEmpty();
+    }
+
+    /**
+     * Faster/Cascade R-CNN 的 ConvNeXt、Swin 模板依赖占位变量，没有写死网络下载地址，必须自定义预训练。
+     */
+    private AjaxResult validatePretrainedChoice(String net, String back, boolean useCustom,
+                                                MultipartFile weightFile, JSONObject params) {
+        if (useCustom) {
+            boolean hasFile = weightFile != null && !weightFile.isEmpty();
+            String addr = params.getStr("mmdet_pretrained_address");
+            boolean hasAddr = StringUtils.hasText(addr != null ? addr.trim() : null);
+            if (!hasFile && !hasAddr) {
+                return AjaxResult.error("已选择自定义预训练权值时，请上传权重文件或在 mmdet_pretrained_address 中填写地址（http(s) URL、torchvision://、本地路径等）");
+            }
+            return null;
+        }
+        if (("faster-rcnn".equals(net) || "cascade-rcnn".equals(net))
+                && ("convnext".equals(back) || "swint".equals(back))) {
+            return AjaxResult.error("Faster/Cascade R-CNN 的 ConvNeXt、Swin 主干在模板中未配置默认下载地址，请开启「自定义预训练权值」并上传或填写地址");
+        }
+        return null;
+    }
+
+    /** 自定义预训练时解析 checkpoint 的 Python 字面量及回显路径；非自定义时返回 null,null */
+    private String[] resolveCheckpointForPack(boolean useCustom, JSONObject params, MultipartFile weightFile, Path ckptDir)
+            throws IOException {
+        if (!useCustom) {
+            return new String[]{null, null};
+        }
+        if (weightFile != null && !weightFile.isEmpty()) {
+            Files.createDirectories(ckptDir);
+            String orig = weightFile.getOriginalFilename();
+            String ckptName = System.currentTimeMillis() + "_" + (StringUtils.hasText(orig) ? orig : "weights.pth");
+            Path ckptPath = ckptDir.resolve(ckptName);
+            weightFile.transferTo(ckptPath.toFile());
+            return new String[]{MmdetConfigUtil.toPyQuotedPath(ckptPath.toString()), ckptPath.toString()};
+        }
+        String addr = params.getStr("mmdet_pretrained_address");
+        String t = addr != null ? addr.trim() : "";
+        if (!StringUtils.hasText(t)) {
+            throw new IllegalStateException("缺少权值地址");
+        }
+        return new String[]{MmdetConfigUtil.toPyQuotedPath(t), t};
+    }
+
+    private MultipartFile weightForDb(boolean useCustom, MultipartFile weightFile) {
+        return (useCustom && weightFile != null && !weightFile.isEmpty()) ? weightFile : null;
+    }
+
     /* ========================= 下面是三个具体 pack 方法 ========================= */
 
-    private AjaxResult packFasterRcnn(JSONObject params, String backbone, MultipartFile weightFile) throws Exception {
+    private AjaxResult packFasterRcnn(JSONObject params, String backbone, MultipartFile weightFile, boolean useCustomPretrained) throws Exception {
         // 1. 通用参数
         String taskName = params.getStr("taskName");
         String taskType = params.getStr("taskType");
@@ -191,7 +270,6 @@ public class TrainTaskController {
         if (!StringUtils.hasText(taskName)) return AjaxResult.error("缺少参数：taskName");
         if (!StringUtils.hasText(taskType)) return AjaxResult.error("缺少参数：taskType");
         if (!StringUtils.hasText(dataset))  return AjaxResult.error("缺少参数：dataset");
-        if (weightFile == null || weightFile.isEmpty()) return AjaxResult.error("缺少权重文件：weight_file");
         if (!Set.of("resnet", "convnext", "swint").contains(backbone)) {
             return AjaxResult.error("Faster R-CNN 的主干只支持：ResNet / ConvNext / SwinTransformer");
         }
@@ -224,7 +302,7 @@ public class TrainTaskController {
         form.setData(new com.xgls.web.entity.TrainData());
 
         boolean saveSuccess = taskService.saveLink(
-                form, SessionUtil.getCurUser(), weightFile, null, null, null, null);
+                form, SessionUtil.getCurUser(), weightForDb(useCustomPretrained, weightFile), null, null, null, null);
         if (!saveSuccess) return AjaxResult.error("训练任务入库失败");
 
         Integer taskId = null;
@@ -240,13 +318,12 @@ public class TrainTaskController {
             taskService.updateById(updateRecord);
         }
 
-        // 4. 运行目录 & checkpoint
+        // 4. 运行目录 & checkpoint（非自定义时不落盘权重）
         Path runDir = MmdetConfigUtil.ensureRunDir(rootPath, taskName);
         Path ckptDir = runDir.resolve("checkpoints");
-        Files.createDirectories(ckptDir);
-        String ckptName = System.currentTimeMillis() + "_" + weightFile.getOriginalFilename();
-        Path ckptPath = ckptDir.resolve(ckptName);
-        weightFile.transferTo(ckptPath.toFile());
+        String[] ckptPair = resolveCheckpointForPack(useCustomPretrained, params, weightFile, ckptDir);
+        String ckptPy = ckptPair[0];
+        String checkpointResponse = ckptPair[1];
 
         // 5. 选模板
         String chosenTpl;
@@ -363,9 +440,12 @@ public class TrainTaskController {
             }
         }
 
-        // 6. 注入上传的权重、类别数
-        String ckptPy = MmdetConfigUtil.toPyQuotedPath(ckptPath.toString());
-        baseTxt = injectCheckpointAndNumClasses(baseTxt, ckptPy, numClassesStr);
+        // 6. 注入权重（可选）与类别数
+        if (StringUtils.hasText(ckptPy)) {
+            baseTxt = injectCheckpointAndNumClasses(baseTxt, ckptPy, numClassesStr);
+        } else {
+            baseTxt = injectNumClassesOnly(baseTxt, numClassesStr);
+        }
 
         // 落盘 base_model.py
         Path baseSaved = MmdetConfigUtil.writeTextFile(runDir, "base_model.py", baseTxt);
@@ -388,12 +468,12 @@ public class TrainTaskController {
         data.put("mmdet_network", "faster-rcnn");
         data.put("mmdet_backbone", backbone);
         data.putAll(common);
-        data.put("checkpoint", ckptPath.toString());
+        data.put("checkpoint", StringUtils.hasText(checkpointResponse) ? checkpointResponse : "template-default");
         data.put("type", taskType);
         return AjaxResult.success(data);
     }
 
-    private AjaxResult packCascadeRcnn(JSONObject params, String backbone, MultipartFile weightFile) throws Exception {
+    private AjaxResult packCascadeRcnn(JSONObject params, String backbone, MultipartFile weightFile, boolean useCustomPretrained) throws Exception {
         String taskName = params.getStr("taskName");
         String taskType = params.getStr("taskType");
         String dataset = params.getStr("dataset");
@@ -410,7 +490,6 @@ public class TrainTaskController {
         if (!StringUtils.hasText(taskName)) return AjaxResult.error("缺少参数：taskName");
         if (!StringUtils.hasText(taskType)) return AjaxResult.error("缺少参数：taskType");
         if (!StringUtils.hasText(dataset))  return AjaxResult.error("缺少参数：dataset");
-        if (weightFile == null || weightFile.isEmpty()) return AjaxResult.error("缺少权重文件：weight_file");
         if (!Set.of("resnet", "convnext", "swint").contains(backbone)) {
             return AjaxResult.error("Cascade R-CNN 的主干只支持：ResNet / ConvNext / SwinTransformer");
         }
@@ -441,7 +520,7 @@ public class TrainTaskController {
         form.setData(new com.xgls.web.entity.TrainData());
 
         boolean saveSuccess = taskService.saveLink(
-                form, SessionUtil.getCurUser(), weightFile, null, null, null, null);
+                form, SessionUtil.getCurUser(), weightForDb(useCustomPretrained, weightFile), null, null, null, null);
         if (!saveSuccess) return AjaxResult.error("训练任务入库失败");
 
         Integer taskId = null;
@@ -459,10 +538,9 @@ public class TrainTaskController {
 
         Path runDir = MmdetConfigUtil.ensureRunDir(rootPath, taskName);
         Path ckptDir = runDir.resolve("checkpoints");
-        Files.createDirectories(ckptDir);
-        String ckptName = System.currentTimeMillis() + "_" + weightFile.getOriginalFilename();
-        Path ckptPath = ckptDir.resolve(ckptName);
-        weightFile.transferTo(ckptPath.toFile());
+        String[] ckptPair = resolveCheckpointForPack(useCustomPretrained, params, weightFile, ckptDir);
+        String ckptPy = ckptPair[0];
+        String checkpointResponse = ckptPair[1];
 
         String chosenTpl;
         switch (backbone) {
@@ -570,9 +648,12 @@ public class TrainTaskController {
             }
         }
 
-        // 注入 checkpoint + num_classes
-        String ckptPy = MmdetConfigUtil.toPyQuotedPath(ckptPath.toString());
-        baseTxt = injectCheckpointAndNumClasses(baseTxt, ckptPy, numClassesStr);
+        // 注入 checkpoint（可选）+ num_classes
+        if (StringUtils.hasText(ckptPy)) {
+            baseTxt = injectCheckpointAndNumClasses(baseTxt, ckptPy, numClassesStr);
+        } else {
+            baseTxt = injectNumClassesOnly(baseTxt, numClassesStr);
+        }
 
         Path baseSaved = MmdetConfigUtil.writeTextFile(runDir, "base_model.py", baseTxt);
 
@@ -591,12 +672,12 @@ public class TrainTaskController {
         data.put("mmdet_network", "cascade-rcnn");
         data.put("mmdet_backbone", backbone);
         data.putAll(common);
-        data.put("checkpoint", ckptPath.toString());
+        data.put("checkpoint", StringUtils.hasText(checkpointResponse) ? checkpointResponse : "template-default");
         data.put("type", taskType);
         return AjaxResult.success(data);
     }
 
-    private AjaxResult packDetectors(JSONObject params, String backbone, MultipartFile weightFile) throws Exception {
+    private AjaxResult packDetectors(JSONObject params, String backbone, MultipartFile weightFile, boolean useCustomPretrained) throws Exception {
         // DetectoRS 目前只做 ResNet
         if (!"resnet".equals(backbone)) {
             return AjaxResult.error("DetectoRS 暂时只支持 ResNet 主干");
@@ -618,7 +699,6 @@ public class TrainTaskController {
         if (!StringUtils.hasText(taskName)) return AjaxResult.error("缺少参数：taskName");
         if (!StringUtils.hasText(taskType)) return AjaxResult.error("缺少参数：taskType");
         if (!StringUtils.hasText(dataset))  return AjaxResult.error("缺少参数：dataset");
-        if (weightFile == null || weightFile.isEmpty()) return AjaxResult.error("缺少权重文件：weight_file");
 
         DatasetCfg dsCfg;
         try {
@@ -647,7 +727,7 @@ public class TrainTaskController {
         form.setData(new com.xgls.web.entity.TrainData());
 
         boolean saveSuccess = taskService.saveLink(
-                form, SessionUtil.getCurUser(), weightFile, null, null, null, null);
+                form, SessionUtil.getCurUser(), weightForDb(useCustomPretrained, weightFile), null, null, null, null);
         if (!saveSuccess) return AjaxResult.error("训练任务入库失败");
 
         Integer taskId = null;
@@ -663,20 +743,22 @@ public class TrainTaskController {
             taskService.updateById(updateRecord);
         }
 
-        // 运行目录 & checkpoint
+        // 运行目录 & checkpoint（可选）
         Path runDir = MmdetConfigUtil.ensureRunDir(rootPath, taskName);
         Path ckptDir = runDir.resolve("checkpoints");
-        Files.createDirectories(ckptDir);
-        String ckptName = System.currentTimeMillis() + "_" + weightFile.getOriginalFilename();
-        Path ckptPath = ckptDir.resolve(ckptName);
-        weightFile.transferTo(ckptPath.toFile());
-        String uploadCkptPy = MmdetConfigUtil.toPyQuotedPath(ckptPath.toString());
+        String[] ckptPair = resolveCheckpointForPack(useCustomPretrained, params, weightFile, ckptDir);
+        String uploadCkptPy = ckptPair[0];
+        String checkpointResponse = ckptPair[1];
 
         // 读 DetectoRS 模板
         String baseTxt = MmdetConfigUtil.readString(Paths.get(tplDetectorsResnet));
 
         /* ========= ① 先做“通用替换”：checkpoint / load_from / pretrained + num_classes ========== */
-        baseTxt = injectCheckpointAndNumClasses(baseTxt, uploadCkptPy, numClassesStr);
+        if (StringUtils.hasText(uploadCkptPy)) {
+            baseTxt = injectCheckpointAndNumClasses(baseTxt, uploadCkptPy, numClassesStr);
+        } else {
+            baseTxt = injectNumClassesOnly(baseTxt, numClassesStr);
+        }
 
         /* ========= ② DetectoRS 专用：depth / rfp_steps / aspp_dilations / 两个 SAC ========== */
 
@@ -816,11 +898,11 @@ public class TrainTaskController {
         data.put("mmdet_network", "detectors");
         data.put("mmdet_backbone", "resnet");
         data.putAll(common);
-        data.put("checkpoint", ckptPath.toString());
+        data.put("checkpoint", StringUtils.hasText(checkpointResponse) ? checkpointResponse : "template-default");
         data.put("type", taskType);
         return AjaxResult.success(data);
     }
-    private AjaxResult packDetr(JSONObject params, String backbone, MultipartFile weightFile) throws Exception {
+    private AjaxResult packDetr(JSONObject params, String backbone, MultipartFile weightFile, boolean useCustomPretrained) throws Exception {
         // 1. 通用参数
         String taskName = params.getStr("taskName");
         String taskType = params.getStr("taskType");
@@ -868,7 +950,7 @@ public class TrainTaskController {
         form.setData(new com.xgls.web.entity.TrainData());
 
         boolean saveSuccess = taskService.saveLink(
-                form, SessionUtil.getCurUser(), weightFile, null, null, null, null);
+                form, SessionUtil.getCurUser(), weightForDb(useCustomPretrained, weightFile), null, null, null, null);
         if (!saveSuccess) return AjaxResult.error("训练任务入库失败");
 
         Integer taskId = null;
@@ -884,14 +966,12 @@ public class TrainTaskController {
             taskService.updateById(updateRecord);
         }
 
-        // 4. 运行目录 & checkpoint 文件落盘
+        // 4. 运行目录 & checkpoint（可选）
         Path runDir = MmdetConfigUtil.ensureRunDir(rootPath, taskName);
         Path ckptDir = runDir.resolve("checkpoints");
-        Files.createDirectories(ckptDir);
-        String ckptName = System.currentTimeMillis() + "_" + weightFile.getOriginalFilename();
-        Path ckptPath = ckptDir.resolve(ckptName);
-        weightFile.transferTo(ckptPath.toFile());
-        String ckptPy = MmdetConfigUtil.toPyQuotedPath(ckptPath.toString());
+        String[] ckptPairDetr = resolveCheckpointForPack(useCustomPretrained, params, weightFile, ckptDir);
+        String ckptPy = ckptPairDetr[0];
+        String checkpointResponseDetr = ckptPairDetr[1];
 
 //        // 5. 读 DETR 模板（ResNet 版）
 //        String baseTxt = MmdetConfigUtil.readString(Paths.get(tplDetrResnet));
@@ -903,9 +983,7 @@ public class TrainTaskController {
                 chosenTpl = tplDetrResnet;
                 break;
             case "convnext":
-                AjaxResult.error("DETR的主干只支持：ResNet / SwinTransformer");
-                chosenTpl = null;
-                break;
+                return AjaxResult.error("DETR的主干只支持：ResNet / SwinTransformer");
             case "swint":
                 chosenTpl = tplDetrSwint;
                 break;
@@ -987,7 +1065,11 @@ public class TrainTaskController {
         }
 
         // 6. 通用：注入 checkpoint / num_classes
-        baseTxt = injectCheckpointAndNumClasses(baseTxt, ckptPy, numClassesStr);
+        if (StringUtils.hasText(ckptPy)) {
+            baseTxt = injectCheckpointAndNumClasses(baseTxt, ckptPy, numClassesStr);
+        } else {
+            baseTxt = injectNumClassesOnly(baseTxt, numClassesStr);
+        }
 
         // 7. DETR 专用：根据 params 正则替换（见下一节）
         baseTxt = applyDetrHyperParams(baseTxt, params);
@@ -1003,7 +1085,7 @@ public class TrainTaskController {
         );
 
         // 10. 存 network_name
-        saveNetworkName(taskId, "detr_resnet");
+        saveNetworkName(taskId, "detr_" + backbone);
 
         // 11. 返回信息
         Map<String, Object> data = new LinkedHashMap<>();
@@ -1011,14 +1093,14 @@ public class TrainTaskController {
         data.put("taskId", taskId);
         data.put("dataset", dataset);
         data.put("mmdet_network", "detr");
-        data.put("mmdet_backbone", "resnet");
+        data.put("mmdet_backbone", backbone);
         data.putAll(common);
-        data.put("checkpoint", ckptPath.toString());
+        data.put("checkpoint", StringUtils.hasText(checkpointResponseDetr) ? checkpointResponseDetr : "template-default");
         data.put("type", taskType);
         return AjaxResult.success(data);
     }
 
-    private AjaxResult packDINO(JSONObject params, String backbone, MultipartFile weightFile) throws Exception {
+    private AjaxResult packDINO(JSONObject params, String backbone, MultipartFile weightFile, boolean useCustomPretrained) throws Exception {
         // 1. 通用参数
         String taskName = params.getStr("taskName");
         String taskType = params.getStr("taskType");
@@ -1066,7 +1148,7 @@ public class TrainTaskController {
         form.setData(new com.xgls.web.entity.TrainData());
 
         boolean saveSuccess = taskService.saveLink(
-                form, SessionUtil.getCurUser(), weightFile, null, null, null, null);
+                form, SessionUtil.getCurUser(), weightForDb(useCustomPretrained, weightFile), null, null, null, null);
         if (!saveSuccess) return AjaxResult.error("训练任务入库失败");
 
         Integer taskId = null;
@@ -1082,14 +1164,12 @@ public class TrainTaskController {
             taskService.updateById(updateRecord);
         }
 
-        // 4. 运行目录 & checkpoint 文件落盘
+        // 4. 运行目录 & checkpoint（可选）
         Path runDir = MmdetConfigUtil.ensureRunDir(rootPath, taskName);
         Path ckptDir = runDir.resolve("checkpoints");
-        Files.createDirectories(ckptDir);
-        String ckptName = System.currentTimeMillis() + "_" + weightFile.getOriginalFilename();
-        Path ckptPath = ckptDir.resolve(ckptName);
-        weightFile.transferTo(ckptPath.toFile());
-        String ckptPy = MmdetConfigUtil.toPyQuotedPath(ckptPath.toString());
+        String[] ckptPairDino = resolveCheckpointForPack(useCustomPretrained, params, weightFile, ckptDir);
+        String ckptPy = ckptPairDino[0];
+        String checkpointResponseDino = ckptPairDino[1];
 
 //        // 5. 读 DETR 模板（ResNet 版）
 //        String baseTxt = MmdetConfigUtil.readString(Paths.get(tplDetrResnet));
@@ -1101,9 +1181,7 @@ public class TrainTaskController {
                 chosenTpl = tplDinoResnet;
                 break;
             case "convnext":
-                AjaxResult.error("DINO的主干只支持：ResNet / SwinTransformer");
-                chosenTpl = null;
-                break;
+                return AjaxResult.error("DINO的主干只支持：ResNet / SwinTransformer");
             case "swint":
                 chosenTpl = tplDinoSwint;
                 break;
@@ -1185,7 +1263,11 @@ public class TrainTaskController {
         }
 
         // 6. 通用：注入 checkpoint / num_classes
-        baseTxt = injectCheckpointAndNumClasses(baseTxt, ckptPy, numClassesStr);
+        if (StringUtils.hasText(ckptPy)) {
+            baseTxt = injectCheckpointAndNumClasses(baseTxt, ckptPy, numClassesStr);
+        } else {
+            baseTxt = injectNumClassesOnly(baseTxt, numClassesStr);
+        }
 
         // 7. DETR 专用：根据 params 正则替换（见下一节）
         baseTxt = applyDetrHyperParams(baseTxt, params);
@@ -1201,21 +1283,21 @@ public class TrainTaskController {
         );
 
         // 10. 存 network_name
-        saveNetworkName(taskId, "detr_resnet");
+        saveNetworkName(taskId, "dino_" + backbone);
 
         // 11. 返回信息
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("taskName", taskName);
         data.put("taskId", taskId);
         data.put("dataset", dataset);
-        data.put("mmdet_network", "detr");
-        data.put("mmdet_backbone", "resnet");
+        data.put("mmdet_network", "dino");
+        data.put("mmdet_backbone", backbone);
         data.putAll(common);
-        data.put("checkpoint", ckptPath.toString());
+        data.put("checkpoint", StringUtils.hasText(checkpointResponseDino) ? checkpointResponseDino : "template-default");
         data.put("type", taskType);
         return AjaxResult.success(data);
     }
-    private AjaxResult packDeformableDetr(JSONObject params, String backbone, MultipartFile weightFile) throws Exception {
+    private AjaxResult packDeformableDetr(JSONObject params, String backbone, MultipartFile weightFile, boolean useCustomPretrained) throws Exception {
         // 1. 通用参数
         String taskName = params.getStr("taskName");
         String taskType = params.getStr("taskType");
@@ -1263,7 +1345,7 @@ public class TrainTaskController {
         form.setData(new com.xgls.web.entity.TrainData());
 
         boolean saveSuccess = taskService.saveLink(
-                form, SessionUtil.getCurUser(), weightFile, null, null, null, null);
+                form, SessionUtil.getCurUser(), weightForDb(useCustomPretrained, weightFile), null, null, null, null);
         if (!saveSuccess) return AjaxResult.error("训练任务入库失败");
 
         Integer taskId = null;
@@ -1279,14 +1361,12 @@ public class TrainTaskController {
             taskService.updateById(updateRecord);
         }
 
-        // 4. 运行目录 & checkpoint 文件落盘
+        // 4. 运行目录 & checkpoint（可选）
         Path runDir = MmdetConfigUtil.ensureRunDir(rootPath, taskName);
         Path ckptDir = runDir.resolve("checkpoints");
-        Files.createDirectories(ckptDir);
-        String ckptName = System.currentTimeMillis() + "_" + weightFile.getOriginalFilename();
-        Path ckptPath = ckptDir.resolve(ckptName);
-        weightFile.transferTo(ckptPath.toFile());
-        String ckptPy = MmdetConfigUtil.toPyQuotedPath(ckptPath.toString());
+        String[] ckptPairDef = resolveCheckpointForPack(useCustomPretrained, params, weightFile, ckptDir);
+        String ckptPy = ckptPairDef[0];
+        String checkpointResponseDef = ckptPairDef[1];
 
 //        // 5. 读 DETR 模板（ResNet 版）
 //        String baseTxt = MmdetConfigUtil.readString(Paths.get(tplDetrResnet));
@@ -1298,9 +1378,7 @@ public class TrainTaskController {
                 chosenTpl = tplDeformableDetrResnet;
                 break;
             case "convnext":
-                AjaxResult.error("DINO的主干只支持：ResNet / SwinTransformer");
-                chosenTpl = null;
-                break;
+                return AjaxResult.error("Deformable DETR 的主干只支持：ResNet / SwinTransformer");
             case "swint":
                 chosenTpl = tplDeformableDetrSwint;
                 break;
@@ -1382,7 +1460,11 @@ public class TrainTaskController {
         }
 
         // 6. 通用：注入 checkpoint / num_classes
-        baseTxt = injectCheckpointAndNumClasses(baseTxt, ckptPy, numClassesStr);
+        if (StringUtils.hasText(ckptPy)) {
+            baseTxt = injectCheckpointAndNumClasses(baseTxt, ckptPy, numClassesStr);
+        } else {
+            baseTxt = injectNumClassesOnly(baseTxt, numClassesStr);
+        }
 
         // 7. DETR 专用：根据 params 正则替换（见下一节）
         baseTxt = applyDetrHyperParams(baseTxt, params);
@@ -1398,17 +1480,17 @@ public class TrainTaskController {
         );
 
         // 10. 存 network_name
-        saveNetworkName(taskId, "detr_resnet");
+        saveNetworkName(taskId, "deformable_detr_" + backbone);
 
         // 11. 返回信息
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("taskName", taskName);
         data.put("taskId", taskId);
         data.put("dataset", dataset);
-        data.put("mmdet_network", "detr");
-        data.put("mmdet_backbone", "resnet");
+        data.put("mmdet_network", "deformable detr");
+        data.put("mmdet_backbone", backbone);
         data.putAll(common);
-        data.put("checkpoint", ckptPath.toString());
+        data.put("checkpoint", StringUtils.hasText(checkpointResponseDef) ? checkpointResponseDef : "template-default");
         data.put("type", taskType);
         return AjaxResult.success(data);
     }
@@ -1649,20 +1731,20 @@ public class TrainTaskController {
 
 
 
-    /**
-     * 通用的：把上传的权重注入到 init_cfg / checkpoint / pretrained / load_from 里，
-     * 然后把 num_classes 全部替成给定的 numClassesStr
-     */
-    private String injectCheckpointAndNumClasses(String txt, String ckptPy, String numClassesStr) {
-        String before = txt;
+    private String injectNumClassesOnly(String txt, String numClassesStr) {
+        return MmdetConfigUtil.replaceAll(txt, "(?s)(num_classes\\s*=\\s*)\\d+", "$1" + numClassesStr);
+    }
 
-        // 1) init_cfg 里的 checkpoint
+    /**
+     * 把权重地址注入到 init_cfg / checkpoint / pretrained / load_from（不改变 num_classes）
+     */
+    private String injectCheckpointOnly(String txt, String ckptPy) {
+        String before = txt;
         String replaced = MmdetConfigUtil.replaceFirst(
                 txt,
                 "(?s)(init_cfg\\s*=\\s*dict\\([^\\)]*?checkpoint\\s*=\\s*)(?:\"[^\"]*\"|'[^']*'|[^,\\)]+)",
                 "$1" + Matcher.quoteReplacement(ckptPy)
         );
-        // 2) 普通 checkpoint=
         if (replaced.equals(before)) {
             replaced = MmdetConfigUtil.replaceFirst(
                     txt,
@@ -1670,7 +1752,6 @@ public class TrainTaskController {
                     "$1" + Matcher.quoteReplacement(ckptPy)
             );
         }
-        // 3) 顶层 pretrained=
         if (replaced.equals(before)) {
             replaced = MmdetConfigUtil.replaceFirst(
                     txt,
@@ -1678,7 +1759,6 @@ public class TrainTaskController {
                     "$1$2" + Matcher.quoteReplacement(ckptPy)
             );
         }
-        // 4) load_from
         if (replaced.equals(before)) {
             replaced = MmdetConfigUtil.replaceFirst(
                     txt,
@@ -1686,9 +1766,14 @@ public class TrainTaskController {
                     "$1" + Matcher.quoteReplacement(ckptPy)
             );
         }
-        // 最后统一 num_classes
-        replaced = MmdetConfigUtil.replaceAll(replaced, "(?s)(num_classes\\s*=\\s*)\\d+", "$1" + numClassesStr);
         return replaced;
+    }
+
+    /**
+     * 把权重注入到 init_cfg / checkpoint / pretrained / load_from，并替换 num_classes
+     */
+    private String injectCheckpointAndNumClasses(String txt, String ckptPy, String numClassesStr) {
+        return injectNumClassesOnly(injectCheckpointOnly(txt, ckptPy), numClassesStr);
     }
 
     /**
@@ -2402,38 +2487,22 @@ public class TrainTaskController {
             throw new IllegalArgumentException("实例数据集不存在：" + datasetName);
         }
 
-        // 1. 规范化路径
-        String trainImgPathStr  = MmdetConfigUtil.sanitizePathValue(info.getTrainImagePath());
-        String testImgPathStr   = MmdetConfigUtil.sanitizePathValue(info.getTestImagePath());
-        String trainAnnoPathStr = MmdetConfigUtil.sanitizePathValue(info.getTrainAnnoPath());
-        String testAnnoPathStr  = MmdetConfigUtil.sanitizePathValue(info.getTestAnnoPath());
+        InstanceDatasetPathUtil.ResolvedInstanceDiskPaths disk =
+                InstanceDatasetPathUtil.resolveTargetOrThrow(info, instanceDataRoot);
 
-        Path trainImgDir  = Paths.get(trainImgPathStr).normalize();
-        Path testImgDir   = Paths.get(testImgPathStr).normalize();
-        Path trainAnnoDir = Paths.get(trainAnnoPathStr).normalize();
-        Path testAnnoDir  = Paths.get(testAnnoPathStr).normalize();
-
-        if (!Files.isDirectory(trainImgDir)) {
-            throw new IllegalStateException("train_image_path 不是有效目录: " + trainImgPathStr);
-        }
-        if (!Files.isDirectory(testImgDir)) {
-            throw new IllegalStateException("test_image_path 不是有效目录: " + testImgPathStr);
-        }
-        if (!Files.isDirectory(trainAnnoDir)) {
-            throw new IllegalStateException("train_anno_path 不是有效目录: " + trainAnnoPathStr);
-        }
-        if (!Files.isDirectory(testAnnoDir)) {
-            throw new IllegalStateException("test_anno_path 不是有效目录: " + testAnnoPathStr);
-        }
+        Path trainImgDir  = Paths.get(disk.trainImgPath()).normalize();
+        Path testImgDir   = Paths.get(disk.testImgPath()).normalize();
+        Path trainAnnoDir = Paths.get(disk.trainAnnoPath()).normalize();
+        Path testAnnoDir  = Paths.get(disk.testAnnoPath()).normalize();
 
         // 2. 从 train_image_path 推断 dataroot：/.../instance_dataset/xxx/images/train -> .../instance_dataset/xxx
         Path imagesDir = trainImgDir.getParent(); // .../images
         if (imagesDir == null) {
-            throw new IllegalStateException("无法从 train_image_path 推断 images 目录: " + trainImgPathStr);
+            throw new IllegalStateException("无法从 train_image_path 推断 images 目录: " + disk.trainImgPath());
         }
         Path datarootPath = imagesDir.getParent(); // dataroot
         if (datarootPath == null) {
-            throw new IllegalStateException("无法从 train_image_path 推断 dataroot: " + trainImgPathStr);
+            throw new IllegalStateException("无法从 train_image_path 推断 dataroot: " + disk.trainImgPath());
         }
 
         // 3. 相对 img 子路径：images/train / images/test

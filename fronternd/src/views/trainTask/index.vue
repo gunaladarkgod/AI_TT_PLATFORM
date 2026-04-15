@@ -1130,9 +1130,12 @@
 
               <div style="padding-left: 20px;border: 1px solid #e4e7ed; border-radius: 4px; padding: 16px; ">
                 <el-form-item label="实例数据集" required>
-                  <el-select v-model="mmdetParameter.selected_dataset" class="width-200" :disabled="isSee">
+                  <el-select v-model="mmdetParameter.selected_dataset" class="width-200" :disabled="isSee" placeholder="仅显示磁盘可用数据集">
                     <el-option v-for="item in exampleList" :key="item" :value="item" :label="item"></el-option>
                   </el-select>
+                  <div v-if="!exampleList.length && !isSee" class="el-form-item__tip" style="color: #909399; font-size: 12px; line-height: 1.4; margin-top: 4px;">
+                    无可用项时请确认预处理已落盘；后端配置的实例数据集根目录（如 INSTANCE_DATA_ROOT / sys.instancecfg.instancedata-root）下需存在 images/train、annotations/train 等目录，且训练集内至少有一张图与一个 DOTA txt。
+                  </div>
                 </el-form-item>
 
                 <el-form-item label="图片尺寸" required>
@@ -1220,13 +1223,28 @@
                     <el-input-number v-model="mmdetParameter.window_size" class="width-200" :controls="false"
                       :disabled="isSee"></el-input-number>
                   </el-form-item>
-                  <el-form-item label="预训练权值：" required>
-                    <el-upload :disabled="isSee" v-model:file-list="weightFileList" ref="uploadWeightRef" action=""
-                      :limit="1" :on-exceed="handleWeightExceed" :auto-upload="false">
-                      <template #trigger>
-                        <el-button type="primary" size="small">选择文件</el-button>
-                      </template>
-                    </el-upload>
+                  <el-form-item label="预训练权值来源：">
+                    <el-radio-group v-model="mmdetParameter.use_custom_pretrained" :disabled="isSee">
+                      <el-radio :label="false">使用模板默认（torchvision / 配置内网络地址）</el-radio>
+                      <el-radio :label="true">自定义预训练权值（上传或填写地址）</el-radio>
+                    </el-radio-group>
+                  </el-form-item>
+                  <template v-if="mmdetParameter.use_custom_pretrained">
+                    <el-form-item label="权值文件：">
+                      <el-upload :disabled="isSee" v-model:file-list="weightFileList" ref="uploadWeightRef" action=""
+                        :limit="1" :on-exceed="handleWeightExceed" :auto-upload="false">
+                        <template #trigger>
+                          <el-button type="primary" size="small">选择文件</el-button>
+                        </template>
+                      </el-upload>
+                    </el-form-item>
+                    <el-form-item label="或权值地址：">
+                      <el-input v-model="mmdetParameter.pretrained_address" :disabled="isSee" type="textarea" :rows="2"
+                        placeholder="https://…、torchvision://resnet50 、本地绝对路径等（可与上传二选一，优先使用上传文件）" />
+                    </el-form-item>
+                  </template>
+                  <el-form-item v-else label="说明：">
+                    <span style="color: var(--el-text-color-secondary); font-size: 12px;">保留模板中的预训练配置，仅替换类别数。</span>
                   </el-form-item>
                 </div>
 
@@ -1241,14 +1259,26 @@
                   </el-form-item>
                   <el-row>
                     <el-col :span="12">
-                      <el-form-item label="预训练权值：" required>
-                        <el-upload :disabled="isSee" v-model:file-list="weightFileList" ref="uploadWeightRef" action=""
-                          :limit="1" :on-exceed="handleWeightExceed" :auto-upload="false">
-                          <template #trigger>
-                            <el-button type="primary" size="small">选择文件</el-button>
-                          </template>
-                        </el-upload>
+                      <el-form-item label="预训练权值来源：">
+                        <el-radio-group v-model="mmdetParameter.use_custom_pretrained" :disabled="isSee">
+                          <el-radio :label="false">使用模板默认</el-radio>
+                          <el-radio :label="true">自定义（上传或地址）</el-radio>
+                        </el-radio-group>
                       </el-form-item>
+                      <template v-if="mmdetParameter.use_custom_pretrained">
+                        <el-form-item label="权值文件：">
+                          <el-upload :disabled="isSee" v-model:file-list="weightFileList" ref="uploadWeightRef" action=""
+                            :limit="1" :on-exceed="handleWeightExceed" :auto-upload="false">
+                            <template #trigger>
+                              <el-button type="primary" size="small">选择文件</el-button>
+                            </template>
+                          </el-upload>
+                        </el-form-item>
+                        <el-form-item label="或权值地址：">
+                          <el-input v-model="mmdetParameter.pretrained_address" :disabled="isSee" type="textarea" :rows="2"
+                            placeholder="https://… 、torchvision:// 、本地路径等" />
+                        </el-form-item>
+                      </template>
                     </el-col>
                     <el-col :span="12">
                       <el-checkbox v-model="mmdetParameter.dcn_sac_use" label="DCN/SAC使用" style="padding-left: 20px;"
@@ -1322,13 +1352,28 @@
                     <el-input-number v-model="mmdetParameter.window_size" class="width-200" :controls="false"
                       :disabled="isSee"></el-input-number>
                   </el-form-item>
-                  <el-form-item label="预训练权值：" required>
-                    <el-upload :disabled="isSee" v-model:file-list="weightFileList" ref="uploadWeightRef" action=""
-                      :limit="1" :on-exceed="handleWeightExceed" :auto-upload="false">
-                      <template #trigger>
-                        <el-button type="primary" size="small">选择文件</el-button>
-                      </template>
-                    </el-upload>
+                  <el-form-item label="预训练权值来源：">
+                    <el-radio-group v-model="mmdetParameter.use_custom_pretrained" :disabled="isSee">
+                      <el-radio :label="false">使用模板默认（torchvision / 配置内网络地址）</el-radio>
+                      <el-radio :label="true">自定义预训练权值（上传或填写地址）</el-radio>
+                    </el-radio-group>
+                  </el-form-item>
+                  <template v-if="mmdetParameter.use_custom_pretrained">
+                    <el-form-item label="权值文件：">
+                      <el-upload :disabled="isSee" v-model:file-list="weightFileList" ref="uploadWeightRef" action=""
+                        :limit="1" :on-exceed="handleWeightExceed" :auto-upload="false">
+                        <template #trigger>
+                          <el-button type="primary" size="small">选择文件</el-button>
+                        </template>
+                      </el-upload>
+                    </el-form-item>
+                    <el-form-item label="或权值地址：">
+                      <el-input v-model="mmdetParameter.pretrained_address" :disabled="isSee" type="textarea" :rows="2"
+                        placeholder="https://…、torchvision://resnet50 、本地绝对路径等" />
+                    </el-form-item>
+                  </template>
+                  <el-form-item v-else label="说明：">
+                    <span style="color: var(--el-text-color-secondary); font-size: 12px;">保留模板中的预训练配置，仅替换类别数。</span>
                   </el-form-item>
                 </div>
                 <div v-else class="sub-param-box">
@@ -1342,14 +1387,26 @@
                   </el-form-item>
                   <el-row>
                     <el-col :span="12">
-                      <el-form-item label="预训练权值：" required>
-                        <el-upload :disabled="isSee" v-model:file-list="weightFileList" ref="uploadWeightRef" action=""
-                          :limit="1" :on-exceed="handleWeightExceed" :auto-upload="false">
-                          <template #trigger>
-                            <el-button type="primary" size="small">选择文件</el-button>
-                          </template>
-                        </el-upload>
+                      <el-form-item label="预训练权值来源：">
+                        <el-radio-group v-model="mmdetParameter.use_custom_pretrained" :disabled="isSee">
+                          <el-radio :label="false">使用模板默认</el-radio>
+                          <el-radio :label="true">自定义（上传或地址）</el-radio>
+                        </el-radio-group>
                       </el-form-item>
+                      <template v-if="mmdetParameter.use_custom_pretrained">
+                        <el-form-item label="权值文件：">
+                          <el-upload :disabled="isSee" v-model:file-list="weightFileList" ref="uploadWeightRef" action=""
+                            :limit="1" :on-exceed="handleWeightExceed" :auto-upload="false">
+                            <template #trigger>
+                              <el-button type="primary" size="small">选择文件</el-button>
+                            </template>
+                          </el-upload>
+                        </el-form-item>
+                        <el-form-item label="或权值地址：">
+                          <el-input v-model="mmdetParameter.pretrained_address" :disabled="isSee" type="textarea" :rows="2"
+                            placeholder="https://… 、torchvision:// 、本地路径等" />
+                        </el-form-item>
+                      </template>
                     </el-col>
                     <el-col :span="12">
                       <el-checkbox v-model="mmdetParameter.dcn_sac_use" label="DCN/SAC使用" style="padding-left: 20px;"
@@ -1483,7 +1540,7 @@
             <div class="mmdet-file-block">
               <span class="mmdet-file-title">dataset.py (数据加载配置)</span>
               <el-form-item label="实例数据集" required>
-                <el-select v-model="mmdetParameter.selected_dataset" class="width-200" :disabled="isSee">
+                <el-select v-model="mmdetParameter.selected_dataset" class="width-200" :disabled="isSee" placeholder="仅显示磁盘可用数据集">
                   <el-option v-for="item in exampleList" :key="item" :value="item" :label="item"></el-option>
                 </el-select>
               </el-form-item>
@@ -2241,7 +2298,7 @@ const showAddModal = () => {
   templateAlgorithmList.value = []
   addForm.type = null
   addForm.temp = null
-  addForm.name = null
+  addForm.name = formatQuickTaskName()
   addForm.children = null
   addForm.status = 0
   addForm.f_max = 0
@@ -2259,32 +2316,11 @@ const showAddModal = () => {
   addForm.ext_params = ""
   addForm.ext_file_update = false
   addForm.ext_file = null
-  
-  
-  mmdetParameter.selected_template = null
-  mmdetParameter.selected_network = null
-  mmdetParameter.deep = null
-  
-  mmdetParameter.RFP = 0
-  mmdetParameter.dcn_sac_use = false
-  mmdetParameter.ASPP = null
-  mmdetParameter.exist_stage = null
-  mmdetParameter.iter_count = 0
-  mmdetParameter.scale = null
 
-
-  mmdetParameter.selected_dataset = []
-  mmdetParameter.train_bath_size = 0
-  mmdetParameter.train_epoch = 0
-  mmdetParameter.photo_width = 0
-  mmdetParameter.photo_height = 0
-  mmdetParameter.optimizer = null
-  mmdetParameter.stu_rate = null
-  mmdetParameter.down_round = 0
-  mmdetParameter.weight_round = null
-  mmdetParameter.valid_round = null
-
-  mmdetParameter.measure = null
+  applyMmdetCnnQuickDefaults()
+  mmdetParameter.selected_dataset = null
+  mmdetParameter.use_custom_pretrained = false
+  mmdetParameter.pretrained_address = ''
   mmdetParameter.embedding_dimension = 256
   mmdetParameter.encoder_layers = 6
   mmdetParameter.decoder_layers = 6
@@ -2293,20 +2329,34 @@ const showAddModal = () => {
   mmdetParameter.FFN_intermediate_layer_dimension = 2048
   mmdetParameter.FFN_linear_layer_num = 2
   mmdetParameter.FFN_discard_rate = 0.1
-  mmdetParameter.FFN_active_func = null
   mmdetParameter.temperature = 20
-  mmdetParameter.loss_cls = null
   mmdetParameter.loss_cls_weight = 1
-  mmdetParameter.loss_bbox = null
   mmdetParameter.loss_bbox_weight = 5
-  mmdetParameter.loss_iou = null
   mmdetParameter.loss_iou_weight = 2
-
-
 
   weightFileList.value = []
 
   addForm.mmdet_cfg = default_mmdet_header;
+
+  const mmdetAlg = algList.value.find((item) => item.name === 'mmdet')
+  const firstAlg = algList.value[0]
+  addForm.type = mmdetAlg ? String(mmdetAlg.id) : (firstAlg ? String(firstAlg.id) : null)
+
+  nextTick(() => {
+    if (isMMDetSelected.value) {
+      addForm.temp = 'CNN'
+      fetchMmdetInstanceDatasets()
+    } else {
+      addForm.temp = null
+      addForm.labels = label_list.value.length ? [label_list.value[0].id] : []
+      addForm.train_bath_size = 16
+      addForm.train_img_size = 640
+      addForm.train_epoch = 100
+      addForm.train_period = 1
+      addForm.train_use_gpu = true
+      addForm.train_gpu_list = [0]
+    }
+  })
 }
 /**编辑模式 */
 const showEditModal = (row) => {
@@ -3493,8 +3543,6 @@ const saveRecord = () => {
   fd.append("ext_params", addForm.ext_params)
   if (extFileList.value && extFileList.value.length > 0) {
     fd.append("ext_file", extFileList.value[0].raw)
-  } else {
-    fd.append("ext_file", null)
   }
   !is_create.value && fd.append("ext_file_update", addForm.ext_file_update)
   loading_saveRecord.value = true
@@ -3549,59 +3597,129 @@ const handleSave = () => {
 
 const mmdetParameter = reactive({
   
-  selected_template:null,
-  selected_network:null,
-  deep:null,
-  dcn_sac_use:false,
-  RFP:0,
-  
-  ASPP:null,
-  
-  exist_stage:null,
-  iter_count:0,
-  scale:null,
-  window_size:0,
+  selected_template: 'Faster R-CNN',
+  selected_network: 'ResNet',
+  /** false：沿用模板内默认预训练（torchvision://、https 等）；true：上传文件或填写 mmdet_pretrained_address */
+  use_custom_pretrained: false,
+  pretrained_address: '',
+  deep: 50,
+  dcn_sac_use: false,
+  RFP: 2,
 
-  train_bath_size:0,
-  train_epoch:0,
-  selected_dataset:null,
-  photo_width:0,
-  photo_height:0,
-  optimizer:null,
-  stu_rate:null,
-  down_round:0,
-  weight_round:null,
-  valid_round:null,
+  ASPP: '3,6,9',
+
+  exist_stage: '0,1,2,3',
+  iter_count: 6,
+  scale: 'small',
+  window_size: 7,
+
+  train_bath_size: 2,
+  train_epoch: 12,
+  selected_dataset: null,
+  photo_width: 1333,
+  photo_height: 800,
+  optimizer: 'AdamW',
+  stu_rate: 0.0001,
+  down_round: '8, 11',
+  weight_round: 1,
+  valid_round: 1,
 
 
-  measure:null,
-  embedding_dimension:256,
-  encoder_layers:6,
-  decoder_layers:6,
-  attention_num:8,
-  attention_discard_rate:0.1,
-  FFN_intermediate_layer_dimension:2048,
-  FFN_linear_layer_num:2,
-  FFN_discard_rate:0.1,
-  FFN_active_func:null,
-  temperature:20,
-  loss_cls:null,
-  loss_cls_weight:1,
-  loss_bbox:null,
-  loss_bbox_weight:5,
-  loss_iou:null,
-  loss_iou_weight:2,
+  measure: 'single',
+  embedding_dimension: 256,
+  encoder_layers: 6,
+  decoder_layers: 6,
+  attention_num: 8,
+  attention_discard_rate: 0.1,
+  FFN_intermediate_layer_dimension: 2048,
+  FFN_linear_layer_num: 2,
+  FFN_discard_rate: 0.1,
+  FFN_active_func: 'ReLU',
+  temperature: 20,
+  loss_cls: 'CrossEntropyLoss',
+  loss_cls_weight: 1,
+  loss_bbox: 'L1Loss',
+  loss_bbox_weight: 5,
+  loss_iou: 'GIoULoss',
+  loss_iou_weight: 2,
 
 
 
 })
 
+/**新建弹窗用：带时间戳的任务名 */
+const formatQuickTaskName = () => {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `快速任务_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`
+}
 
-//DETR默认值
-// 监听模型类型变化
+/** CNN + Faster R-CNN + ResNet 常用默认，便于一键提交 */
+const applyMmdetCnnQuickDefaults = () => {
+  mmdetParameter.use_custom_pretrained = false
+  mmdetParameter.pretrained_address = ''
+  mmdetParameter.selected_template = 'Faster R-CNN'
+  mmdetParameter.selected_network = 'ResNet'
+  mmdetParameter.deep = 50
+  mmdetParameter.exist_stage = '0,1,2,3'
+  mmdetParameter.dcn_sac_use = false
+  mmdetParameter.RFP = 2
+  mmdetParameter.ASPP = '3,6,9'
+  mmdetParameter.iter_count = 6
+  mmdetParameter.scale = 'small'
+  mmdetParameter.window_size = 7
+  mmdetParameter.train_bath_size = 2
+  mmdetParameter.train_epoch = 12
+  mmdetParameter.photo_width = 1333
+  mmdetParameter.photo_height = 800
+  mmdetParameter.optimizer = 'AdamW'
+  mmdetParameter.stu_rate = 0.0001
+  mmdetParameter.down_round = '8, 11'
+  mmdetParameter.weight_round = 1
+  mmdetParameter.valid_round = 1
+  mmdetParameter.measure = 'single'
+  mmdetParameter.FFN_active_func = 'ReLU'
+  mmdetParameter.loss_cls = 'CrossEntropyLoss'
+  mmdetParameter.loss_bbox = 'L1Loss'
+  mmdetParameter.loss_iou = 'GIoULoss'
+  addForm.train_img_w = 1333
+  addForm.train_img_h = 800
+  addForm.train_bath_size = 2
+  addForm.train_epoch = 12
+}
+
+const fetchMmdetInstanceDatasets = () => {
+  InstanceDatasetService.getTrainableNames().then((res) => {
+    if (res.code === 0) {
+      exampleList.value = res.data || []
+      if (exampleList.value.length) {
+        mmdetParameter.selected_dataset = exampleList.value[0]
+      } else {
+        mmdetParameter.selected_dataset = null
+        if (!isSee.value) {
+          ElMessage.warning('当前没有磁盘可用的实例数据集，请完成预处理或检查数据目录')
+        }
+      }
+    }
+  }).catch(() => {})
+}
+
+watch(
+  () => [mmdetParameter.selected_template, mmdetParameter.selected_network],
+  () => {
+    const t = mmdetParameter.selected_template
+    const b = mmdetParameter.selected_network
+    if ((t === 'Faster R-CNN' || t === 'Cascade R-CNN') && (b === 'ConvNext' || b === 'SwinTransformer')) {
+      mmdetParameter.use_custom_pretrained = true
+    }
+  }
+)
+
+// DETR / CNN 算法模板切换（不要用 immediate: true，否则 temp 为 null 时会清空已设好的 CNN 默认）
 watch(() => addForm.temp, (newType) => {
   if (newType === 'DETR') {
-    // 选择DETR时，设置为固定值
+    mmdetParameter.use_custom_pretrained = false
+    mmdetParameter.pretrained_address = ''
     mmdetParameter.selected_template = 'DETR'
     mmdetParameter.selected_network = 'ResNet'
     mmdetParameter.deep = 50
@@ -3618,14 +3736,10 @@ watch(() => addForm.temp, (newType) => {
     addForm.stu_rate = 0.0001
     addForm.down_round = 30
     addForm.weight_round = 1
-  } else {
-    //console.log("选择了其他类型模板11");
-    // 选择其他选项时，清空这三个参数
-    mmdetParameter.selected_template = null
-    mmdetParameter.selected_network = null
-    mmdetParameter.deep = null
+  } else if (newType === 'CNN') {
+    applyMmdetCnnQuickDefaults()
   }
-}, { immediate: true })
+})
 
 watch(() => mmdetParameter.selected_template, (newTemp) => {
   if (newTemp === 'DINO') {
@@ -3640,18 +3754,13 @@ watch(() => mmdetParameter.selected_template, (newTemp) => {
   }
 }, { immediate: true })
 
+const handleTempChange = () => {
+  /* addForm.temp 的联动由 watch 处理 */
+}
+
 const handleTypeChange = () => {
   if (isMMDetSelected.value) {
-    InstanceDatasetService.getNames().then(res => {
-    if (res.code === 0) {
-      console.log(res)
-      console.log(res.data)
-      console.log("......")
-      exampleList.value=res.data
-      console.log(exampleList)
-      console.log("......")
-    }
-    })
+    fetchMmdetInstanceDatasets()
   }
 }
 
@@ -3711,9 +3820,13 @@ const saveMMdetRecord = () =>{
     return;
   }
 
-  if (weightFileList.value.length == 0) {
-    ElMessage.warning('请选择权值文件')
-    return;
+  if (mmdetParameter.use_custom_pretrained) {
+    const hasFile = weightFileList.value.length > 0
+    const hasAddr = (mmdetParameter.pretrained_address || '').trim().length > 0
+    if (!hasFile && !hasAddr) {
+      ElMessage.warning('自定义预训练时请上传权值文件或填写权值地址')
+      return
+    }
   }
 
   if (mmdetParameter.selected_dataset == null) {
@@ -3781,13 +3894,17 @@ const saveMMdetRecord = () =>{
     detr_loss_bbox_weight:mmdetParameter.loss_bbox_weight,
     detr_loss_iou_weight:mmdetParameter.loss_iou_weight,
 
+    mmdet_use_custom_pretrained: mmdetParameter.use_custom_pretrained,
+    mmdet_pretrained_address: (mmdetParameter.pretrained_address || '').trim(),
 
   }
 
   let fd = new FormData();
 
   fd.append("params", JSON.stringify(params));
-  fd.append("weight_file", weightFileList.value[0].raw)
+  if (mmdetParameter.use_custom_pretrained && weightFileList.value.length > 0) {
+    fd.append("weight_file", weightFileList.value[0].raw)
+  }
 
 
   loading_saveRecord.value = true
