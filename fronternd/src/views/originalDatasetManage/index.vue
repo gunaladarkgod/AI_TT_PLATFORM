@@ -670,6 +670,10 @@ function inferDatasetNameFromPath(rawPath) {
 async function pickLocalDir() {
   try {
     const res = await OriginalDatasetService.pickExternalDir()
+    if (res?.code === 0 && res?.data?.cancelled) {
+      ElMessage.info(res?.msg || '已取消选择')
+      return
+    }
     if (res?.code === 0 && res?.data?.path) {
       const pickedPath = String(res.data.path)
       importForm.value.path = pickedPath

@@ -373,6 +373,24 @@ export class TaskDatabaseManageService {
     }
 }
 
+export class TaskDatasetDevService {
+    static async listTasks() {
+        return request('/taskDatasetDev/tasks/list', {}, 'post', 'application/json');
+    }
+
+    static async createTask(payload) {
+        return request('/taskDatasetDev/tasks', payload, 'post', 'application/json');
+    }
+
+    static async deleteTask(payload) {
+        return request('/taskDatasetDev/tasks/delete', payload, 'post', 'application/json');
+    }
+
+    static async updateMapping(payload) {
+        return request('/taskDatasetDev/tasks/mapping', payload, 'post', 'application/json');
+    }
+}
+
 // /**结果查询管理 */
 // export class ResultQueryService {
 //     static async queryList(params) {

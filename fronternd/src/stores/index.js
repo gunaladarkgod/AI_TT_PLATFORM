@@ -4,6 +4,24 @@ import { transformRoutes,buildMenuTree} from '@/utils/routeUtils'
 import {MenuService} from '@/api/api'
 import {apiRequest} from '@/api/axios'
 
+function injectDevTaskDatasetMenu(menuList = []) {
+  const list = Array.isArray(menuList) ? [...menuList] : []
+  const exists = list.some(item => item && item.url === 'taskDatasetManageDev')
+  if (exists) return list
+
+  const baseMenu = list.find(item => item && item.url === 'taskDatasetbaseManage')
+  const devMenu = {
+    id: 99991,
+    url: 'taskDatasetManageDev',
+    name: '任务数据集管理（dev）',
+    order_num: baseMenu ? Number(baseMenu.order_num || 0) + 0.1 : 999,
+    is_hidden: 0,
+    parent_id: 0
+  }
+  list.push(devMenu)
+  return list
+}
+
 export const useLoginStore = defineStore({
   id: 'login',
   state: () => ({
@@ -80,8 +98,9 @@ export const useMenuStore=defineStore({
       try {
         // 从接口获取菜单数据
         const  data = await apiRequest(MenuService.queryList)
-        this.menuList =data
-        this.menuRenderList=buildMenuTree(data)
+        const withDevMenu = injectDevTaskDatasetMenu(data)
+        this.menuList = withDevMenu
+        this.menuRenderList = buildMenuTree(withDevMenu)
       } catch (error) {
         console.log(error)
         this.menuList=[]

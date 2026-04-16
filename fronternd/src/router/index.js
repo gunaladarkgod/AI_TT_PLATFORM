@@ -4,6 +4,7 @@ import { useLoginStore ,useUserStore,useMenuStore} from '@/stores/index'
 import Layout from '../components/layout/index.vue'
 import Login from '../views/login.vue'
 import EngineProject from '../views/engineProject/index.vue'
+import TaskDatasetManageDev from '../views/taskDatasetManageDev/index.vue'
 
 const routes=[
     {
@@ -16,6 +17,14 @@ const routes=[
       path:'/layout',
       name:'Layout',
       component:Layout,
+      children: [
+        {
+          path: '/taskDatasetManageDev',
+          name: 'taskDatasetManageDev',
+          component: TaskDatasetManageDev,
+          meta: { title: '任务数据集管理（dev）' }
+        }
+      ]
     },
     {
       path: '/', redirect: '/login'

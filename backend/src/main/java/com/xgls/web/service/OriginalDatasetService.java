@@ -320,10 +320,15 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             return AjaxResult.error("打开目录选择器失败: " + err[0]);
         }
         if (StrUtil.isBlank(selected[0])) {
-            return AjaxResult.error("未选择目录");
+            Map<String, Object> data = new LinkedHashMap<String, Object>();
+            data.put("path", "");
+            data.put("cancelled", true);
+            data.put("msg", "已取消选择");
+            return AjaxResult.success(data);
         }
         Map<String, Object> data = new LinkedHashMap<String, Object>();
         data.put("path", selected[0].replace("\\", "/"));
+        data.put("cancelled", false);
         return AjaxResult.success(data);
     }
 
