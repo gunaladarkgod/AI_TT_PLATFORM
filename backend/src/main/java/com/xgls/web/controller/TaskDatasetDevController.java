@@ -34,8 +34,18 @@ public class TaskDatasetDevController {
         return taskDatasetDevService.deleteTask(req != null ? req.get("name") : null);
     }
 
+    @PostMapping("/tasks/update")
+    public AjaxResult updateTask(@RequestBody Map<String, Object> req) {
+        return taskDatasetDevService.updateTask(req);
+    }
+
     @PostMapping("/tasks/mapping")
     public AjaxResult updateTaskMapping(@RequestBody Map<String, Object> req) {
         return taskDatasetDevService.updateMappingRules(req);
+    }
+
+    @PostMapping("/tasks/export")
+    public AjaxResult exportTask(@RequestBody Map<String, Object> req) {
+        return taskDatasetDevService.exportTask(req);
     }
 }

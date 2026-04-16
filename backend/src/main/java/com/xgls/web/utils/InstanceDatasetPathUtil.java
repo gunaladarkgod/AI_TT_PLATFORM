@@ -3,7 +3,7 @@ package com.xgls.web.utils;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.xgls.web.entity.InstanceDataset;
-import com.xgls.web.entity.InstanceDatasetinfo;
+import com.xgls.web.entity.InstanceDatasetMid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,7 +15,7 @@ import java.nio.file.Paths;
 import java.util.Optional;
 
 /**
- * 实例数据集（预处理结果 / 源）在磁盘上的路径解析与可用性校验。
+ * 中间实例数据集与最终实例数据集在磁盘上的路径解析与可用性校验。
  */
 public final class InstanceDatasetPathUtil {
 
@@ -30,9 +30,9 @@ public final class InstanceDatasetPathUtil {
             String testAnnoPath) {}
 
     /**
-     * 与训练打包 {@code buildDatasetCfg} 一致：解析目标实例数据集在磁盘上的四类目录。
+     * 与训练打包 {@code buildDatasetCfg} 一致：解析最终实例数据集在磁盘上的四类目录。
      */
-    public static ResolvedInstanceDiskPaths resolveTargetOrThrow(InstanceDatasetinfo info, String instanceDataRoot) {
+    public static ResolvedInstanceDiskPaths resolveTargetOrThrow(InstanceDataset info, String instanceDataRoot) {
         Optional<ResolvedInstanceDiskPaths> o = tryResolveTarget(info, instanceDataRoot);
         if (o.isPresent()) {
             return o.get();
@@ -46,7 +46,7 @@ public final class InstanceDatasetPathUtil {
                 tImg, rootConfigured, StrUtil.blankToDefault(name, "(无 name)")));
     }
 
-    public static Optional<ResolvedInstanceDiskPaths> tryResolveTarget(InstanceDatasetinfo info, String instanceDataRoot) {
+    public static Optional<ResolvedInstanceDiskPaths> tryResolveTarget(InstanceDataset info, String instanceDataRoot) {
         Path rootConfigured = Paths.get(instanceDataRoot.trim().replaceAll("/+$", "")).normalize();
 
         String tImg = normalizeStoredPath(info.getTrainImagePath(), rootConfigured);
@@ -98,10 +98,10 @@ public final class InstanceDatasetPathUtil {
     }
 
     /**
-     * 源实例数据集（instance_dataset）：四类路径均为目录，且训练侧有图与标注。
+     * 中间实例数据集（instance_dataset_mid）：四类路径均为目录，且训练侧有图与标注。
      * 布局为 {@code .../train/images}、{@code .../train/anno} 等，与任务数据集导出一致。
      */
-    public static boolean isSourceInstanceDatasetOnDisk(InstanceDataset src) {
+    public static boolean isSourceInstanceDatasetOnDisk(InstanceDatasetMid src) {
         String tImg = MmdetConfigUtil.sanitizePathValue(src.getTrainImagePath());
         String tAnno = MmdetConfigUtil.sanitizePathValue(src.getTrainAnnoPath());
         String sImg = MmdetConfigUtil.sanitizePathValue(src.getTestImagePath());

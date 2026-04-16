@@ -27,16 +27,16 @@ public class PreprocessServiceImpl implements PreprocessService {
     private String pythonExecutable;
 
     @Autowired
-    private InstanceDatasetMapper instanceDatasetMapper;
+    private InstanceDatasetMidMapper instanceDatasetMidMapper;
     @Autowired
     private PreprocessScriptInfoMapper preprocessScriptInfoMapper;
     @Autowired
-    private InstanceDatasetinfoMapper instanceDatasetinfoMapper;
+    private InstanceDatasetMapper instanceDatasetMapper;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
-    public List<InstanceDatasetinfo> runPreprocess(
+    public List<InstanceDataset> runPreprocess(
             List<Long> sourceInstanceIds,
             Integer enhanceScriptId,
             Map<String, Object> enhanceParams,
@@ -61,12 +61,12 @@ public class PreprocessServiceImpl implements PreprocessService {
             throw new RuntimeException("增强或增广脚本不存在");
         }
 
-        List<InstanceDatasetinfo> results = new ArrayList<>();
+        List<InstanceDataset> results = new ArrayList<>();
 
         // 2. 串行处理每个源数据集
         for (Long sourceId : sourceInstanceIds) {
             // 2.1 查询源数据集
-            InstanceDataset source = instanceDatasetMapper.selectById(sourceId);
+            InstanceDatasetMid source = instanceDatasetMidMapper.selectById(sourceId);
             if (source == null) {
                 throw new RuntimeException("源实例数据集不存在: ID=" + sourceId);
             }
@@ -153,7 +153,7 @@ public class PreprocessServiceImpl implements PreprocessService {
             }
 
             // 2.7 保存结果记录
-            InstanceDatasetinfo result = new InstanceDatasetinfo();
+            InstanceDataset result = new InstanceDataset();
             result.setFatherName(source.getFatherName());
             result.setName(outputName);
             result.setSensorType(source.getSensorType());
@@ -184,7 +184,7 @@ public class PreprocessServiceImpl implements PreprocessService {
             allParams.put("augment", augmentParams);
             result.setParamSchema(objectMapper.writeValueAsString(allParams));
 
-            instanceDatasetinfoMapper.insert(result);
+            instanceDatasetMapper.insert(result);
             results.add(result);
         }
 

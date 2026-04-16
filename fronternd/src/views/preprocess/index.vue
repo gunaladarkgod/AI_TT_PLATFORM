@@ -168,9 +168,9 @@
             </div>
           </div>
         </div>
-        <!-- ========== 选择数据（源实例数据集） =========== -->
+        <!-- ========== 选择数据（中间实例数据集） =========== -->
         <div class="data-selection">
-          <h3 class="section-title">选择数据（源实例数据集）</h3>
+          <h3 class="section-title">选择数据（中间实例数据集）</h3>
           <!-- 筛选条件 -->
           <div class="filter-section full-width">
             <div class="filter-row-single">
@@ -257,7 +257,7 @@
         :rules="createRules"
         label-width="120px"
       >
-        <el-form-item label="实例数据集" class="selection-info">
+        <el-form-item label="中间实例数据集" class="selection-info">
           <div class="selected-info">
             <el-alert
               v-if="selectedTaskDatasets.length === 0"
@@ -804,7 +804,7 @@ const loadSourceDatasetsForSelection = async () => {
     selectionData.value = data
     filteredSelectionData.value = [...data]
     if (!data.length) {
-      ElMessage.info('未找到磁盘上路径完整且含训练样本的源实例数据集，请先在任务数据集中生成实例数据')
+      ElMessage.info('未找到磁盘上路径完整且含训练样本的中间实例数据集，请先在任务数据集中生成实例数据')
     }
     const users = [...new Set(data.map(i => i.username).filter(Boolean))]
     const sensors = [...new Set(data.map(i => i.sensorType).filter(Boolean))]

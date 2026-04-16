@@ -124,7 +124,7 @@ public class TrainTaskController {
     @Autowired
     PredictTaskService predictTaskService;
     @Autowired
-    private InstanceDatasetinfoService instanceDatasetinfoService;
+    private InstanceDatasetService instanceDatasetService;
 
     @Operation(summary = "打包配置并准备训练")
     @PostMapping(value = "/pack",
@@ -274,7 +274,7 @@ public class TrainTaskController {
             return AjaxResult.error("Faster R-CNN 的主干只支持：ResNet / ConvNext / SwinTransformer");
         }
 
-        // 2. 基于 InstanceDatasetinfo 推导 dataroot / ann* / prefix* / numClasses / classNames
+        // 2. 基于最终实例数据集推导 dataroot / ann* / prefix* / numClasses / classNames
         DatasetCfg dsCfg;
         try {
             dsCfg = buildDatasetCfg(dataset);
@@ -922,7 +922,7 @@ public class TrainTaskController {
         if (!StringUtils.hasText(taskType))  return AjaxResult.error("缺少参数：taskType");
         if (!StringUtils.hasText(dataset))   return AjaxResult.error("缺少参数：dataset");
 
-        // 2. 基于 InstanceDatasetinfo 构造 COCO 路径 & 类别
+        // 2. 基于最终实例数据集构造 COCO 路径 & 类别
         DatasetCfg dsCfg;
         try {
             dsCfg = buildDatasetCfg(dataset);
@@ -1120,7 +1120,7 @@ public class TrainTaskController {
         if (!StringUtils.hasText(taskType))  return AjaxResult.error("缺少参数：taskType");
         if (!StringUtils.hasText(dataset))   return AjaxResult.error("缺少参数：dataset");
 
-        // 2. 基于 InstanceDatasetinfo 构造 COCO 路径 & 类别
+        // 2. 基于最终实例数据集构造 COCO 路径 & 类别
         DatasetCfg dsCfg;
         try {
             dsCfg = buildDatasetCfg(dataset);
@@ -1317,7 +1317,7 @@ public class TrainTaskController {
         if (!StringUtils.hasText(taskType))  return AjaxResult.error("缺少参数：taskType");
         if (!StringUtils.hasText(dataset))   return AjaxResult.error("缺少参数：dataset");
 
-        // 2. 基于 InstanceDatasetinfo 构造 COCO 路径 & 类别
+        // 2. 基于最终实例数据集构造 COCO 路径 & 类别
         DatasetCfg dsCfg;
         try {
             dsCfg = buildDatasetCfg(dataset);
@@ -2451,7 +2451,7 @@ public class TrainTaskController {
 
     // =================== DatasetCfg + DOTA -> COCO ===================
 
-    // 封装从 InstanceDatasetinfo 推导出来的一套 mmdet 路径配置
+    // 封装从最终实例数据集推导出来的一套 mmdet 路径配置
     private static class DatasetCfg {
         String dataroot;
         String annTrain;
@@ -2466,20 +2466,19 @@ public class TrainTaskController {
 
     /**
      * 根据前端传入的 dataset
-     * 1）通过 InstanceDatasetinfoService 查库
+     * 1）通过 InstanceDatasetService 查库
      * 2）拆出 dataroot / prefixXXX / annXXX
      * 3）从 DOTA txt 生成 COCO train.json / test.json
      *
-     * 约定：dataset = instance_datasetinfo.name
+     * 约定：dataset = instance_dataset.name
      */
     private DatasetCfg buildDatasetCfg(String datasetName) throws IOException {
         if (StrUtil.isBlank(datasetName)) {
             throw new IllegalArgumentException("缺少参数：dataset");
         }
 
-        // 这里用 getAllInstanceDatasets 再过滤（兼容你现有的接口定义）
-        List<InstanceDatasetinfo> all = instanceDatasetinfoService.getAllInstanceDatasets();
-        InstanceDatasetinfo info = all.stream()
+        List<InstanceDataset> all = instanceDatasetService.getAllInstanceDatasets();
+        InstanceDataset info = all.stream()
                 .filter(it -> datasetName.equals(it.getName()))
                 .findFirst()
                 .orElse(null);
@@ -2526,7 +2525,7 @@ public class TrainTaskController {
             }
         }
         if (classNames.isEmpty()) {
-            throw new IllegalStateException("InstanceDatasetinfo.class_list 为空，无法构造 COCO 类别");
+            throw new IllegalStateException("InstanceDataset.class_list 为空，无法构造 COCO 类别");
         }
 
         // 6. DOTA -> COCO

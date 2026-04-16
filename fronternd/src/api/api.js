@@ -386,8 +386,16 @@ export class TaskDatasetDevService {
         return request('/taskDatasetDev/tasks/delete', payload, 'post', 'application/json');
     }
 
+    static async updateTask(payload) {
+        return request('/taskDatasetDev/tasks/update', payload, 'post', 'application/json');
+    }
+
     static async updateMapping(payload) {
         return request('/taskDatasetDev/tasks/mapping', payload, 'post', 'application/json');
+    }
+
+    static async exportTask(payload) {
+        return request('/taskDatasetDev/tasks/export', payload, 'post', 'application/json');
     }
 }
 
@@ -498,21 +506,15 @@ export class TaskDatasetMergeService {
     
 }
 /**
- * 新增：源实例数据集服务（用于创建实例数据集时选择源）
+ * 中间实例数据集服务（用于创建实例数据集时选择预处理源）
  */
-// export class SourceInstanceDatasetService {
-    
-//     static async list() {
-//         return request('/instance/sourcedatasets', {}, 'get'); // 路径按你 Controller 定义
-//     }
-// }
 export class SourceInstanceDatasetService {
   /**
-   * @param {{ presentOnDisk?: boolean }} [opts] presentOnDisk 为 true 时仅返回磁盘路径完整、含训练样本的源数据集
+   * @param {{ presentOnDisk?: boolean }} [opts] presentOnDisk 为 true 时仅返回磁盘路径完整、含训练样本的中间实例数据集
    */
   static async list(opts = {}) {
     const q = opts.presentOnDisk ? '?presentOnDisk=true' : ''
-    const res = await request(`/instance/sourcedatasets${q}`, {}, 'get')
+    const res = await request(`/instance-mid/sourcedatasets${q}`, {}, 'get')
     return res // ✅ 返回完整 { code, message, data }
   }
 }
@@ -540,7 +542,7 @@ export class InstanceDatasetService {
     // /**
     //  * 修改：预处理请求体格式（不再需要 instanceDatasetName 和 taskDatasetId）
     //  * @param {Object} params - 请求参数
-    //  * @param {number[]} params.sourceInstanceIds - 源实例数据集 ID 列表
+    //  * @param {number[]} params.sourceInstanceIds - 中间实例数据集 ID 列表
     //  * @param {number} [params.enhanceScriptId] - 增强脚本 ID
     //  * @param {Object} [params.enhanceParams] - 增强参数
     //  * @param {number} [params.augmentScriptId] - 增广脚本 ID

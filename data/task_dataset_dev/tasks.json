@@ -1,19 +1,4 @@
 {
-    "222": {
-        "desc": "",
-        "target_schema": [
-            "Large_Vehicle",
-            "Person",
-            "Ship"
-        ],
-        "test_datasets": [
-            "coco_test"
-        ],
-        "mapping_rules": {
-        },
-        "updated_time": "2026-04-16T19:24:55.779225547",
-        "updated_by": "admin"
-    },
     "11111": {
         "desc": "111111111111111111111",
         "target_schema": [
@@ -28,13 +13,14 @@
         ],
         "mapping_rules": {
             "coco_test": {
-                "person": "Ship"
+                "person": "Ship",
+                "motorcycle": "Person"
             },
             "极化SAR示假目标": {
                 "ship": "Person"
             }
         },
-        "updated_time": "2026-04-16T19:40:27.017464669",
+        "updated_time": "2026-04-16T21:35:00.271583598",
         "updated_by": "admin"
     },
     "333": {
@@ -51,6 +37,22 @@
         "mapping_rules": {
         },
         "updated_time": "2026-04-16T19:53:38.033966045",
+        "updated_by": "admin"
+    },
+    "222": {
+        "desc": "",
+        "target_schema": [
+            "Large_Vehicle",
+            "Person",
+            "Ship"
+        ],
+        "test_datasets": [
+            "coco_test",
+            "极化SAR伪装目标"
+        ],
+        "mapping_rules": {
+        },
+        "updated_time": "2026-04-16T21:04:51.152389409",
         "updated_by": "admin"
     }
 }

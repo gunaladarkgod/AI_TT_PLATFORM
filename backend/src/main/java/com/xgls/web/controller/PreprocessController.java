@@ -1,7 +1,7 @@
 package com.xgls.web.controller;
 
 import com.xgls.web.common.preprocess_Result;
-import com.xgls.web.entity.InstanceDatasetinfo;
+import com.xgls.web.entity.InstanceDataset;
 import com.xgls.web.service.PreprocessService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -22,7 +22,7 @@ public class PreprocessController {
     @PostMapping("/run")
     public preprocess_Result<?> runPreprocess(@RequestBody PreprocessRequest request) {
         try {
-            List<InstanceDatasetinfo> results = preprocessService.runPreprocess(
+            List<InstanceDataset> results = preprocessService.runPreprocess(
                     request.getSourceInstanceIds(),     // 源实例数据集ID列表
                     request.getEnhanceScriptId(),
                     request.getEnhanceParams(),

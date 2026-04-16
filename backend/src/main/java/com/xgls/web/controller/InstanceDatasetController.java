@@ -1,17 +1,13 @@
 package com.xgls.web.controller;
 
-import com.xgls.web.common.Result;
+import com.xgls.web.base.AjaxResult;
 import com.xgls.web.entity.InstanceDataset;
 import com.xgls.web.service.InstanceDatasetService;
-import com.xgls.web.utils.InstanceDatasetPathUtil;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/instance")
@@ -20,25 +16,58 @@ public class InstanceDatasetController {
     @Autowired
     private InstanceDatasetService instanceDatasetService;
 
-    /**
-     * 获取所有实例数据集（作为预处理的源数据集）。
-     *
-     * @param presentOnDisk 为 true 时仅返回四类路径均在磁盘上存在、且训练目录含图像与 DOTA 标注的源数据集
-     */
-    @GetMapping("/sourcedatasets")
-    public Result<List<InstanceDataset>> getSourceInstanceDatasets(
-            @RequestParam(value = "presentOnDisk", required = false, defaultValue = "false") boolean presentOnDisk) {
+    @PostMapping("/instancedatasets")
+    public AjaxResult getAllInstanceDatasets() {
         try {
             List<InstanceDataset> list = instanceDatasetService.getAllInstanceDatasets();
-            if (presentOnDisk) {
-                list = list.stream()
-                        .filter(InstanceDatasetPathUtil::isSourceInstanceDatasetOnDisk)
-                        .collect(Collectors.toList());
-            }
-            return Result.success(list);
+            return AjaxResult.success(list);
         } catch (Exception e) {
             e.printStackTrace();
-            return Result.error("获取源实例数据集列表失败");
+            return AjaxResult.error("服务器内部错误，获取实例数据集列表失败。");
+        }
+    }
+
+    @PostMapping("/getNames")
+    public AjaxResult getNames() {
+        try {
+            List<InstanceDataset> datasetList = instanceDatasetService.getAllInstanceDatasets();
+            List<String> names = new ArrayList<>();
+            for (InstanceDataset dataset : datasetList) {
+                names.add(dataset.getName());
+            }
+            return AjaxResult.success(names);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return AjaxResult.error("服务器内部错误，获取实例数据集列表失败。");
+        }
+    }
+
+    @PostMapping("/getTrainableNames")
+    public AjaxResult getTrainableNames() {
+        try {
+            List<String> names = instanceDatasetService.listMmdetTrainableDatasetNames();
+            return AjaxResult.success(names);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return AjaxResult.error("服务器内部错误，获取可用实例数据集列表失败。");
+        }
+    }
+
+    @DeleteMapping("/instancedatasets/{id}")
+    public AjaxResult deleteInstanceDataset(@PathVariable Long id) {
+        try {
+            if (id == null || id <= 0) {
+                return AjaxResult.error("无效的实例数据集ID");
+            }
+
+            boolean success = instanceDatasetService.deleteInstanceDatasetById(id);
+            if (success) {
+                return AjaxResult.success("实例数据集删除成功");
+            }
+            return AjaxResult.error("实例数据集不存在，删除失败");
+        } catch (Exception e) {
+            e.printStackTrace();
+            return AjaxResult.error("服务器内部错误，删除实例数据集失败：" + e.getMessage());
         }
     }
 }

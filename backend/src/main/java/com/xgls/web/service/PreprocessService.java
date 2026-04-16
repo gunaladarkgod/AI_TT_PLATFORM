@@ -1,6 +1,6 @@
 package com.xgls.web.service;
 
-import com.xgls.web.entity.InstanceDatasetinfo;
+import com.xgls.web.entity.InstanceDataset;
 
 import java.util.List;
 import java.util.Map;
@@ -18,7 +18,7 @@ public interface PreprocessService {
      * @return 生成的实例数据集列表
      * @throws Exception 预处理异常
      */
-    List<InstanceDatasetinfo> runPreprocess(
+    List<InstanceDataset> runPreprocess(
             List<Long> sourceInstanceIds,
             Integer enhanceScriptId,
             Map<String, Object> enhanceParams,

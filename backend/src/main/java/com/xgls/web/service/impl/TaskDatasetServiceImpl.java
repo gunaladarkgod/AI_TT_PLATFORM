@@ -2,17 +2,18 @@ package com.xgls.web.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xgls.web.entity.ImgInfo;
-import com.xgls.web.entity.InstanceDataset;
+import com.xgls.web.entity.InstanceDatasetMid;
 import com.xgls.web.entity.OriginalDataset;
 import com.xgls.web.entity.TaskDataset;
 import com.xgls.web.mapper.TaskDatasetMapper;
 import com.xgls.web.service.ImgInfoService;
-import com.xgls.web.service.InstanceDatasetService;
+import com.xgls.web.service.InstanceDatasetMidService;
 import com.xgls.web.service.OriginalDataset1Service;
 import com.xgls.web.service.TaskDataset1Service;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 
@@ -37,7 +38,10 @@ public class TaskDatasetServiceImpl extends ServiceImpl<TaskDatasetMapper, TaskD
     private ImgInfoService imgInfoService;
 
     @Autowired
-    private InstanceDatasetService instanceDatasetService;
+    private InstanceDatasetMidService instanceDatasetMidService;
+
+    @Value("${sys.instancecfg.instancedata-mid-root:/home/omen1/AI_TT_Platform/data/instance_dataset_mid/}")
+    private String instanceDatasetMidRoot;
 
     // 内部类：带路径的图像信息
     @Data
@@ -146,7 +150,9 @@ public class TaskDatasetServiceImpl extends ServiceImpl<TaskDatasetMapper, TaskD
 
         // 5. 生成路径
         String instanceName = generateUniqueInstanceName(task.getName(),index);
-        String baseDir = "/home/omen1/AI_TT_Platform/data/instance_dataset_mid/" + instanceName;
+        String baseDir = Paths.get(instanceDatasetMidRoot.trim().replaceAll("/+$", ""), instanceName)
+                .toString()
+                .replace("\\", "/");
 
         String testImgPath = baseDir + "/test/images/";
         String trainImgPath = baseDir + "/train/images/";
@@ -158,8 +164,8 @@ public class TaskDatasetServiceImpl extends ServiceImpl<TaskDatasetMapper, TaskD
         copyImages(trainFromCore, trainImgPath, trainAnnoPath);
         copyImages(trainFromPretrain, trainImgPath, trainAnnoPath);
 
-        // 7. 保存到 instance_dataset
-        InstanceDataset instance = new InstanceDataset();
+        // 7. 保存到 instance_dataset_mid
+        InstanceDatasetMid instance = new InstanceDatasetMid();
         instance.setFatherName(task.getName());
         instance.setName(instanceName);
 
@@ -183,7 +189,7 @@ public class TaskDatasetServiceImpl extends ServiceImpl<TaskDatasetMapper, TaskD
         instance.setTrainAnnoPath(trainAnnoPath);
         instance.setUsername("admin");
         instance.setCreatedTime(LocalDateTime.now());
-        instanceDatasetService.save(instance);
+        instanceDatasetMidService.save(instance);
     }
 
     // 生成唯一文件夹名

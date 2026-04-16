@@ -71,6 +71,7 @@ sys:
   conda: ${CONDA_BIN:/home/omen1/miniconda3/condabin/conda}
   original-dataset-root: ${ORIGINAL_DATASET_ROOT:/home/omen1/AI_TT_Platform/data/original_dataset}
   task-dataset-root: ${TASK_DATASET_ROOT:/home/omen1/AI_TT_Platform/data/task_dataset}
+  instance-dataset-mid-root: ${INSTANCE_DATASET_MID_ROOT:/home/omen1/AI_TT_Platform/data/instance_dataset_mid}
   instance-dataset-root: ${INSTANCE_DATASET_ROOT:/home/omen1/AI_TT_Platform/data/instance_dataset}
   root-logger: ${MMDET_LOG_ROOT:/home/omen1/AI_TT_Platform/mmdet_run/logs/}
   root-upload: ${MMDET_UPLOAD_ROOT:/home/omen1/AI_TT_Platform/mmdet_run/myfiles/}
@@ -99,6 +100,7 @@ sys:
     local-train-path: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/schedule.py"
     local-runtime-path: "/home/omen1/AI_TT_Platform/mmdet_run/myfiles/defaultModelConfig/default_runtime.py"
   instancecfg:
+    instancedata-mid-root: "${INSTANCE_DATA_MID_ROOT:/home/omen1/AI_TT_Platform/data/instance_dataset_mid/}"  # 中间实例数据集根目录
     script-storage-dir: "${INSTANCE_SCRIPT_DIR:/home/omen1/AI_TT_Platform/data/preprocess_scripts/}"
     instancedata-root: "${INSTANCE_DATA_ROOT:/home/omen1/AI_TT_Platform/data/instance_dataset/}"  # 实例数据集根目录
     python-path: "${INSTANCE_PYTHON_PATH:/home/omen1/miniconda3/envs/platform/bin/python}"  # Python 解释器路径

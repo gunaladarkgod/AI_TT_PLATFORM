@@ -5,5 +5,5 @@ import com.xgls.web.entity.InstanceDataset;
 import org.apache.ibatis.annotations.Mapper;
 
 @Mapper
-public interface InstanceDatasetMapper extends BaseMapper<InstanceDataset>{
+public interface InstanceDatasetMapper extends BaseMapper<InstanceDataset> {
 }

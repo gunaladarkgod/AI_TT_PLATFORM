@@ -107,7 +107,7 @@
 
       </el-aside>
       <el-container class="right-container">
-        <el-header class="flex-start main-header">
+        <el-header v-if="showPageTitleBar" class="flex-start main-header">
           <el-space>
             <el-icon class="iconfont text-grey" :class="menuMode ? 'icon-layout-5-fill' : 'icon-layout-top-fill'"
               @click="changeMenuMode"></el-icon>
@@ -180,6 +180,8 @@ const changeMenuMode = () => {
     state.menuMode = menuMode.value
   });
 }
+
+const showPageTitleBar = computed(() => route.name !== 'taskDatasetManageDev')
 
 
 
