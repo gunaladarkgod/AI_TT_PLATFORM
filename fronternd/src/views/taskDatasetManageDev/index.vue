@@ -205,7 +205,7 @@
                   <el-descriptions-item label="目标类别" :span="taskCardDescrColumn">
                     <div class="info-tags" v-if="task.target_schema?.length">
                       <el-tag v-for="cls in task.target_schema" :key="`${task.name}-schema-${cls}`" size="small">
-                        {{ cls }}
+                        {{ cls }}：{{ targetMappedSampleCountForTask(task, cls) }}
                       </el-tag>
                     </div>
                     <span v-else>-</span>
@@ -328,7 +328,7 @@
                       :key="`${row.name}-t-${cls}`"
                       size="small"
                     >
-                      {{ cls }}
+                      {{ cls }}：{{ targetMappedSampleCountForTask(row, cls) }}
                     </el-tag>
                   </div>
                   <span v-else>-</span>
@@ -468,7 +468,7 @@
                       ]"
                       @click="handleTargetTagClick(cls)"
                     >
-                      {{ cls }}
+                      {{ cls }}：{{ targetMappedSampleCountInEditor(cls) }}
                     </el-tag>
                   </div>
                 </div>
@@ -767,6 +767,53 @@ const datasetClassMap = computed(() => {
   return out
 })
 
+/** 各数据集原始标签的样本数（来自 class_list） */
+const datasetClassCounts = computed(() => {
+  const m = {}
+  for (const item of datasetOptions.value) {
+    m[item.name] = item.classCounts && typeof item.classCounts === 'object' ? item.classCounts : {}
+  }
+  return m
+})
+
+/** 任务映射页：按当前勾选与 mappingEditor 汇总到各目标类的样本数 */
+function targetMappedSampleCountInEditor(targetName) {
+  const task = selectedTask.value
+  if (!task || targetName == null || targetName === '') return 0
+  let sum = 0
+  const t = String(targetName)
+  for (const dn of task.test_datasets || []) {
+    const counts = datasetClassCounts.value[dn] || {}
+    const sel = new Set(datasetSelectedClasses.value[dn] || [])
+    const map = mappingEditor.value[dn] || {}
+    for (const orig of sel) {
+      const to = map[orig]
+      if (to === t || String(to || '').trim() === t) {
+        sum += Number(counts[orig] || 0)
+      }
+    }
+  }
+  return sum
+}
+
+/** 任务卡片/表格：按已保存的 mapping_rules 汇总 */
+function targetMappedSampleCountForTask(task, targetName) {
+  if (!task || targetName == null || targetName === '') return 0
+  let sum = 0
+  const t = String(targetName)
+  for (const dn of task.test_datasets || []) {
+    const counts = datasetClassCounts.value[dn] || {}
+    const rules = task.mapping_rules?.[dn] || {}
+    for (const [orig, mapped] of Object.entries(rules)) {
+      if (!String(mapped || '').trim()) continue
+      if (mapped === t || String(mapped).trim() === t) {
+        sum += Number(counts[orig] || 0)
+      }
+    }
+  }
+  return sum
+}
+
 const missingDatasets = computed(() => {
   if (!selectedTask.value) return []
   return (selectedTask.value.test_datasets || []).filter(name => !datasetClassMap.value[name])
@@ -819,18 +866,28 @@ async function loadDatasets() {
   const extItems = Array.isArray(extNode) ? extNode : []
 
   const merged = [
-    ...items.map(item => ({
-      name: item.name,
-      source: 'CVAT',
-      classes: extractClasses(item.class_list ?? item.classList)
-    })),
+    ...items.map(item => {
+      const obj = safeParse(item.class_list ?? item.classList)
+      const classes = extractClasses(item.class_list ?? item.classList)
+      const classCounts = {}
+      for (const k of classes) {
+        const v = obj[k]
+        classCounts[k] = typeof v === 'number' ? v : parseInt(String(v ?? 0), 10) || 0
+      }
+      return { name: item.name, source: 'CVAT', classes, classCounts }
+    }),
     ...extItems
       .filter(item => !item.error)
-      .map(item => ({
-        name: item.name,
-        source: '外部导入',
-        classes: extractClasses(item.class_list ?? item.classList)
-      }))
+      .map(item => {
+        const obj = safeParse(item.class_list ?? item.classList)
+        const classes = extractClasses(item.class_list ?? item.classList)
+        const classCounts = {}
+        for (const k of classes) {
+          const v = obj[k]
+          classCounts[k] = typeof v === 'number' ? v : parseInt(String(v ?? 0), 10) || 0
+        }
+        return { name: item.name, source: '外部导入', classes, classCounts }
+      })
   ]
 
   datasetOptions.value = merged.sort((a, b) => a.name.localeCompare(b.name))

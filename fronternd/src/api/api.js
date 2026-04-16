@@ -436,7 +436,7 @@ export class OriginalDatasetService {
   }
 
   static async listExternal() {
-    return request('/original-dataset/external', {}, 'get', 'application/json')
+    return request('/original-dataset/external', {}, 'get', 'application/json', 'json')
   }
 
   static async validateExternal(payload) {

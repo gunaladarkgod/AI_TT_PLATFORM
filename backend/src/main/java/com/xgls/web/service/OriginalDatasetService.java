@@ -433,6 +433,65 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         }
     }
 
+    /**
+     * 按数据集名称解析「原始标签 → 样本数」（优先库表 class_list，否则外部注册路径扫描），供任务导出汇总目标类别数量。
+     */
+    public Map<String, Long> resolveClassCountMapByDatasetName(String datasetName) {
+        String name = StrUtil.trimToEmpty(datasetName);
+        if (StrUtil.isBlank(name)) {
+            return Collections.emptyMap();
+        }
+        Map<String, Long> out = new LinkedHashMap<>();
+        List<OriginalDataset> all = list(new LambdaQueryWrapper<OriginalDataset>().orderByDesc(OriginalDataset::getId));
+        OriginalDataset latest = null;
+        for (OriginalDataset od : all) {
+            if (!name.equals(StrUtil.trimToEmpty(od.getName()))) {
+                continue;
+            }
+            if (latest == null) {
+                latest = od;
+                continue;
+            }
+            long cur = od.getId() == null ? -1L : od.getId();
+            long old = latest.getId() == null ? -1L : latest.getId();
+            if (cur > old) {
+                latest = od;
+            }
+        }
+        if (latest != null && StrUtil.isNotBlank(latest.getClassList())) {
+            try {
+                JSONObject o = JSONUtil.parseObj(latest.getClassList());
+                for (String k : o.keySet()) {
+                    Object raw = o.get(k);
+                    long v = 0L;
+                    if (raw instanceof Number) {
+                        v = ((Number) raw).longValue();
+                    }
+                    out.put(k, v);
+                }
+            } catch (Exception e) {
+                log.debug("resolveClassCountMapByDatasetName parse class_list failed: {}", e.getMessage());
+            }
+        }
+        if (!out.isEmpty()) {
+            return out;
+        }
+        List<RegistryItem> reg = readExternalRegistry();
+        for (RegistryItem it : reg) {
+            if (!name.equals(StrUtil.trimToEmpty(it.name))) {
+                continue;
+            }
+            ScanStat stat = scanExternalDataset(it.path);
+            if (stat.valid && stat.classMap != null) {
+                for (Map.Entry<String, Integer> e : stat.classMap.entrySet()) {
+                    out.put(e.getKey(), e.getValue().longValue());
+                }
+            }
+            break;
+        }
+        return out;
+    }
+
     public List<Map<String, Object>> listExternalDatasets() {
         List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
         List<RegistryItem> items = readExternalRegistry();

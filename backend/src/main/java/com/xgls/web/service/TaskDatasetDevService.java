@@ -40,16 +40,19 @@ public class TaskDatasetDevService {
 
     private final TaskDataset1Service taskDatasetService;
     private final OriginalDataset1Service originalDatasetService;
+    private final OriginalDatasetService originalDatasetQueryService;
     private final InstanceDatasetMidService instanceDatasetMidService;
     private final JdbcTemplate jdbcTemplate;
 
     public TaskDatasetDevService(
             TaskDataset1Service taskDatasetService,
             OriginalDataset1Service originalDatasetService,
+            OriginalDatasetService originalDatasetQueryService,
             InstanceDatasetMidService instanceDatasetMidService,
             JdbcTemplate jdbcTemplate) {
         this.taskDatasetService = taskDatasetService;
         this.originalDatasetService = originalDatasetService;
+        this.originalDatasetQueryService = originalDatasetQueryService;
         this.instanceDatasetMidService = instanceDatasetMidService;
         this.jdbcTemplate = jdbcTemplate;
     }
@@ -664,7 +667,8 @@ public class TaskDatasetDevService {
 
     private int exportFromDatasetSources(String taskName, JSONObject taskDef, List<DatasetSource> sources) throws Exception {
         List<String> target = jsonArrayToList(taskDef.getJSONArray("target_schema"));
-        String classListJson = buildZeroCountClassList(target);
+        JSONObject mappedTargetCounts = buildMappedTargetClassCounts(taskDef);
+        String classListJson = JSONUtil.toJsonStr(mappedTargetCounts);
         int exportedCount = 0;
         String exportName = taskName;
         Path outRoot = Paths.get(instanceDatasetMidRoot.trim().replaceAll("/+$", ""), exportName).normalize();
@@ -701,8 +705,10 @@ public class TaskDatasetDevService {
             mid.setDataFormat(0);
             mid.setClassList(classListJson);
             mid.setClassNum(target.size());
-            mid.setImgNum(trainImgCnt + testImgCnt);
-            mid.setAnnoNum(trainAnnoCnt + testAnnoCnt);
+            int imgTotal = trainImgCnt + testImgCnt;
+            mid.setImgNum(imgTotal);
+            // 与图片数一致：COCO 等单 json 标注时按「文件数」统计会得到 1，与真实图像数不符；预处理列表「样本数」与图像数对齐
+            mid.setAnnoNum(imgTotal);
             mid.setTrainImagePath(toPosix(outTrainImg));
             mid.setTrainAnnoPath(toPosix(outTrainAnno));
             mid.setTestImagePath(toPosix(outTestImg));
@@ -715,12 +721,48 @@ public class TaskDatasetDevService {
         return exportedCount;
     }
 
-    private String buildZeroCountClassList(List<String> targetSchema) {
-        JSONObject obj = new JSONObject(new LinkedHashMap<>());
-        for (String one : targetSchema) {
-            if (StrUtil.isNotBlank(one)) obj.set(one, 0);
+    /**
+     * 按 mapping_rules 将各数据集原始标签样本数累加到目标类别（与任务映射页一致）。
+     */
+    private JSONObject buildMappedTargetClassCounts(JSONObject taskDef) {
+        List<String> targets = jsonArrayToList(taskDef.getJSONArray("target_schema"));
+        LinkedHashMap<String, Long> acc = new LinkedHashMap<>();
+        for (String t : targets) {
+            if (StrUtil.isNotBlank(t)) {
+                acc.put(t, 0L);
+            }
         }
-        return JSONUtil.toJsonStr(obj);
+        List<String> testDatasets = jsonArrayToList(taskDef.getJSONArray("test_datasets"));
+        JSONObject mappingRules = taskDef.getJSONObject("mapping_rules");
+        if (mappingRules == null || testDatasets.isEmpty()) {
+            JSONObject empty = new JSONObject(new LinkedHashMap<>());
+            for (String t : targets) {
+                if (StrUtil.isNotBlank(t)) {
+                    empty.set(t, 0);
+                }
+            }
+            return empty;
+        }
+        for (String datasetName : testDatasets) {
+            JSONObject oneMap = mappingRules.getJSONObject(datasetName);
+            if (oneMap == null) {
+                continue;
+            }
+            Map<String, Long> origCounts = originalDatasetQueryService.resolveClassCountMapByDatasetName(datasetName);
+            for (String origKey : oneMap.keySet()) {
+                String mapped = trim(oneMap.getStr(origKey, ""));
+                if (StrUtil.isBlank(mapped) || !acc.containsKey(mapped)) {
+                    continue;
+                }
+                long add = origCounts.getOrDefault(origKey, 0L);
+                acc.put(mapped, acc.get(mapped) + add);
+            }
+        }
+        JSONObject out = new JSONObject(new LinkedHashMap<>());
+        for (Map.Entry<String, Long> e : acc.entrySet()) {
+            out.set(e.getKey(), e.getValue().intValue());
+        }
+        return out;
     }
 
     private ResolvedExportPaths resolveExportPaths(Path datasetRoot) {
