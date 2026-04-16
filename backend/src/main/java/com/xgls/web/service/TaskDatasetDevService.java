@@ -12,12 +12,19 @@ import com.xgls.web.entity.TaskDataset;
 import com.xgls.web.entity.User;
 import com.xgls.web.utils.SessionUtil;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.FileVisitResult;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -26,18 +33,25 @@ public class TaskDatasetDevService {
 
     @Value("${sys.task-dataset-dev-file:/home/omen1/AI_TT_Platform/data/task_dataset_dev/tasks.json}")
     private String taskDatasetDevFile;
+    @Value("${sys.original-dataset-root:/home/omen1/AI_TT_Platform/data/original_dataset}")
+    private String originalDatasetRoot;
+    @Value("${sys.instancecfg.instancedata-mid-root:/home/omen1/AI_TT_Platform/data/instance_dataset_mid/}")
+    private String instanceDatasetMidRoot;
 
     private final TaskDataset1Service taskDatasetService;
     private final OriginalDataset1Service originalDatasetService;
     private final InstanceDatasetMidService instanceDatasetMidService;
+    private final JdbcTemplate jdbcTemplate;
 
     public TaskDatasetDevService(
             TaskDataset1Service taskDatasetService,
             OriginalDataset1Service originalDatasetService,
-            InstanceDatasetMidService instanceDatasetMidService) {
+            InstanceDatasetMidService instanceDatasetMidService,
+            JdbcTemplate jdbcTemplate) {
         this.taskDatasetService = taskDatasetService;
         this.originalDatasetService = originalDatasetService;
         this.instanceDatasetMidService = instanceDatasetMidService;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     public AjaxResult listTasks() {
@@ -83,13 +97,20 @@ public class TaskDatasetDevService {
         }
     }
 
-    public AjaxResult deleteTask(String name) {
-        String taskName = StrUtil.trimToEmpty(name);
+    public AjaxResult deleteTask(Map<String, Object> req) {
+        String taskName = trim(req != null ? req.get("name") : null);
         if (StrUtil.isBlank(taskName)) return AjaxResult.error("缺少任务名称");
+        boolean alsoDeleteLocal = true;
+        if (req != null && req.containsKey("alsoDeleteLocal")) {
+            alsoDeleteLocal = Boolean.TRUE.equals(req.get("alsoDeleteLocal"));
+        }
         try {
             JSONObject root = readTaskRoot();
             if (!root.containsKey(taskName)) {
                 return AjaxResult.error("任务不存在");
+            }
+            if (alsoDeleteLocal) {
+                clearExportedMidByTask(taskName);
             }
             root.remove(taskName);
             writeTaskRoot(root);
@@ -152,18 +173,27 @@ public class TaskDatasetDevService {
             JSONObject one = root.getJSONObject(name);
             if (one == null) return AjaxResult.error("任务不存在");
 
-            TaskDataset taskDataset = taskDatasetService.lambdaQuery()
-                    .eq(TaskDataset::getName, name)
-                    .orderByDesc(TaskDataset::getId)
-                    .last("limit 1")
-                    .one();
-            if (taskDataset == null) {
-                return AjaxResult.error("未找到同名任务数据集，无法导出中间实例数据集");
+            MappingStatus mappingStatus = assessMappingStatus(one);
+            if (!mappingStatus.ok) {
+                return AjaxResult.error("导出前检查失败（映射不完整）：" + mappingStatus.detail);
             }
 
-            List<String> testPlan = buildDefaultTestPlan(taskDataset);
-            List<String> trainOriginalIds = splitIds(taskDataset.getSupId());
-            taskDatasetService.processTestPlan(taskDataset, testPlan, trainOriginalIds, 1);
+            List<String> datasetNames = jsonArrayToList(one.getJSONArray("test_datasets"));
+            List<DatasetSource> sources = resolveDatasetSources(datasetNames);
+            if (!sources.isEmpty()) {
+                int exported = exportFromDatasetSources(name, one, sources);
+                if (exported <= 0) {
+                    return AjaxResult.error("导出失败：已定位到数据集路径，但未找到可复制的数据内容，请检查 images/annotations 目录结构。");
+                }
+            } else {
+                TaskDataset taskDataset = findTaskDatasetForExport(name, one);
+                if (taskDataset == null) {
+                    return AjaxResult.error("未找到可匹配的任务数据集，且未解析到测试数据集路径。请确认外部导入记录存在，或先在原任务数据集页面完成“训测划分”。");
+                }
+                List<String> testPlan = buildDefaultTestPlan(taskDataset);
+                List<String> trainOriginalIds = splitIds(taskDataset.getSupId());
+                taskDatasetService.processTestPlan(taskDataset, testPlan, trainOriginalIds, 1);
+            }
 
             one.set("last_export_time", LocalDateTime.now().toString());
             one.set("last_export_source_updated_time", one.getStr("updated_time", ""));
@@ -174,6 +204,31 @@ public class TaskDatasetDevService {
             return AjaxResult.success(readTasksAsList());
         } catch (Exception e) {
             return AjaxResult.error("导出失败: " + e.getMessage());
+        }
+    }
+
+    public AjaxResult clearTask(Map<String, Object> req) {
+        String name = trim(req != null ? req.get("name") : null);
+        if (StrUtil.isBlank(name)) return AjaxResult.error("缺少任务名称");
+        try {
+            if (!hasExportedMidArtifacts(name)) {
+                return AjaxResult.error("无需清除：当前没有已导出的中间数据集（数据库与目录均未发现对应内容）");
+            }
+            clearExportedMidByTask(name);
+            JSONObject root = readTaskRoot();
+            JSONObject one = root.getJSONObject(name);
+            if (one != null) {
+                // 移除键（比设空串更可靠，避免序列化/反序列化后仍被当成已导出）
+                one.remove("last_export_time");
+                one.remove("last_export_source_updated_time");
+                one.remove("last_export_by");
+                one.set("last_export_mid_count", 0);
+                root.set(name, one);
+                writeTaskRoot(root);
+            }
+            return AjaxResult.success(readTasksAsList());
+        } catch (Exception e) {
+            return AjaxResult.error("清除失败: " + e.getMessage());
         }
     }
 
@@ -220,6 +275,10 @@ public class TaskDatasetDevService {
             String statusCode = resolveExportStatusCode(one);
             row.put("status_code", statusCode);
             row.put("status_text", statusText(statusCode));
+            MappingStatus mappingStatus = assessMappingStatus(one);
+            row.put("mapping_status_code", mappingStatus.code);
+            row.put("mapping_status_text", mappingStatus.text);
+            row.put("mapping_status_detail", mappingStatus.detail);
             out.add(row);
         }
         out.sort((a, b) -> String.valueOf(a.get("name")).compareToIgnoreCase(String.valueOf(b.get("name"))));
@@ -292,8 +351,12 @@ public class TaskDatasetDevService {
     }
 
     private String currentUsername() {
-        User user = SessionUtil.getCurUser();
-        return user != null ? user.getUsername() : "";
+        try {
+            User user = SessionUtil.getCurUser();
+            return user != null ? user.getUsername() : "";
+        } catch (Throwable ignored) {
+            return "";
+        }
     }
 
     private void carryExportMeta(JSONObject src, JSONObject dst) {
@@ -322,7 +385,10 @@ public class TaskDatasetDevService {
         List<String> testPlan = new ArrayList<>();
         List<Long> coreIds = new ArrayList<>();
         for (String id : splitIds(taskDataset.getCoreId())) {
-            coreIds.add(Long.parseLong(id));
+            Long one = safeParseLong(id);
+            if (one != null) {
+                coreIds.add(one);
+            }
         }
         if (coreIds.isEmpty()) return testPlan;
 
@@ -380,10 +446,491 @@ public class TaskDatasetDevService {
         return out;
     }
 
+    private TaskDataset findTaskDatasetForExport(String taskName, JSONObject taskDef) {
+        TaskDataset exact = taskDatasetService.lambdaQuery()
+                .eq(TaskDataset::getName, taskName)
+                .orderByDesc(TaskDataset::getId)
+                .last("limit 1")
+                .one();
+        if (exact != null) return exact;
+
+        List<TaskDataset> candidates = taskDatasetService.lambdaQuery()
+                .orderByDesc(TaskDataset::getId)
+                .list();
+
+        // 兜底1：名字模糊匹配（解决 dev 名称与 task_dataset 名称不完全一致，如 11111/1111）。
+        TaskDataset fuzzyByName = findByNameSimilarity(taskName, candidates);
+        if (fuzzyByName != null) {
+            return fuzzyByName;
+        }
+
+        // 兜底2：按测试数据集覆盖匹配（优先与 dev 任务定义语义一致）。
+        List<String> requiredNames = jsonArrayToList(taskDef.getJSONArray("test_datasets"));
+        if (requiredNames.isEmpty()) return null;
+        for (TaskDataset candidate : candidates) {
+            Set<String> candidateNames = resolveTaskDatasetOriginalNames(candidate);
+            if (!candidateNames.isEmpty() && candidateNames.containsAll(requiredNames)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private TaskDataset findByNameSimilarity(String taskName, List<TaskDataset> candidates) {
+        String normDev = normalizeName(taskName);
+        if (StrUtil.isBlank(normDev)) return null;
+        for (TaskDataset candidate : candidates) {
+            String name = candidate.getName();
+            String normCandidate = normalizeName(name);
+            if (StrUtil.isBlank(normCandidate)) continue;
+            if (StrUtil.equals(normDev, normCandidate)) return candidate;
+            if (normDev.contains(normCandidate) || normCandidate.contains(normDev)) return candidate;
+            if (name != null && (name.equals(taskName) || name.contains(taskName) || taskName.contains(name))) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private String normalizeName(String src) {
+        if (StrUtil.isBlank(src)) return "";
+        String lower = src.trim().toLowerCase(Locale.ROOT);
+        return lower.replaceAll("[^0-9a-z\\u4e00-\\u9fa5]+", "");
+    }
+
+    private Set<String> resolveTaskDatasetOriginalNames(TaskDataset taskDataset) {
+        Set<Long> ids = new LinkedHashSet<>();
+        for (String id : splitIds(taskDataset.getCoreId())) {
+            Long one = safeParseLong(id);
+            if (one != null) ids.add(one);
+        }
+        for (String id : splitIds(taskDataset.getSupId())) {
+            Long one = safeParseLong(id);
+            if (one != null) ids.add(one);
+        }
+        if (ids.isEmpty()) return new LinkedHashSet<>();
+        List<OriginalDataset> originals = originalDatasetService.listByIds(new ArrayList<>(ids));
+        Set<String> names = new LinkedHashSet<>();
+        for (OriginalDataset original : originals) {
+            if (StrUtil.isNotBlank(original.getName())) {
+                names.add(original.getName());
+            }
+        }
+        return names;
+    }
+
+    private MappingStatus assessMappingStatus(JSONObject task) {
+        List<String> targetSchema = jsonArrayToList(task.getJSONArray("target_schema"));
+        Set<String> targetSet = new LinkedHashSet<>(targetSchema);
+        List<String> testDatasets = jsonArrayToList(task.getJSONArray("test_datasets"));
+        JSONObject mappingRules = task.getJSONObject("mapping_rules");
+
+        if (targetSet.isEmpty()) {
+            return new MappingStatus("error", "映射错误", "目标类别为空，请先配置目标类别。", false);
+        }
+        if (testDatasets.isEmpty()) {
+            return new MappingStatus("error", "映射错误", "测试数据集为空，请先选择测试数据集。", false);
+        }
+
+        List<String> errors = new ArrayList<>();
+        Set<String> incomingTargets = new LinkedHashSet<>();
+        for (String datasetName : testDatasets) {
+            JSONObject oneMap = mappingRules != null ? mappingRules.getJSONObject(datasetName) : null;
+            if (oneMap == null) continue;
+
+            List<String> illegalTarget = new ArrayList<>();
+            for (String cls : oneMap.keySet()) {
+                String mapped = oneMap.getStr(cls, "");
+                if (StrUtil.isBlank(mapped)) continue;
+                if (!targetSet.contains(mapped)) {
+                    illegalTarget.add(cls + "->" + mapped);
+                    continue;
+                }
+                incomingTargets.add(mapped);
+            }
+            if (!illegalTarget.isEmpty()) {
+                errors.add("数据集 " + datasetName + " 映射目标非法: " + String.join(", ", illegalTarget));
+            }
+        }
+
+        List<String> uncoveredTargets = new ArrayList<>();
+        for (String target : targetSchema) {
+            if (!incomingTargets.contains(target)) {
+                uncoveredTargets.add(target);
+            }
+        }
+        if (!uncoveredTargets.isEmpty()) {
+            errors.add("以下目标类别暂无映射来源: " + String.join(", ", uncoveredTargets));
+        }
+
+        if (errors.isEmpty()) {
+            return new MappingStatus("ok", "映射正确", "所有目标类别均有至少一个映射来源（允许多对一）。", true);
+        }
+        return new MappingStatus("error", "映射错误", String.join("；", errors), false);
+    }
+
+    private Long safeParseLong(String src) {
+        try {
+            return Long.parseLong(src);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private List<DatasetSource> resolveDatasetSources(List<String> datasetNames) {
+        List<DatasetSource> out = new ArrayList<>();
+        if (datasetNames == null || datasetNames.isEmpty()) return out;
+        Map<String, String> externalMap = readExternalRegistryMap();
+        List<OriginalDataset> allOriginals = originalDatasetService.getAllOriginalDatasets();
+
+        for (String name : datasetNames) {
+            String n = trim(name);
+            if (StrUtil.isBlank(n)) continue;
+            String ext = externalMap.get(n);
+            if (StrUtil.isNotBlank(ext)) {
+                Path root = normalizeDatasetRoot(Paths.get(ext));
+                if (root != null) {
+                    out.add(new DatasetSource(root));
+                    continue;
+                }
+            }
+            OriginalDataset latest = findLatestOriginalByName(allOriginals, n);
+            if (latest != null) {
+                Path root = normalizeDatasetRoot(parsePath(latest.getDataPath()));
+                if (root != null) {
+                    out.add(new DatasetSource(root));
+                }
+            }
+        }
+        return out;
+    }
+
+    private Map<String, String> readExternalRegistryMap() {
+        Map<String, String> out = new LinkedHashMap<>();
+        try {
+            Path file = Paths.get(originalDatasetRoot).normalize().resolve("external_dataset_registry.json");
+            if (!Files.exists(file)) return out;
+            String txt = Files.readString(file, StandardCharsets.UTF_8);
+            if (StrUtil.isBlank(txt)) return out;
+            JSONObject obj = JSONUtil.parseObj(txt);
+            JSONArray arr = obj.getJSONArray("datasets");
+            if (arr == null) return out;
+            for (Object item : arr) {
+                if (!(item instanceof JSONObject jo)) continue;
+                String name = trim(jo.get("name"));
+                String path = trim(jo.get("path"));
+                if (StrUtil.isNotBlank(name) && StrUtil.isNotBlank(path)) {
+                    out.put(name, path);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return out;
+    }
+
+    private OriginalDataset findLatestOriginalByName(List<OriginalDataset> list, String name) {
+        OriginalDataset latest = null;
+        if (list == null) return null;
+        for (OriginalDataset one : list) {
+            if (!StrUtil.equals(trim(one.getName()), name)) continue;
+            if (latest == null) {
+                latest = one;
+                continue;
+            }
+            long cur = one.getId() == null ? -1L : one.getId();
+            long old = latest.getId() == null ? -1L : latest.getId();
+            if (cur > old) latest = one;
+        }
+        return latest;
+    }
+
+    private Path parsePath(String raw) {
+        String s = trim(raw);
+        if (StrUtil.isBlank(s)) return null;
+        return Paths.get(s).normalize();
+    }
+
+    private Path normalizeDatasetRoot(Path p) {
+        if (p == null) return null;
+        if (!Files.exists(p)) return null;
+        Path n = p.normalize();
+        String tail = n.getFileName() != null ? n.getFileName().toString().toLowerCase(Locale.ROOT) : "";
+        if ("images".equals(tail) || "annotations".equals(tail)) {
+            Path parent = n.getParent();
+            return parent != null && Files.isDirectory(parent) ? parent : null;
+        }
+        return Files.isDirectory(n) ? n : null;
+    }
+
+    private int exportFromDatasetSources(String taskName, JSONObject taskDef, List<DatasetSource> sources) throws Exception {
+        List<String> target = jsonArrayToList(taskDef.getJSONArray("target_schema"));
+        String classListJson = buildZeroCountClassList(target);
+        int exportedCount = 0;
+        String exportName = taskName;
+        Path outRoot = Paths.get(instanceDatasetMidRoot.trim().replaceAll("/+$", ""), exportName).normalize();
+        clearExportedMidByTask(taskName);
+        Files.createDirectories(outRoot);
+        Path outTrainImg = outRoot.resolve("train").resolve("images");
+        Path outTrainAnno = outRoot.resolve("train").resolve("anno");
+        Path outTestImg = outRoot.resolve("test").resolve("images");
+        Path outTestAnno = outRoot.resolve("test").resolve("anno");
+        Files.createDirectories(outTrainImg);
+        Files.createDirectories(outTrainAnno);
+        Files.createDirectories(outTestImg);
+        Files.createDirectories(outTestAnno);
+
+        int trainImgCnt = 0;
+        int trainAnnoCnt = 0;
+        int testImgCnt = 0;
+        int testAnnoCnt = 0;
+        for (DatasetSource source : sources) {
+            ResolvedExportPaths paths = resolveExportPaths(source.root);
+            if (paths == null) continue;
+            trainImgCnt += copyDirContent(paths.trainImages, outTrainImg);
+            trainAnnoCnt += copyDirContent(paths.trainAnnos, outTrainAnno);
+            testImgCnt += copyDirContent(paths.testImages, outTestImg);
+            testAnnoCnt += copyDirContent(paths.testAnnos, outTestAnno);
+            exportedCount++;
+        }
+        if (exportedCount > 0) {
+            InstanceDatasetMid mid = new InstanceDatasetMid();
+            mid.setFatherName(taskName);
+            mid.setName(exportName);
+            mid.setSensorType("外部");
+            mid.setTargetType("复合");
+            mid.setDataFormat(0);
+            mid.setClassList(classListJson);
+            mid.setClassNum(target.size());
+            mid.setImgNum(trainImgCnt + testImgCnt);
+            mid.setAnnoNum(trainAnnoCnt + testAnnoCnt);
+            mid.setTrainImagePath(toPosix(outTrainImg));
+            mid.setTrainAnnoPath(toPosix(outTrainAnno));
+            mid.setTestImagePath(toPosix(outTestImg));
+            mid.setTestAnnoPath(toPosix(outTestAnno));
+            mid.setUsername(currentUsername());
+            mid.setCreatedTime(LocalDateTime.now());
+            mid.setUpdatedTime(LocalDateTime.now());
+            saveMidRecord(mid);
+        }
+        return exportedCount;
+    }
+
+    private String buildZeroCountClassList(List<String> targetSchema) {
+        JSONObject obj = new JSONObject(new LinkedHashMap<>());
+        for (String one : targetSchema) {
+            if (StrUtil.isNotBlank(one)) obj.set(one, 0);
+        }
+        return JSONUtil.toJsonStr(obj);
+    }
+
+    private ResolvedExportPaths resolveExportPaths(Path datasetRoot) {
+        if (datasetRoot == null || !Files.isDirectory(datasetRoot)) return null;
+        Path images = datasetRoot.resolve("images");
+        Path annos = datasetRoot.resolve("annotations");
+        Path trainImages = datasetRoot.resolve("train").resolve("images");
+        Path trainAnnos = datasetRoot.resolve("train").resolve("anno");
+        Path testImages = datasetRoot.resolve("test").resolve("images");
+        Path testAnnos = datasetRoot.resolve("test").resolve("anno");
+
+        if (Files.isDirectory(trainImages) && Files.isDirectory(trainAnnos)) {
+            return new ResolvedExportPaths(
+                    trainImages, trainAnnos,
+                    Files.isDirectory(testImages) ? testImages : null,
+                    Files.isDirectory(testAnnos) ? testAnnos : null
+            );
+        }
+        if (Files.isDirectory(images) && Files.isDirectory(annos)) {
+            Path trainSplitImg = images.resolve("train");
+            Path trainSplitAnno = annos.resolve("train");
+            Path testSplitImg = images.resolve("test");
+            Path testSplitAnno = annos.resolve("test");
+            if (Files.isDirectory(trainSplitImg) && Files.isDirectory(trainSplitAnno)) {
+                return new ResolvedExportPaths(
+                        trainSplitImg, trainSplitAnno,
+                        Files.isDirectory(testSplitImg) ? testSplitImg : null,
+                        Files.isDirectory(testSplitAnno) ? testSplitAnno : null
+                );
+            }
+            return new ResolvedExportPaths(images, annos, null, null);
+        }
+        return null;
+    }
+
+    private int copyDirContent(Path srcDir, Path dstDir) throws IOException {
+        if (srcDir == null || !Files.isDirectory(srcDir)) return 0;
+        Files.createDirectories(dstDir);
+        int copied = 0;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(srcDir)) {
+            for (Path child : stream) {
+                if (Files.isDirectory(child)) {
+                    copied += copyDirContent(child, dstDir.resolve(child.getFileName().toString()));
+                    continue;
+                }
+                Files.copy(child, dstDir.resolve(child.getFileName().toString()), StandardCopyOption.REPLACE_EXISTING);
+                copied++;
+            }
+        }
+        return copied;
+    }
+
+    /** 是否存在可清除的中间导出（中间表记录或 instance_dataset_mid 下对应目录） */
+    private boolean hasExportedMidArtifacts(String taskName) throws IOException {
+        if (StrUtil.isBlank(taskName)) return false;
+        if (countMidByFatherName(taskName) > 0) return true;
+        Path root = Paths.get(instanceDatasetMidRoot.trim().replaceAll("/+$", "")).normalize();
+        if (!Files.isDirectory(root)) return false;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(root)) {
+            for (Path child : stream) {
+                if (!Files.isDirectory(child)) continue;
+                String folder = child.getFileName().toString();
+                if (folder.equals(taskName) || folder.startsWith(taskName + "_")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void clearExportedMidByTask(String taskName) throws IOException {
+        if (StrUtil.isBlank(taskName)) return;
+        String table = resolveMidTableName();
+        if (StrUtil.isNotBlank(table)) {
+            jdbcTemplate.update("DELETE FROM " + table + " WHERE father_name = ?", taskName);
+        }
+        Path root = Paths.get(instanceDatasetMidRoot.trim().replaceAll("/+$", "")).normalize();
+        if (!Files.isDirectory(root)) return;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(root)) {
+            for (Path child : stream) {
+                if (!Files.isDirectory(child)) continue;
+                String folder = child.getFileName().toString();
+                if (folder.equals(taskName) || folder.startsWith(taskName + "_")) {
+                    deleteDirectoryRecursively(child);
+                }
+            }
+        }
+    }
+
+    private void deleteDirectoryRecursively(Path dir) throws IOException {
+        if (dir == null || !Files.exists(dir)) return;
+        Files.walkFileTree(dir, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                Files.deleteIfExists(file);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path directory, IOException exc) throws IOException {
+                Files.deleteIfExists(directory);
+                return FileVisitResult.CONTINUE;
+            }
+        });
+    }
+
+    private String toPosix(Path p) {
+        String s = p.normalize().toString().replace("\\", "/");
+        return s.endsWith("/") ? s : s + "/";
+    }
+
+    private void saveMidRecord(InstanceDatasetMid mid) {
+        String table = resolveMidTableName();
+        if (StrUtil.equals(table, "instance_dataset_mid")) {
+            instanceDatasetMidService.save(mid);
+            return;
+        }
+        if (StrUtil.equals(table, "instance_dataset")) {
+            String sql = "INSERT INTO instance_dataset " +
+                    "(father_name, name, sensor_type, target_type, img_num, anno_num, class_num, class_list, " +
+                    "train_image_path, train_anno_path, test_image_path, test_anno_path, data_format, username, created_time, updated_time) " +
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+            jdbcTemplate.update(sql,
+                    mid.getFatherName(),
+                    mid.getName(),
+                    mid.getSensorType(),
+                    mid.getTargetType(),
+                    mid.getImgNum(),
+                    mid.getAnnoNum(),
+                    mid.getClassNum(),
+                    mid.getClassList(),
+                    mid.getTrainImagePath(),
+                    mid.getTrainAnnoPath(),
+                    mid.getTestImagePath(),
+                    mid.getTestAnnoPath(),
+                    mid.getDataFormat(),
+                    mid.getUsername(),
+                    mid.getCreatedTime(),
+                    mid.getUpdatedTime());
+            return;
+        }
+        throw new IllegalStateException("未找到可用中间实例数据集表（instance_dataset_mid 或 instance_dataset）");
+    }
+
+    private String resolveMidTableName() {
+        if (tableExists("instance_dataset_mid")) return "instance_dataset_mid";
+        if (tableExists("instance_dataset")) return "instance_dataset";
+        return "";
+    }
+
+    private boolean tableExists(String tableName) {
+        try {
+            Integer cnt = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(1) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?",
+                    Integer.class,
+                    tableName);
+            return cnt != null && cnt > 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static class DatasetSource {
+        final Path root;
+
+        DatasetSource(Path root) {
+            this.root = root;
+        }
+    }
+
+    private static class ResolvedExportPaths {
+        final Path trainImages;
+        final Path trainAnnos;
+        final Path testImages;
+        final Path testAnnos;
+
+        ResolvedExportPaths(Path trainImages, Path trainAnnos, Path testImages, Path testAnnos) {
+            this.trainImages = trainImages;
+            this.trainAnnos = trainAnnos;
+            this.testImages = testImages;
+            this.testAnnos = testAnnos;
+        }
+    }
+
+    private static class MappingStatus {
+        final String code;
+        final String text;
+        final String detail;
+        final boolean ok;
+
+        MappingStatus(String code, String text, String detail, boolean ok) {
+            this.code = code;
+            this.text = text;
+            this.detail = detail;
+            this.ok = ok;
+        }
+    }
+
     private int countMidByFatherName(String name) {
-        return Math.toIntExact(instanceDatasetMidService.lambdaQuery()
-                .eq(InstanceDatasetMid::getFatherName, name)
-                .count());
+        String table = resolveMidTableName();
+        if (StrUtil.isBlank(table)) return 0;
+        try {
+            Integer cnt = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(1) FROM " + table + " WHERE father_name = ?",
+                    Integer.class,
+                    name);
+            return cnt == null ? 0 : cnt;
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     private String trim(Object obj) {

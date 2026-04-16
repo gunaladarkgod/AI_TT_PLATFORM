@@ -397,6 +397,10 @@ export class TaskDatasetDevService {
     static async exportTask(payload) {
         return request('/taskDatasetDev/tasks/export', payload, 'post', 'application/json');
     }
+
+    static async clearTask(payload) {
+        return request('/taskDatasetDev/tasks/clear', payload, 'post', 'application/json');
+    }
 }
 
 // /**结果查询管理 */

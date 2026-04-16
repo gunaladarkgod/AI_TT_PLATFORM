@@ -30,8 +30,8 @@ public class TaskDatasetDevController {
     }
 
     @PostMapping("/tasks/delete")
-    public AjaxResult deleteTask(@RequestBody Map<String, String> req) {
-        return taskDatasetDevService.deleteTask(req != null ? req.get("name") : null);
+    public AjaxResult deleteTask(@RequestBody Map<String, Object> req) {
+        return taskDatasetDevService.deleteTask(req);
     }
 
     @PostMapping("/tasks/update")
@@ -47,5 +47,10 @@ public class TaskDatasetDevController {
     @PostMapping("/tasks/export")
     public AjaxResult exportTask(@RequestBody Map<String, Object> req) {
         return taskDatasetDevService.exportTask(req);
+    }
+
+    @PostMapping("/tasks/clear")
+    public AjaxResult clearTask(@RequestBody Map<String, Object> req) {
+        return taskDatasetDevService.clearTask(req);
     }
 }
