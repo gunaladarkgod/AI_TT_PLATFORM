@@ -72,6 +72,8 @@ public class ShiroConfig {
 
 //  新增：实例数据集预览 / 图片 / 标注
         chain.put("/instanceDataset/**", "anon");
+        // 中间实例数据集列表（预处理源）；与 /instanceDataset/** 一致便于开发联调
+        chain.put("/instance-mid/**", "anon");
 
         // ！！最后一条兜底规则必须在末尾！！
         chain.put("/**", enableToken ? "jwt" : "anon");

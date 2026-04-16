@@ -518,8 +518,9 @@ export class SourceInstanceDatasetService {
    */
   static async list(opts = {}) {
     const q = opts.presentOnDisk ? '?presentOnDisk=true' : ''
-    const res = await request(`/instance-mid/sourcedatasets${q}`, {}, 'get')
-    return res // ✅ 返回完整 { code, message, data }
+    // GET 默认 responseType 为 text 时 axios 不解析 JSON；与 targetSubsets 等接口一致显式使用 json
+    const res = await request(`/instance-mid/sourcedatasets${q}`, {}, 'get', 'application/json', 'json')
+    return res // 返回完整 { code, message, data }
   }
 }
 

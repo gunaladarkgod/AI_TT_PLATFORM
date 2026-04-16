@@ -12,7 +12,11 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 /**
  * 中间实例数据集与最终实例数据集在磁盘上的路径解析与可用性校验。
@@ -20,6 +24,9 @@ import java.util.Optional;
 public final class InstanceDatasetPathUtil {
 
     private static final Logger log = LoggerFactory.getLogger(InstanceDatasetPathUtil.class);
+
+    /** 导出会递归拷贝子目录，标注/图像可能在子文件夹内，需限制遍历深度避免误扫超大树。 */
+    private static final int SOURCE_TREE_MAX_DEPTH = 24;
 
     private InstanceDatasetPathUtil() {}
 
@@ -85,7 +92,7 @@ public final class InstanceDatasetPathUtil {
     }
 
     /**
-     * 训练集目录内至少有一张图、一个 DOTA txt，避免下拉框里出现空壳数据集。
+     * 训练集目录内至少有一张图、一个 DOTA txt（最终实例数据集打包口径）。
      */
     public static boolean targetHasUsableTrainContent(ResolvedInstanceDiskPaths p) {
         try {
@@ -100,20 +107,72 @@ public final class InstanceDatasetPathUtil {
     /**
      * 中间实例数据集（instance_dataset_mid）：四类路径均为目录，且训练侧有图与标注。
      * 布局为 {@code .../train/images}、{@code .../train/anno} 等，与任务数据集导出一致。
+     * 在子目录中查找图像与标注文件（与 {@link com.xgls.web.service.TaskDatasetDevService#copyDirContent} 保留层级一致）。
+     * 标注接受常见 {@code *.txt}、{@code *.json}、{@code *.xml}。
+     *
+     * @param instanceDatasetMidRoot 可选；配置项 {@code sys.instancecfg.instancedata-mid-root}。
+     *                                 当库中绝对路径在当前环境不存在时，会尝试 {@code root/name/train/images} 等标准导出布局。
      */
     public static boolean isSourceInstanceDatasetOnDisk(InstanceDatasetMid src) {
+        return isSourceInstanceDatasetOnDisk(src, null);
+    }
+
+    public static boolean isSourceInstanceDatasetOnDisk(InstanceDatasetMid src, String instanceDatasetMidRoot) {
+        if (src == null) {
+            return false;
+        }
+        List<String[]> quads = new ArrayList<>();
         String tImg = MmdetConfigUtil.sanitizePathValue(src.getTrainImagePath());
         String tAnno = MmdetConfigUtil.sanitizePathValue(src.getTrainAnnoPath());
         String sImg = MmdetConfigUtil.sanitizePathValue(src.getTestImagePath());
         String sAnno = MmdetConfigUtil.sanitizePathValue(src.getTestAnnoPath());
-        if (StrUtil.isBlank(tImg) || StrUtil.isBlank(tAnno) || StrUtil.isBlank(sImg) || StrUtil.isBlank(sAnno)) {
+        if (StrUtil.isNotBlank(tImg) && StrUtil.isNotBlank(tAnno) && StrUtil.isNotBlank(sImg) && StrUtil.isNotBlank(sAnno)) {
+            quads.add(new String[] {tImg, sImg, tAnno, sAnno});
+        }
+        String midRoot = MmdetConfigUtil.sanitizePathValue(instanceDatasetMidRoot);
+        if (StrUtil.isNotBlank(midRoot)) {
+            Path root = Paths.get(midRoot.replaceAll("/+$", "")).normalize();
+            for (String folder : distinctNonBlankFolderNames(src.getName(), src.getFatherName())) {
+                Path base = root.resolve(folder).normalize();
+                quads.add(new String[] {
+                        toPosixPath(base.resolve("train").resolve("images")),
+                        toPosixPath(base.resolve("test").resolve("images")),
+                        toPosixPath(base.resolve("train").resolve("anno")),
+                        toPosixPath(base.resolve("test").resolve("anno"))
+                });
+            }
+        }
+        for (String[] q : quads) {
+            if (sourceLayoutUsableOnDisk(q)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static List<String> distinctNonBlankFolderNames(String name, String fatherName) {
+        LinkedHashSet<String> set = new LinkedHashSet<>();
+        if (StrUtil.isNotBlank(name)) {
+            set.add(name.trim());
+        }
+        if (StrUtil.isNotBlank(fatherName)) {
+            set.add(fatherName.trim());
+        }
+        return new ArrayList<>(set);
+    }
+
+    /** quad: trainImg, testImg, trainAnno, testAnno */
+    private static boolean sourceLayoutUsableOnDisk(String[] quad) {
+        if (quad == null || quad.length != 4) {
             return false;
         }
-        if (!allLayoutDirsExist(tImg, sImg, tAnno, sAnno)) {
+        if (!allLayoutDirsExist(quad[0], quad[1], quad[2], quad[3])) {
             return false;
         }
         try {
-            return hasImageFile(Paths.get(tImg)) && hasTxtLabel(Paths.get(tAnno));
+            Path trainImg = Paths.get(quad[0]).normalize();
+            Path trainAnno = Paths.get(quad[2]).normalize();
+            return hasImageFileDeep(trainImg) && hasMidExportLabelFileDeep(trainAnno);
         } catch (IOException e) {
             return false;
         }
@@ -172,5 +231,35 @@ public final class InstanceDatasetPathUtil {
         try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir, "*.txt")) {
             return ds.iterator().hasNext();
         }
+    }
+
+    private static boolean hasImageFileDeep(Path dir) throws IOException {
+        if (!Files.isDirectory(dir)) {
+            return false;
+        }
+        try (Stream<Path> walk = Files.walk(dir, SOURCE_TREE_MAX_DEPTH)) {
+            return walk.filter(Files::isRegularFile).anyMatch(InstanceDatasetPathUtil::isImageFileName);
+        }
+    }
+
+    private static boolean isImageFileName(Path file) {
+        String n = file.getFileName().toString().toLowerCase();
+        return n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png") || n.endsWith(".bmp")
+                || n.endsWith(".tif") || n.endsWith(".tiff");
+    }
+
+    /** 任务数据集导出的中间数据：训练标注目录树内至少有一个 txt / json / xml 文件。 */
+    private static boolean hasMidExportLabelFileDeep(Path dir) throws IOException {
+        if (!Files.isDirectory(dir)) {
+            return false;
+        }
+        try (Stream<Path> walk = Files.walk(dir, SOURCE_TREE_MAX_DEPTH)) {
+            return walk.filter(Files::isRegularFile).anyMatch(InstanceDatasetPathUtil::isMidLabelFileName);
+        }
+    }
+
+    private static boolean isMidLabelFileName(Path file) {
+        String n = file.getFileName().toString().toLowerCase();
+        return n.endsWith(".txt") || n.endsWith(".json") || n.endsWith(".xml");
     }
 }

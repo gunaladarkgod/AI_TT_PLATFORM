@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xgls.web.entity.*;
 import com.xgls.web.mapper.*;
 import com.xgls.web.service.PreprocessService;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -65,8 +66,15 @@ public class PreprocessServiceImpl implements PreprocessService {
 
         // 2. 串行处理每个源数据集
         for (Long sourceId : sourceInstanceIds) {
-            // 2.1 查询源数据集
+            // 2.1 查询源数据集（mid 表优先；兼容历史写入 instance_dataset 的 id）
             InstanceDatasetMid source = instanceDatasetMidMapper.selectById(sourceId);
+            if (source == null) {
+                InstanceDataset legacy = instanceDatasetMapper.selectById(sourceId);
+                if (legacy != null && InstanceDatasetMidServiceImpl.isMidLikeLegacyInstanceDataset(legacy)) {
+                    source = new InstanceDatasetMid();
+                    BeanUtils.copyProperties(legacy, source);
+                }
+            }
             if (source == null) {
                 throw new RuntimeException("源实例数据集不存在: ID=" + sourceId);
             }
