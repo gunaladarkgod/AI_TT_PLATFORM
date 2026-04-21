@@ -1,15 +1,21 @@
 <template>
-  <div class="content-div">
-    <!-- 主体：左右布局 -->
+  <div class="content">
+    <!-- 主体：中间任务数据集（布局与任务数据集管理、原始数据集页一致：全宽表格区） -->
     <div class="split-layout">
-      <!-- 左侧：任务数据集列表 -->
-      <div class="left-panel">
-        <h4>任务数据集（请点选）</h4>
+      <div class="task-title-row">
+        <h4 class="panel-title">任务数据集（请点选）</h4>
+        <el-select v-model="taskSortMode" size="small" style="width: 170px">
+          <el-option label="最近更新优先" value="updated" />
+          <el-option label="按名称排序" value="name" />
+        </el-select>
+      </div>
+      <div class="table-div">
         <el-table
           class="my-table"
-          :data="taskDatasetList"
+          :data="sortedTaskDatasetList"
           stripe
           size="small"
+          style="width: 100%"
           @row-click="handleTaskRowClick"
           :row-class-name="getRowClassName"
           v-el-height-adaptive-table="{ bottomOffset: 70, isUse: true }"
@@ -36,13 +42,13 @@
             <template #default="{ row }">
               <div class="category-tags-container">
                 <el-tag
-                  v-for="(item, index) in getTaskCategoryList(row.coreClassList)"
+                  v-for="(item, index) in getTaskCategoryList(row)"
                   :key="`${row.id}-${index}`"
                   size="small"
                   :type="getTagType(index)"
                   style="margin: 2px; white-space: nowrap;"
                 >
-                  {{ item.name }}{{ item.count != null ? `: ${item.count}` : '' }}
+                  {{ item.name }}: {{ item.count ?? 0 }}
                 </el-tag>
               </div>
             </template>
@@ -71,10 +77,17 @@
           />
         </div>
       </div>
+    </div>
 
-      <!-- 右侧：实例数据集列表 -->
+    <!-- 右侧 Drawer：实例数据集列表 -->
+    <el-drawer
+      v-model="instanceDrawerVisible"
+      direction="btt"
+      size="70%"
+      :with-header="false"
+    >
       <div class="right-panel">
-        <h4>实例数据集（{{ selectedTask?.name || '未选择' }}）</h4>
+        <h4>实例数据集（{{ selectedTask?.name || '未选择任务' }}）</h4>
         <el-table
           class="my-table"
           :data="instanceDatasetList"
@@ -128,7 +141,7 @@
           </el-table-column>
         </el-table>
       </div>
-    </div>
+    </el-drawer>
 
     <!-- 训测划分 Drawer -->
     <el-drawer
@@ -235,6 +248,15 @@
               </el-tag>
               <span>示例图片 ({{ group.images.length }} 张)</span>
             </h3>
+            <el-button
+              size="small"
+              type="primary"
+              plain
+              :loading="groupRefreshing[group.name] === true"
+              @click="refreshPreviewGroup(group.name)"
+            >
+              换一换
+            </el-button>
           </div>
           <div class="image-row">
             <div
@@ -277,9 +299,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { TaskDatasetService, InstanceDatasetService } from '@/api/api'
+import { TaskDatasetService, InstanceDatasetService, SourceInstanceDatasetService } from '@/api/api'
 import { useRouter } from 'vue-router'
 import { request } from '@/api/axios'
 
@@ -287,6 +309,7 @@ const router = useRouter()
 
 // 左侧任务数据集
 const taskDatasetList = ref([])
+const taskSortMode = ref('updated')
 const currentPage = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
@@ -297,6 +320,33 @@ const selectedTaskId = ref(null)
 // 右侧实例数据集
 const instanceDatasetList = ref([])
 const instanceLoading = ref(false)
+const instanceDrawerVisible = ref(false)
+
+const sortedTaskDatasetList = computed(() => {
+  const src = Array.isArray(taskDatasetList.value) ? [...taskDatasetList.value] : []
+  if (taskSortMode.value === 'name') {
+    src.sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'zh-CN'))
+    return src
+  }
+  const toTs = (row) => {
+    const raw =
+      row?.devUpdatedTime ??
+      row?.dev_updated_time ??
+      row?.updatedTime ??
+      row?.updated_time ??
+      row?.createdTime ??
+      row?.created_time ??
+      ''
+    const ts = raw ? Date.parse(String(raw).trim()) : 0
+    return Number.isFinite(ts) ? ts : 0
+  }
+  src.sort((a, b) => {
+    const dt = toTs(b) - toTs(a)
+    if (dt !== 0) return dt
+    return String(a?.name || '').localeCompare(String(b?.name || ''), 'zh-CN')
+  })
+  return src
+})
 
 // 训测划分 Drawer
 const drawerVisible = ref(false)
@@ -314,6 +364,84 @@ const previewRow = ref(null)
 const previewGroups = ref([])
 const previewLoading = ref(false)
 const objectsMeta = ref({})
+const groupRefreshing = ref({})
+
+/** 任务名 → 中间实例数据集 class_list 解析后的 { 类别名: 数量 }（与预处理页一致） */
+const midClassByFather = ref({})
+
+function normalizeClsKey(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s-]/g, '')
+}
+
+function parseClassListObject(raw) {
+  if (raw == null || raw === '') return {}
+  if (typeof raw === 'object' && !Array.isArray(raw)) return { ...raw }
+  if (typeof raw === 'string') {
+    try {
+      const o = JSON.parse(raw)
+      if (typeof o === 'object' && !Array.isArray(o)) return o
+    } catch {
+      /* ignore */
+    }
+  }
+  return {}
+}
+
+function countsFromMid(midObj, targetName) {
+  if (!midObj || typeof midObj !== 'object') return 0
+  const n = normalizeClsKey(targetName)
+  for (const k of Object.keys(midObj)) {
+    if (normalizeClsKey(k) === n) return Number(midObj[k]) || 0
+  }
+  return 0
+}
+
+function parseTargetSchemaKeys(raw) {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw.map(String)
+  if (typeof raw === 'string') {
+    try {
+      const p = JSON.parse(raw)
+      if (Array.isArray(p)) return p.map(String)
+    } catch {
+      if (raw.includes(',')) {
+        return raw
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      }
+    }
+  }
+  return []
+}
+
+async function loadMidClassSummaries() {
+  try {
+    const res = await SourceInstanceDatasetService.list({ presentOnDisk: false })
+    const raw = typeof res === 'string' ? JSON.parse(res) : res
+    const list = Array.isArray(raw?.data) ? raw.data : Array.isArray(raw) ? raw : []
+    const byFather = new Map()
+    for (const m of list) {
+      const fn = m.fatherName ?? m.father_name
+      if (!fn) continue
+      const id = Number(m.id) || 0
+      const prev = byFather.get(fn)
+      if (!prev || id > prev.id) {
+        byFather.set(fn, { id, classList: m.classList ?? m.class_list })
+      }
+    }
+    const out = {}
+    for (const [fn, { classList }] of byFather) {
+      out[fn] = parseClassListObject(classList)
+    }
+    midClassByFather.value = out
+  } catch (e) {
+    console.warn('loadMidClassSummaries', e)
+  }
+}
 
 // 新增：用于左侧类别名称解析
 const getTagType = (index) => {
@@ -321,54 +449,79 @@ const getTagType = (index) => {
   return types[index % types.length]
 }
 
-const getTaskCategoryList = (coreClassList) => {
-  if (!coreClassList || coreClassList === '-' || coreClassList === '[]') return []
-
-  // 情况1: JSON 对象字符串，如 '{"ship":120}'
-  if (typeof coreClassList === 'string' && coreClassList.trim().startsWith('{')) {
+const parseClassListSource = (src) => {
+  if (!src || src === '-' || src === '[]') return []
+  if (typeof src === 'string' && src.trim().startsWith('{')) {
     try {
-      const parsed = JSON.parse(coreClassList)
+      const parsed = JSON.parse(src)
       if (typeof parsed === 'object' && !Array.isArray(parsed)) {
         return Object.entries(parsed).map(([name, count]) => ({
           name,
-          count: parseInt(count, 10)
+          count: Number.isFinite(Number(count)) ? parseInt(count, 10) : 0
         }))
       }
     } catch (e) {
-      console.warn('解析 coreClassList 失败（对象格式）:', coreClassList, e)
+      // continue
     }
   }
-
-  // 情况2: JSON 数组字符串，如 '["ship","plane"]'
-  if (typeof coreClassList === 'string') {
+  if (typeof src === 'string') {
     try {
-      const parsed = JSON.parse(coreClassList)
+      const parsed = JSON.parse(src)
       if (Array.isArray(parsed)) {
-        return parsed.map(name => ({ name, count: null }))
+        return parsed.map(name => ({ name: String(name), count: 0 }))
       }
     } catch (e) {
-      // 继续尝试逗号分隔
+      // continue
     }
   }
-
-  // 情况3: 逗号分隔字符串，如 'ship,plane'
-  if (typeof coreClassList === 'string') {
-    const names = coreClassList.split(',').map(s => s.trim()).filter(Boolean)
+  if (Array.isArray(src)) {
+    return src.map(name => ({ name: String(name), count: 0 }))
+  }
+  if (typeof src === 'string') {
+    const names = src.split(',').map(s => s.trim()).filter(Boolean)
     if (names.length > 0) {
-      return names.map(name => ({ name, count: null }))
+      return names.map(name => ({ name, count: 0 }))
     }
   }
-
-  // 情况4: 已是对象（非字符串）
-  if (typeof coreClassList === 'object' && !Array.isArray(coreClassList)) {
-    return Object.entries(coreClassList).map(([name, count]) => ({
+  if (typeof src === 'object' && !Array.isArray(src)) {
+    return Object.entries(src).map(([name, count]) => ({
       name,
-      count: parseInt(count, 10)
+      count: Number.isFinite(Number(count)) ? parseInt(count, 10) : 0
     }))
   }
+  return []
+}
 
-  // 默认：当作单个类别
-  return [{ name: String(coreClassList), count: null }]
+const getTaskCategoryList = (row) => {
+  const coreRaw = row?.coreClassList ?? row?.core_class_list
+  const targetRaw = row?.targetSchema ?? row?.target_schema
+  const fromCore = parseClassListSource(coreRaw)
+  const midCounts = row?.name ? midClassByFather.value[row.name] : null
+  const keys = parseTargetSchemaKeys(targetRaw)
+  const coreHasNonZero = fromCore.some((x) => Number(x.count) > 0)
+
+  function countForKey(k) {
+    if (coreHasNonZero) {
+      const hit = fromCore.find((x) => normalizeClsKey(x.name) === normalizeClsKey(k))
+      return hit ? Number(hit.count) || 0 : 0
+    }
+    const fromMid = countsFromMid(midCounts, k)
+    if (fromMid > 0) return fromMid
+    const hit = fromCore.find((x) => normalizeClsKey(x.name) === normalizeClsKey(k))
+    return hit ? Number(hit.count) || 0 : 0
+  }
+
+  if (keys.length) {
+    return keys.map((k) => ({ name: k, count: countForKey(k) }))
+  }
+  if (fromCore.length) {
+    if (coreHasNonZero) return fromCore
+    return fromCore.map((x) => ({
+      name: x.name,
+      count: countsFromMid(midCounts, x.name) || Number(x.count) || 0
+    }))
+  }
+  return []
 }
 
 // 删除功能
@@ -420,6 +573,7 @@ const openInstancePreview = async (row) => {
       return { name, images }
     })
     previewGroups.value = groups
+    groupRefreshing.value = {}
     setTimeout(() => {
       groups.forEach(g => g.images.forEach(src => ensurePreviewAnno(src)))
     }, 0)
@@ -428,6 +582,41 @@ const openInstancePreview = async (row) => {
     ElMessage.error('加载示例失败：' + (e?.message || e))
   } finally {
     previewLoading.value = false
+  }
+}
+
+const refreshPreviewGroup = async (groupName) => {
+  if (!previewRow.value?.id || !groupName) return
+  groupRefreshing.value = { ...groupRefreshing.value, [groupName]: true }
+  try {
+    const res = await request(
+      `/instanceDataset/${previewRow.value.id}/preview`,
+      { perLabel: 3 },
+      'get',
+      'application/json'
+    )
+    const obj = typeof res === 'string' ? JSON.parse(res) : res
+    const data = obj.data || obj
+    const items = Array.isArray(data.items) ? data.items : []
+    const hit = items.find(it => {
+      const name = it.label || it.className || it.name || '未命名'
+      return name === groupName
+    })
+    const images = hit && Array.isArray(hit.images)
+      ? hit.images
+      : hit && Array.isArray(hit.urls)
+        ? hit.urls
+        : []
+    previewGroups.value = previewGroups.value.map(g => (
+      g.name === groupName ? { ...g, images } : g
+    ))
+    setTimeout(() => {
+      images.forEach(src => ensurePreviewAnno(src))
+    }, 0)
+  } catch (e) {
+    ElMessage.error('换一换失败：' + (e?.message || e))
+  } finally {
+    groupRefreshing.value = { ...groupRefreshing.value, [groupName]: false }
   }
 }
 
@@ -520,6 +709,7 @@ const handleTaskRowClick = (row) => {
     selectedTask.value = null
     selectedTaskId.value = null
     instanceDatasetList.value = []
+    instanceDrawerVisible.value = false
     return
   }
   handleTaskSelect(row)
@@ -530,6 +720,7 @@ const handleTaskSelect = (row) => {
   selectedTask.value = row
   selectedTaskId.value = row.id // number 类型
   fetchInstanceList(row.name)
+  instanceDrawerVisible.value = true
 }
 
 // 打开训测划分 Drawer
@@ -679,22 +870,49 @@ const selectDiversePlans = (allPlans, limit) => {
 // 初始化
 onMounted(() => {
   fetchTaskList()
+  loadMidClassSummaries()
 })
 </script>
 
 <style scoped lang="scss">
-.content-div {
+/* 与 taskDatabaseManage / originalDatasetManage 页面对齐 */
+.content {
   padding: 10px;
+  background-color: #f5f7fa;
 }
 .split-layout {
-  display: flex;
-  gap: 20px;
+  display: block;
   margin-top: 12px;
   height: calc(100vh - 180px);
-}
-.left-panel {
-  flex: 1;
   overflow-y: auto;
+}
+.table-div {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.panel-title {
+  margin: 0;
+  font-weight: 600;
+  color: #333;
+  font-size: 18px;
+}
+.task-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.content ::v-deep(.el-table) {
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.content ::v-deep(.el-table__header-wrapper) {
+  background-color: #fafafa;
 }
 .right-panel {
   flex: 1;
@@ -718,6 +936,11 @@ onMounted(() => {
   border-radius: 4px;
 }
 
+/* small 表格行高与另两页观感接近 */
+.content :deep(.el-table--small .cell) {
+  line-height: 20px;
+}
+
 /* 隐藏单选按钮的标签文本 */
 ::v-deep .el-radio__label {
   display: none !important;
@@ -738,6 +961,10 @@ onMounted(() => {
   border-bottom: none;
 }
 .category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 16px;
 }
 .category-title {

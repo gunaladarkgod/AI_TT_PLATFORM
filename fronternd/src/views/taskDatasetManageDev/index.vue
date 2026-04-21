@@ -104,7 +104,11 @@
             </h2>
             <div class="section-desc-row">
               <p class="section-desc section-desc--inline">查看已有任务，并执行编辑或删除操作。</p>
-              <div class="section-view-toggle" @click.stop>
+              <div class="section-task-toolbar" @click.stop>
+                <el-select v-model="taskSortMode" size="small" style="width: 170px">
+                  <el-option label="最近修改优先" value="updated" />
+                  <el-option label="按名称排序" value="name" />
+                </el-select>
                 <el-switch
                   v-model="taskViewAsTable"
                   inline-prompt
@@ -118,7 +122,7 @@
             <el-empty v-if="!tasks.length" description="暂无任务，请先创建" />
             <div v-else-if="!taskViewAsTable" class="task-card-grid">
               <div
-                v-for="task in tasks"
+                v-for="task in tasksSorted"
                 :key="task.name"
                 class="task-card"
                 @click="handleTaskCardClick(task, $event)"
@@ -203,7 +207,7 @@
                     <span class="descr-value-text">{{ task.desc || '-' }}</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="目标类别" :span="taskCardDescrColumn">
-                    <div class="info-tags" v-if="task.target_schema?.length">
+                    <div class="info-tags info-tags--card-plain" v-if="task.target_schema?.length">
                       <el-tag v-for="cls in task.target_schema" :key="`${task.name}-schema-${cls}`" size="small">
                         {{ cls }}：{{ targetMappedSampleCountForTask(task, cls) }}
                       </el-tag>
@@ -211,12 +215,11 @@
                     <span v-else>-</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="关联数据集" :span="taskCardDescrColumn">
-                    <div class="info-tags" v-if="task.test_datasets?.length">
+                    <div class="info-tags info-tags--card-plain" v-if="task.test_datasets?.length">
                       <el-tag
                         v-for="ds in task.test_datasets"
                         :key="`${task.name}-dataset-${ds}`"
                         size="small"
-                        type="success"
                       >
                         {{ ds }}
                       </el-tag>
@@ -268,7 +271,7 @@
 
             <el-table
               v-else
-              :data="tasks"
+              :data="tasksSorted"
               row-key="name"
               border
               stripe
@@ -322,11 +325,12 @@
               </el-table-column>
               <el-table-column label="目标类别" min-width="200">
                 <template #default="{ row }">
-                  <div class="info-tags" v-if="row.target_schema?.length">
+                  <div class="info-tags info-tags--table-varied" v-if="row.target_schema?.length">
                     <el-tag
                       v-for="cls in row.target_schema"
                       :key="`${row.name}-t-${cls}`"
                       size="small"
+                      :type="listInfoTagType(`${row.name}\t${cls}`)"
                     >
                       {{ cls }}：{{ targetMappedSampleCountForTask(row, cls) }}
                     </el-tag>
@@ -336,12 +340,12 @@
               </el-table-column>
               <el-table-column label="关联数据集" min-width="180">
                 <template #default="{ row }">
-                  <div class="info-tags" v-if="row.test_datasets?.length">
+                  <div class="info-tags info-tags--table-varied" v-if="row.test_datasets?.length">
                     <el-tag
                       v-for="ds in row.test_datasets"
                       :key="`${row.name}-ds-${ds}`"
                       size="small"
-                      type="success"
+                      :type="listInfoTagType(`${row.name}\t${ds}`)"
                     >
                       {{ ds }}
                     </el-tag>
@@ -446,7 +450,7 @@
                       clearable
                     >
                       <el-option
-                        v-for="task in tasks"
+                        v-for="task in tasksSorted"
                         :key="task.name"
                         :label="task.name"
                         :value="task.name"
@@ -702,6 +706,8 @@ import { OriginalDatasetService, TaskDatasetDevService } from '@/api/api'
 
 const datasetOptions = ref([])
 const tasks = ref([])
+/** updated=按修改时间降序，name=按名称 */
+const taskSortMode = ref('updated')
 /** false=卡片，true=表格 */
 const taskViewAsTable = ref(false)
 const selectedTaskName = ref('')
@@ -754,6 +760,33 @@ const editForm = ref({
   updatedBy: '',
   updatedTime: ''
 })
+
+function sortTasksForDisplay(arr, mode) {
+  const copy = Array.isArray(arr) ? [...arr] : []
+  if (mode === 'name') {
+    copy.sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'zh-CN'))
+    return copy
+  }
+  copy.sort((a, b) => {
+    const ta = Date.parse(String(a?.updated_time || '').trim()) || 0
+    const tb = Date.parse(String(b?.updated_time || '').trim()) || 0
+    if (tb !== ta) return tb - ta
+    return String(a?.name || '').localeCompare(String(b?.name || ''), 'zh-CN')
+  })
+  return copy
+}
+
+const tasksSorted = computed(() => sortTasksForDisplay(tasks.value, taskSortMode.value))
+
+function ensureSelectedTaskNameAfterListUpdate() {
+  if (selectedTaskName.value && !tasks.value.some((item) => item.name === selectedTaskName.value)) {
+    selectedTaskName.value = ''
+  }
+  if (!selectedTaskName.value && tasks.value.length) {
+    const ordered = sortTasksForDisplay(tasks.value, taskSortMode.value)
+    selectedTaskName.value = ordered[0]?.name || ''
+  }
+}
 
 const selectedTask = computed(() => {
   return tasks.value.find(item => item.name === selectedTaskName.value) || null
@@ -899,12 +932,7 @@ async function loadTasks() {
     throw new Error(res?.msg || '读取任务列表失败')
   }
   tasks.value = Array.isArray(res?.data) ? res.data : []
-  if (selectedTaskName.value && !tasks.value.some(item => item.name === selectedTaskName.value)) {
-    selectedTaskName.value = ''
-  }
-  if (!selectedTaskName.value && tasks.value.length) {
-    selectedTaskName.value = tasks.value[0].name
-  }
+  ensureSelectedTaskNameAfterListUpdate()
 }
 
 function normalizeLabelForMatch(s, caseSensitive) {
@@ -1170,6 +1198,7 @@ async function deleteTask(task) {
     if (selectedTaskName.value === task.name) {
       selectedTaskName.value = ''
     }
+    ensureSelectedTaskNameAfterListUpdate()
   } catch (e) {
     ElMessage.error(`删除失败：${e?.message || e}`)
   }
@@ -1288,11 +1317,28 @@ function jumpToTaskMappingEditor(task) {
 function statusTagType(statusCode) {
   if (statusCode === 'ready') return 'success'
   if (statusCode === 'stale') return 'warning'
-  return 'info'
+  return 'warning'
 }
 
 function mappingTagType(statusCode) {
   return statusCode === 'ok' ? 'success' : 'danger'
+}
+
+/** 列表视图目标类别 / 关联数据集：按内容哈希分配颜色，同一标签颜色稳定 */
+const LIST_INFO_TAG_TYPES = ['primary', 'success', 'warning', 'danger', 'info']
+
+function hashSeed(s) {
+  let h = 2166136261 >>> 0
+  const str = String(s)
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i)
+    h = Math.imul(h, 16777619) >>> 0
+  }
+  return h
+}
+
+function listInfoTagType(seedKey) {
+  return LIST_INFO_TAG_TYPES[hashSeed(seedKey) % LIST_INFO_TAG_TYPES.length]
 }
 
 /** 与后端 resolveExportStatusCode 一致：无 last_export_time 视为未导出，按钮显示「导出」 */
@@ -1681,6 +1727,13 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 12px 16px;
   flex-wrap: wrap;
+}
+
+.section-task-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
 .section-view-toggle {
@@ -2317,10 +2370,24 @@ onUnmounted(() => {
   --el-button-hover-border-color: #409eff;
 }
 
-.section-block :deep(.el-tag) {
+/* 仅统一「主色」类标签；勿覆盖 success/warning/danger/info，否则数据集状态等语义色会全部变蓝 */
+.section-block
+  :deep(
+    .el-tag:not(.el-tag--success):not(.el-tag--warning):not(.el-tag--danger):not(.el-tag--info)
+  ) {
   --el-tag-bg-color: #ecf5ff;
   --el-tag-border-color: #b3d8ff;
   --el-tag-text-color: #409eff;
+}
+
+/* 卡片内目标类别 / 关联数据集：白底（需压过上一段主色标签规则） */
+.section-block .task-card .info-tags--card-plain :deep(.el-tag) {
+  --el-tag-bg-color: #ffffff !important;
+  --el-tag-border-color: #e4e7ed !important;
+  --el-tag-text-color: #303133 !important;
+  background-color: #ffffff !important;
+  border-color: #e4e7ed !important;
+  color: #303133 !important;
 }
 
 .section-block :deep(.el-alert--warning) {

@@ -2,9 +2,15 @@ package com.xgls.web.service.impl;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONArray;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import com.xgls.web.entity.*;
 import com.xgls.web.mapper.*;
 import com.xgls.web.service.PreprocessService;
+import com.xgls.web.service.TaskDataset1Service;
+import com.xgls.web.utils.InstanceDatasetPathUtil;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,6 +39,9 @@ public class PreprocessServiceImpl implements PreprocessService {
     private PreprocessScriptInfoMapper preprocessScriptInfoMapper;
     @Autowired
     private InstanceDatasetMapper instanceDatasetMapper;
+
+    @Autowired
+    private TaskDataset1Service taskDatasetService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -79,10 +88,13 @@ public class PreprocessServiceImpl implements PreprocessService {
                 throw new RuntimeException("源实例数据集不存在: ID=" + sourceId);
             }
 
-            // 2.2 自动生成唯一输出名称（Path 拼接，避免根目录漏写末尾 / 时路径粘连错误）
+            // 2.2 落盘：{instancedata-root}/{任务数据集名}/{实例数据集名}/images|annotations/...
             String outputName = generateOutputName(source.getName());
-            Path instanceRoot = Paths.get(instanceDataRoot.trim().replaceAll("/+$", ""));
-            Path datasetOut = instanceRoot.resolve(outputName);
+            Path instanceRoot = Paths.get(instanceDataRoot.trim().replaceAll("/+$", "")).normalize();
+            String taskDirSeg = InstanceDatasetPathUtil.safeFinalDatasetDirSegment(source.getFatherName());
+            Path taskDir = instanceRoot.resolve(taskDirSeg).normalize();
+            Files.createDirectories(taskDir);
+            Path datasetOut = taskDir.resolve(outputName).normalize();
 
             Path outputTrainImgPath = datasetOut.resolve("images").resolve("train");
             Path outputTrainAnnoPath = datasetOut.resolve("annotations").resolve("train");
@@ -106,7 +118,7 @@ public class PreprocessServiceImpl implements PreprocessService {
             // ===========================================
             // ✅【关键修改】为训练集创建临时中间目录
             // ===========================================
-            Path tempRoot = instanceRoot.resolve("temp_preprocess_" + UUID.randomUUID());
+            Path tempRoot = taskDir.resolve("temp_preprocess_" + UUID.randomUUID());
             Path tempEnhancedImgPath = tempRoot.resolve("images");
             Path tempEnhancedAnnoPath = tempRoot.resolve("annotations");
 
@@ -170,6 +182,7 @@ public class PreprocessServiceImpl implements PreprocessService {
             result.setAnnoNum(source.getAnnoNum());
             result.setClassNum(source.getClassNum());
             result.setClassList(source.getClassList());
+            applyTaskTargetSchemaClassList(result);
             result.setTrainImagePath(outputTrainImgPathStr);
             result.setTrainAnnoPath(outputTrainAnnoPathStr);
             result.setTestImagePath(outputTestImgPathStr);
@@ -197,6 +210,68 @@ public class PreprocessServiceImpl implements PreprocessService {
         }
 
         return results;
+    }
+
+    /**
+     * 与任务数据集管理中配置的 target_schema 对齐类别名与顺序；数量来自中间实例数据集（导出统计），键名按任务定义归一匹配。
+     */
+    private void applyTaskTargetSchemaClassList(InstanceDataset result) {
+        String taskName = result.getFatherName();
+        if (StrUtil.isBlank(taskName)) {
+            return;
+        }
+        TaskDataset task = taskDatasetService.lambdaQuery()
+                .eq(TaskDataset::getName, taskName.trim())
+                .orderByDesc(TaskDataset::getId)
+                .last("limit 1")
+                .one();
+        if (task == null || StrUtil.isBlank(task.getTargetSchema())) {
+            return;
+        }
+        JSONArray schema;
+        try {
+            schema = JSONUtil.parseArray(task.getTargetSchema());
+        } catch (Exception e) {
+            return;
+        }
+        if (schema == null || schema.isEmpty()) {
+            return;
+        }
+        JSONObject midCounts;
+        try {
+            midCounts = JSONUtil.parseObj(StrUtil.blankToDefault(result.getClassList(), "{}"));
+        } catch (Exception e) {
+            midCounts = new JSONObject();
+        }
+        LinkedHashMap<String, Long> out = new LinkedHashMap<>();
+        for (Object t : schema) {
+            String targetLabel = StrUtil.trimToEmpty(String.valueOf(t));
+            if (StrUtil.isBlank(targetLabel)) {
+                continue;
+            }
+            long cnt = 0L;
+            for (String k : midCounts.keySet()) {
+                if (normalizeClassKey(k).equals(normalizeClassKey(targetLabel))) {
+                    Object raw = midCounts.get(k);
+                    if (raw instanceof Number) {
+                        cnt = ((Number) raw).longValue();
+                    }
+                    break;
+                }
+            }
+            out.put(targetLabel, cnt);
+        }
+        if (!out.isEmpty()) {
+            result.setClassList(JSONUtil.toJsonStr(out));
+            result.setClassNum(out.size());
+        }
+    }
+
+    private static String normalizeClassKey(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.trim().toLowerCase(Locale.ROOT).replace("_", "").replace("-", "").replace(" ", "");
     }
 
     /** 与历史库中记录风格一致：POSIX 路径且以 / 结尾，便于前端与训练侧展示 */

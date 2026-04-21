@@ -48,9 +48,12 @@ public final class InstanceDatasetPathUtil {
         String tImg = normalizeStoredPath(info.getTrainImagePath(), rootConfigured);
         String name = info.getName();
         throw new IllegalStateException(String.format(
-                "train_image_path 不是有效目录: %s；在配置根目录 %s 下也未找到 %s 的标准结构（images/train、images/test、annotations/train、annotations/test）。"
+                "train_image_path 不是有效目录: %s；在配置根目录 %s 下也未找到标准结构（优先 %s/%s/… 或旧版单层 %s/…）。"
                         + " 请确认预处理已成功落盘、数据未被删除或移动，环境变量 INSTANCE_DATA_ROOT 与落盘时一致。",
-                tImg, rootConfigured, StrUtil.blankToDefault(name, "(无 name)")));
+                tImg, rootConfigured,
+                StrUtil.blankToDefault(info.getFatherName(), "(无 father_name)"),
+                StrUtil.blankToDefault(name, "(无 name)"),
+                StrUtil.blankToDefault(name, "(无 name)")));
     }
 
     public static Optional<ResolvedInstanceDiskPaths> tryResolveTarget(InstanceDataset info, String instanceDataRoot) {
@@ -70,17 +73,46 @@ public final class InstanceDatasetPathUtil {
             return Optional.empty();
         }
 
-        Path base = rootConfigured.resolve(name).normalize();
+        String father = info.getFatherName();
+        if (StrUtil.isNotBlank(father)) {
+            Path baseTask = rootConfigured.resolve(safeFinalDatasetDirSegment(father)).resolve(name.trim()).normalize();
+            String bTImg = toPosixPath(baseTask.resolve("images").resolve("train"));
+            String bSImg = toPosixPath(baseTask.resolve("images").resolve("test"));
+            String bTAnno = toPosixPath(baseTask.resolve("annotations").resolve("train"));
+            String bSAnno = toPosixPath(baseTask.resolve("annotations").resolve("test"));
+            if (allLayoutDirsExist(bTImg, bSImg, bTAnno, bSAnno)) {
+                log.info("[instance-dataset] 库中路径无效，已按 instancedata-root + father_name + name 解析: father={}, name={}, base={}",
+                        father, name, baseTask);
+                return Optional.of(new ResolvedInstanceDiskPaths(bTImg, bSImg, bTAnno, bSAnno));
+            }
+        }
+
+        Path base = rootConfigured.resolve(name.trim()).normalize();
         String aTImg = toPosixPath(base.resolve("images").resolve("train"));
         String aSImg = toPosixPath(base.resolve("images").resolve("test"));
         String aTAnno = toPosixPath(base.resolve("annotations").resolve("train"));
         String aSAnno = toPosixPath(base.resolve("annotations").resolve("test"));
 
         if (allLayoutDirsExist(aTImg, aSImg, aTAnno, aSAnno)) {
-            log.info("[instance-dataset] 库中路径无效，已按 instancedata-root + name 解析: name={}, base={}", name, base);
+            log.info("[instance-dataset] 库中路径无效，已按 instancedata-root + name（旧版单层）解析: name={}, base={}", name, base);
             return Optional.of(new ResolvedInstanceDiskPaths(aTImg, aSImg, aTAnno, aSAnno));
         }
         return Optional.empty();
+    }
+
+    /**
+     * 最终实例数据集目录第一层：与任务数据集名称一致，需安全化以用于路径拼接（与预处理落盘一致）。
+     */
+    public static String safeFinalDatasetDirSegment(String taskName) {
+        if (StrUtil.isBlank(taskName)) {
+            return "_unnamed_task";
+        }
+        String s = taskName.trim().replaceAll("[\\\\/:*?\"<>|]+", "_");
+        s = s.replaceAll("\\s+", "_");
+        if (StrUtil.isBlank(s)) {
+            return "_unnamed_task";
+        }
+        return s;
     }
 
     /** MMDet 打包需要非空 JSONObject class_list（与 buildDatasetCfg 一致）。 */

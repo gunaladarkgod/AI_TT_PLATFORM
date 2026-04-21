@@ -1,10 +1,10 @@
 package com.xgls.web.service;
 
-import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.xgls.web.base.AjaxResult;
 import com.xgls.web.entity.InstanceDatasetMid;
 import com.xgls.web.entity.OriginalDataset;
@@ -31,8 +31,6 @@ import java.util.*;
 @Service
 public class TaskDatasetDevService {
 
-    @Value("${sys.task-dataset-dev-file:/home/omen1/AI_TT_Platform/data/task_dataset_dev/tasks.json}")
-    private String taskDatasetDevFile;
     @Value("${sys.original-dataset-root:/home/omen1/AI_TT_Platform/data/original_dataset}")
     private String originalDatasetRoot;
     @Value("${sys.instancecfg.instancedata-mid-root:/home/omen1/AI_TT_Platform/data/instance_dataset_mid/}")
@@ -286,29 +284,196 @@ public class TaskDatasetDevService {
     }
 
     private JSONObject readTaskRoot() throws Exception {
-        Path path = taskConfigPath();
-        if (!Files.exists(path)) {
-            return new JSONObject(new LinkedHashMap<>());
+        List<TaskDataset> rows = taskDatasetService.lambdaQuery()
+                .orderByDesc(TaskDataset::getId)
+                .list();
+        LinkedHashMap<String, TaskDataset> latestByName = new LinkedHashMap<>();
+        for (TaskDataset row : rows) {
+            String name = trim(row.getName());
+            if (StrUtil.isBlank(name)) {
+                continue;
+            }
+            latestByName.putIfAbsent(name, row);
         }
-        String text = Files.readString(path, StandardCharsets.UTF_8);
-        if (StrUtil.isBlank(text)) {
-            return new JSONObject(new LinkedHashMap<>());
+
+        JSONObject root = new JSONObject(new LinkedHashMap<>());
+        List<String> names = new ArrayList<>(latestByName.keySet());
+        names.sort(String::compareToIgnoreCase);
+        for (String name : names) {
+            TaskDataset row = latestByName.get(name);
+            JSONObject one = new JSONObject();
+            one.set("desc", StrUtil.blankToDefault(row.getTaskDesc(), ""));
+            one.set("target_schema", parseJsonArrayOrDefault(row.getTargetSchema(), deriveTargetSchema(row)));
+            one.set("test_datasets", parseJsonArrayOrDefault(row.getTestDatasets(), deriveTestDatasets(row)));
+            one.set("mapping_rules", parseJsonObjectOrDefault(row.getMappingRules(), new JSONObject()));
+
+            LocalDateTime updatedTime = row.getDevUpdatedTime() != null ? row.getDevUpdatedTime() : row.getCreatedTime();
+            one.set("updated_time", updatedTime != null ? updatedTime.toString() : "");
+            one.set("updated_by", StrUtil.blankToDefault(row.getDevUpdatedBy(), StrUtil.blankToDefault(row.getUsername(), "")));
+
+            one.set("last_export_time", row.getLastExportTime() != null ? row.getLastExportTime().toString() : "");
+            one.set("last_export_source_updated_time",
+                    row.getLastExportSourceUpdatedTime() != null ? row.getLastExportSourceUpdatedTime().toString() : "");
+            one.set("last_export_by", StrUtil.blankToDefault(row.getLastExportBy(), ""));
+            one.set("last_export_mid_count", row.getLastExportMidCount() == null ? 0 : row.getLastExportMidCount());
+            root.set(name, one);
         }
-        Object obj = JSONUtil.parse(text);
-        if (obj instanceof JSONObject jo) {
-            return jo;
-        }
-        return new JSONObject(new LinkedHashMap<>());
+        return root;
     }
 
     private void writeTaskRoot(JSONObject root) throws Exception {
-        Path path = taskConfigPath();
-        FileUtil.mkParentDirs(path.toFile());
-        Files.writeString(path, JSONUtil.toJsonPrettyStr(root), StandardCharsets.UTF_8);
+        List<TaskDataset> rows = taskDatasetService.lambdaQuery()
+                .orderByDesc(TaskDataset::getId)
+                .list();
+        LinkedHashMap<String, TaskDataset> latestByName = new LinkedHashMap<>();
+        for (TaskDataset row : rows) {
+            String name = trim(row.getName());
+            if (StrUtil.isBlank(name)) {
+                continue;
+            }
+            latestByName.putIfAbsent(name, row);
+        }
+
+        Set<String> targetNames = new LinkedHashSet<>(root.keySet());
+        for (String existingName : latestByName.keySet()) {
+            if (!targetNames.contains(existingName)) {
+                taskDatasetService.remove(new LambdaQueryWrapper<TaskDataset>().eq(TaskDataset::getName, existingName));
+            }
+        }
+
+        for (String name : root.keySet()) {
+            JSONObject one = root.getJSONObject(name);
+            if (one == null || StrUtil.isBlank(name)) {
+                continue;
+            }
+            TaskDataset row = latestByName.get(name);
+            boolean isNew = false;
+            if (row == null) {
+                row = new TaskDataset();
+                row.setName(name);
+                row.setSensorType("外部");
+                row.setTargetType("复合");
+                row.setDataFormat(0);
+                row.setUsername(StrUtil.blankToDefault(currentUsername(), "admin"));
+                row.setCreatedTime(LocalDateTime.now());
+                row.setCoreId("");
+                row.setCoreName("");
+                row.setCoreTargetType("");
+                row.setCoreImgNum(0);
+                row.setCoreAnnoNum(0);
+                row.setCoreClassNum(0);
+                row.setCoreClassList("{}");
+                row.setCoreDataPath("");
+                row.setCoreAnnoPath("");
+                row.setSupId("");
+                row.setSupName("");
+                row.setSupTargetType("");
+                row.setSupImgNum(0);
+                row.setSupAnnoNum(0);
+                row.setSupClassNum(0);
+                row.setSupClassList("{}");
+                row.setSupDataPath("");
+                row.setSupAnnoPath("");
+                isNew = true;
+            }
+
+            row.setTaskDesc(one.getStr("desc", ""));
+            row.setTargetSchema(JSONUtil.toJsonStr(parseJsonArrayOrDefault(one.get("target_schema"), new JSONArray())));
+            row.setTestDatasets(JSONUtil.toJsonStr(parseJsonArrayOrDefault(one.get("test_datasets"), new JSONArray())));
+            row.setMappingRules(JSONUtil.toJsonStr(parseJsonObjectOrDefault(one.get("mapping_rules"), new JSONObject())));
+            row.setDevUpdatedTime(parseTime(one.getStr("updated_time", "")));
+            row.setDevUpdatedBy(one.getStr("updated_by", ""));
+            row.setLastExportTime(parseTime(one.getStr("last_export_time", "")));
+            row.setLastExportSourceUpdatedTime(parseTime(one.getStr("last_export_source_updated_time", "")));
+            row.setLastExportBy(one.getStr("last_export_by", ""));
+            row.setLastExportMidCount(one.getInt("last_export_mid_count", 0));
+
+            if (isNew) {
+                taskDatasetService.save(row);
+            } else {
+                taskDatasetService.updateById(row);
+            }
+        }
     }
 
-    private Path taskConfigPath() {
-        return Paths.get(taskDatasetDevFile).normalize();
+    private JSONArray deriveTargetSchema(TaskDataset row) {
+        JSONArray arr = new JSONArray();
+        String coreClassList = trim(row.getCoreClassList());
+        if (StrUtil.isBlank(coreClassList)) {
+            return arr;
+        }
+        try {
+            if (coreClassList.startsWith("{")) {
+                JSONObject obj = JSONUtil.parseObj(coreClassList);
+                for (String k : obj.keySet()) {
+                    if (StrUtil.isNotBlank(k)) arr.add(k);
+                }
+                return arr;
+            }
+            if (coreClassList.startsWith("[")) {
+                JSONArray src = JSONUtil.parseArray(coreClassList);
+                for (Object it : src) {
+                    String one = trim(it);
+                    if (StrUtil.isNotBlank(one)) arr.add(one);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return arr;
+    }
+
+    private JSONArray deriveTestDatasets(TaskDataset row) {
+        JSONArray arr = new JSONArray();
+        for (String one : splitUnderscore(row.getCoreName())) {
+            if (StrUtil.isNotBlank(one)) {
+                arr.add(one);
+            }
+        }
+        return arr;
+    }
+
+    private JSONArray parseJsonArrayOrDefault(Object raw, JSONArray dft) {
+        if (raw instanceof JSONArray ja) {
+            return ja;
+        }
+        String txt = trim(raw);
+        if (StrUtil.isBlank(txt)) {
+            return dft;
+        }
+        try {
+            return JSONUtil.parseArray(txt);
+        } catch (Exception e) {
+            return dft;
+        }
+    }
+
+    private JSONObject parseJsonObjectOrDefault(Object raw, JSONObject dft) {
+        if (raw instanceof JSONObject jo) {
+            return jo;
+        }
+        if (raw instanceof Map<?, ?> map) {
+            return JSONUtil.parseObj(map);
+        }
+        String txt = trim(raw);
+        if (StrUtil.isBlank(txt)) {
+            return dft;
+        }
+        try {
+            return JSONUtil.parseObj(txt);
+        } catch (Exception e) {
+            return dft;
+        }
+    }
+
+    private LocalDateTime parseTime(String raw) {
+        if (StrUtil.isBlank(raw)) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(raw.trim());
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private List<String> toStringList(Object obj) {
@@ -788,19 +953,19 @@ public class TaskDatasetDevService {
                 continue;
             }
 
-            Map<Integer, String> catIdToName = new HashMap<>();
-            JSONArray keptCategories = new JSONArray();
+            LinkedHashMap<String, Integer> mappedCategoryIdByName = new LinkedHashMap<>();
+            Map<Integer, Integer> oldCatIdToNewCatId = new HashMap<>();
             for (Object cObj : categories) {
                 if (!(cObj instanceof JSONObject c)) continue;
                 Integer id = c.getInt("id");
                 String n = c.getStr("name", "");
                 if (id == null || StrUtil.isBlank(n)) continue;
-                catIdToName.put(id, n);
-                if (labelMap.containsKey(n)) {
-                    keptCategories.add(c);
-                }
+                String mapped = labelMap.get(n);
+                if (StrUtil.isBlank(mapped)) continue;
+                mappedCategoryIdByName.computeIfAbsent(mapped, k -> mappedCategoryIdByName.size() + 1);
+                oldCatIdToNewCatId.put(id, mappedCategoryIdByName.get(mapped));
             }
-            if (keptCategories.isEmpty()) {
+            if (mappedCategoryIdByName.isEmpty()) {
                 continue;
             }
 
@@ -810,8 +975,7 @@ public class TaskDatasetDevService {
                 if (!(aObj instanceof JSONObject a)) continue;
                 Integer catId = a.getInt("category_id");
                 if (catId == null) continue;
-                String origName = catIdToName.get(catId);
-                if (StrUtil.isBlank(origName) || !labelMap.containsKey(origName)) continue;
+                if (!oldCatIdToNewCatId.containsKey(catId)) continue;
                 Long imageId = a.getLong("image_id");
                 if (imageId != null) {
                     keepImageIds.add(imageId);
@@ -848,19 +1012,33 @@ public class TaskDatasetDevService {
                 continue;
             }
 
+            Map<Integer, String> newCatIdToName = new HashMap<>();
+            for (Map.Entry<String, Integer> e : mappedCategoryIdByName.entrySet()) {
+                newCatIdToName.put(e.getValue(), e.getKey());
+            }
             JSONArray keptAnn = new JSONArray();
             for (JSONObject a : candidateAnn) {
                 Long imageId = a.getLong("image_id");
                 if (imageId == null || !copiedImageIds.contains(imageId)) continue;
-                keptAnn.add(a);
+                JSONObject one = JSONUtil.parseObj(a);
+                Integer oldCatId = one.getInt("category_id");
+                Integer newCatId = oldCatId == null ? null : oldCatIdToNewCatId.get(oldCatId);
+                if (newCatId == null) continue;
+                one.set("category_id", newCatId);
+                keptAnn.add(one);
                 stat.annoCount++;
-                Integer catId = a.getInt("category_id");
-                if (catId == null) continue;
-                String origName = catIdToName.get(catId);
-                String mappedTarget = origName == null ? "" : labelMap.get(origName);
+                String mappedTarget = newCatIdToName.getOrDefault(newCatId, "");
                 if (StrUtil.isNotBlank(mappedTarget) && mappedTargetCounts.containsKey(mappedTarget)) {
                     mappedTargetCounts.put(mappedTarget, mappedTargetCounts.get(mappedTarget) + 1);
                 }
+            }
+
+            JSONArray keptCategories = new JSONArray();
+            for (Map.Entry<String, Integer> e : mappedCategoryIdByName.entrySet()) {
+                JSONObject c = new JSONObject();
+                c.set("id", e.getValue());
+                c.set("name", e.getKey());
+                keptCategories.add(c);
             }
 
             JSONObject out = new JSONObject(new LinkedHashMap<>());

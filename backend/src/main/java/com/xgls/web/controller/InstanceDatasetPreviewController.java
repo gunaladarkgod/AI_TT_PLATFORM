@@ -2,8 +2,10 @@ package com.xgls.web.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xgls.web.entity.TaskDataset;
 import com.xgls.web.entity.InstanceDataset;
 import com.xgls.web.mapper.InstanceDatasetMapper;
+import com.xgls.web.mapper.TaskDatasetMapper;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -33,6 +35,8 @@ public class InstanceDatasetPreviewController {
 
     @Resource
     private InstanceDatasetMapper instanceDatasetMapper;
+    @Resource
+    private TaskDatasetMapper taskDatasetMapper;
 
     @GetMapping("/{id}/preview")
     public Map<String, Object> preview(
@@ -70,6 +74,7 @@ public class InstanceDatasetPreviewController {
                 Paths.get(imageDir),
                 Paths.get(annoDir),
                 classMap.keySet(),
+                ds.getFatherName(),
                 perLabel
         );
 
@@ -256,7 +261,7 @@ public class InstanceDatasetPreviewController {
         return ret;
     }
 
-    private Map<String, List<String>> samplePerLabel(Path imageDir, Path annoDir, Set<String> labels, int perLabel) {
+    private Map<String, List<String>> samplePerLabel(Path imageDir, Path annoDir, Set<String> labels, String taskName, int perLabel) {
         Map<String, List<String>> result = new LinkedHashMap<>();
         for (String label : labels) {
             result.put(label, new ArrayList<>());
@@ -269,37 +274,183 @@ public class InstanceDatasetPreviewController {
         for (String label : labels) {
             candidates.put(label, new ArrayList<>());
         }
-
-        try (DirectoryStream<Path> ds = Files.newDirectoryStream(annoDir, "*.txt")) {
-            for (Path txt : ds) {
-                List<DotaObject> objects = parseDotaFile(txt);
-                Set<String> matched = new LinkedHashSet<>();
-                for (DotaObject obj : objects) {
-                    if (labels.contains(obj.getName())) {
-                        matched.add(obj.getName());
-                    }
-                }
-                if (matched.isEmpty()) continue;
-
-                String base = baseName(txt.getFileName().toString());
-                Path img = tryFindImageFile(imageDir, base);
-                if (img == null) continue;
-                String imgName = img.getFileName().toString();
-                for (String label : matched) {
-                    candidates.get(label).add(imgName);
-                }
-            }
+        Map<String, String> sourceLabelToTarget = resolveSourceLabelToTargetMap(taskName, labels);
+        try {
+            collectFromDotaTxt(imageDir, annoDir, labels, sourceLabelToTarget, candidates);
+            collectFromCocoJson(imageDir, annoDir, labels, sourceLabelToTarget, candidates);
         } catch (Exception e) {
             log.warn("采样预览失败: imageDir={}, annoDir={}", imageDir, annoDir, e);
         }
 
+        if (labels.isEmpty()) {
+            for (String label : candidates.keySet()) {
+                result.putIfAbsent(label, new ArrayList<>());
+            }
+        }
         Random random = new Random();
-        for (String label : labels) {
+        for (String label : result.keySet()) {
             List<String> files = candidates.getOrDefault(label, new ArrayList<>());
             Collections.shuffle(files, random);
             result.put(label, files.size() > perLabel ? new ArrayList<>(files.subList(0, perLabel)) : files);
         }
         return result;
+    }
+
+    private void collectFromDotaTxt(
+            Path imageDir,
+            Path annoDir,
+            Set<String> labels,
+            Map<String, String> sourceLabelToTarget,
+            Map<String, List<String>> candidates) throws IOException {
+        try (var walk = Files.walk(annoDir)) {
+            for (Path txt : walk.filter(Files::isRegularFile).filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".txt")).toList()) {
+                List<DotaObject> objects = parseDotaFile(txt);
+                Set<String> matched = new LinkedHashSet<>();
+                for (DotaObject obj : objects) {
+                    String mapped = resolveRequestedLabel(labels, obj.getName(), sourceLabelToTarget);
+                    if (mapped != null) {
+                        matched.add(mapped);
+                    }
+                }
+                if (matched.isEmpty()) continue;
+                String base = baseName(txt.getFileName().toString());
+                Path img = tryFindImageFile(imageDir, base);
+                if (img == null) continue;
+                String rel = imageDir.relativize(img).toString().replace("\\", "/");
+                for (String label : matched) {
+                    addCandidate(candidates, label, rel);
+                }
+            }
+        }
+    }
+
+    private void collectFromCocoJson(
+            Path imageDir,
+            Path annoDir,
+            Set<String> labels,
+            Map<String, String> sourceLabelToTarget,
+            Map<String, List<String>> candidates) throws IOException {
+        try (var walk = Files.walk(annoDir)) {
+            for (Path json : walk.filter(Files::isRegularFile).filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".json")).toList()) {
+                JsonNode root;
+                try {
+                    root = OBJECT_MAPPER.readTree(Files.readString(json, StandardCharsets.UTF_8));
+                } catch (Exception ignore) {
+                    continue;
+                }
+                JsonNode images = root.path("images");
+                JsonNode annotations = root.path("annotations");
+                JsonNode categories = root.path("categories");
+                if (!images.isArray() || !annotations.isArray() || !categories.isArray()) {
+                    continue;
+                }
+                Map<Long, String> imageById = new HashMap<>();
+                for (JsonNode i : images) {
+                    long id = i.path("id").asLong(Long.MIN_VALUE);
+                    String fileName = i.path("file_name").asText("");
+                    if (id == Long.MIN_VALUE || !StringUtils.hasText(fileName)) continue;
+                    imageById.put(id, fileName);
+                }
+                Map<Long, String> catById = new HashMap<>();
+                for (JsonNode c : categories) {
+                    long id = c.path("id").asLong(Long.MIN_VALUE);
+                    String name = c.path("name").asText("");
+                    if (id == Long.MIN_VALUE || !StringUtils.hasText(name)) continue;
+                    catById.put(id, name);
+                }
+                for (JsonNode a : annotations) {
+                    long imageId = a.path("image_id").asLong(Long.MIN_VALUE);
+                    long catId = a.path("category_id").asLong(Long.MIN_VALUE);
+                    if (imageId == Long.MIN_VALUE || catId == Long.MIN_VALUE) continue;
+                    String rawLabel = catById.get(catId);
+                    String label = resolveRequestedLabel(labels, rawLabel, sourceLabelToTarget);
+                    if (label == null) continue;
+                    String fileName = imageById.get(imageId);
+                    String resolvedName = resolveImageNameForPreview(imageDir, fileName);
+                    if (!StringUtils.hasText(resolvedName)) continue;
+                    addCandidate(candidates, label, resolvedName);
+                }
+            }
+        }
+    }
+
+    private String resolveImageNameForPreview(Path imageDir, String fileName) throws IOException {
+        if (!StringUtils.hasText(fileName)) return null;
+        Path direct = imageDir.resolve(fileName).normalize();
+        if (Files.isRegularFile(direct)) {
+            return imageDir.relativize(direct).toString().replace("\\", "/");
+        }
+        Path byBase = tryFindImageFile(imageDir, baseName(Paths.get(fileName).getFileName().toString()));
+        if (byBase == null || !Files.isRegularFile(byBase)) return null;
+        return imageDir.relativize(byBase).toString().replace("\\", "/");
+    }
+
+    private String resolveRequestedLabel(Set<String> labels, String rawLabel, Map<String, String> sourceLabelToTarget) {
+        if (!StringUtils.hasText(rawLabel)) return null;
+        String directMapped = sourceLabelToTarget.get(normalizeLabel(rawLabel));
+        if (StringUtils.hasText(directMapped)) {
+            return directMapped;
+        }
+        if (labels == null || labels.isEmpty()) return rawLabel;
+        String normRaw = normalizeLabel(rawLabel);
+        for (String one : labels) {
+            if (normalizeLabel(one).equals(normRaw)) {
+                return one;
+            }
+        }
+        return null;
+    }
+
+    private String normalizeLabel(String s) {
+        if (!StringUtils.hasText(s)) return "";
+        return s.trim().toLowerCase(Locale.ROOT).replace("_", "").replace("-", "").replace(" ", "");
+    }
+
+    private void addCandidate(Map<String, List<String>> candidates, String label, String imgName) {
+        List<String> list = candidates.computeIfAbsent(label, k -> new ArrayList<>());
+        if (!list.contains(imgName)) {
+            list.add(imgName);
+        }
+    }
+
+    private Map<String, String> resolveSourceLabelToTargetMap(String taskName, Set<String> targetLabels) {
+        Map<String, String> map = new HashMap<>();
+        if (!StringUtils.hasText(taskName) || targetLabels == null || targetLabels.isEmpty()) {
+            return map;
+        }
+        try {
+            TaskDataset task = taskDatasetMapper.selectList(null).stream()
+                    .filter(t -> t != null && StringUtils.hasText(t.getName()) && t.getName().equals(taskName))
+                    .max(Comparator.comparing(TaskDataset::getId))
+                    .orElse(null);
+            if (task == null || !StringUtils.hasText(task.getMappingRules())) {
+                return map;
+            }
+            JsonNode root = OBJECT_MAPPER.readTree(task.getMappingRules());
+            if (!root.isObject()) return map;
+            root.fields().forEachRemaining(dsEntry -> {
+                JsonNode oneDataset = dsEntry.getValue();
+                if (!oneDataset.isObject()) return;
+                oneDataset.fields().forEachRemaining(rule -> {
+                    String src = rule.getKey();
+                    String dst = rule.getValue() == null ? "" : rule.getValue().asText("");
+                    if (!StringUtils.hasText(src) || !StringUtils.hasText(dst)) return;
+                    String resolvedDst = null;
+                    for (String target : targetLabels) {
+                        if (normalizeLabel(target).equals(normalizeLabel(dst))) {
+                            resolvedDst = target;
+                            break;
+                        }
+                    }
+                    if (resolvedDst != null) {
+                        map.put(normalizeLabel(src), resolvedDst);
+                    }
+                });
+            });
+        } catch (Exception e) {
+            log.warn("解析 mapping_rules 失败", e);
+        }
+        return map;
     }
 
     private List<DotaObject> parseDotaFile(Path txtPath) {

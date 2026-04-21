@@ -114,4 +114,45 @@ public class TaskDataset implements Serializable {
     @TableField("sup_anno_path")
     @Schema(description = "预训练子集标注路径")
     private String supAnnoPath;
+
+    // ===== Dev 任务定义（与 task_dataset_dev 统一）=====
+    @TableField("task_desc")
+    @Schema(description = "Dev任务描述")
+    private String taskDesc;
+
+    @TableField("target_schema")
+    @Schema(description = "目标类别定义(JSON数组字符串)")
+    private String targetSchema;
+
+    @TableField("test_datasets")
+    @Schema(description = "测试数据集名称列表(JSON数组字符串)")
+    private String testDatasets;
+
+    @TableField("mapping_rules")
+    @Schema(description = "类别映射规则(JSON对象字符串)")
+    private String mappingRules;
+
+    @TableField("dev_updated_time")
+    @Schema(description = "Dev任务定义更新时间")
+    private LocalDateTime devUpdatedTime;
+
+    @TableField("dev_updated_by")
+    @Schema(description = "Dev任务定义更新人")
+    private String devUpdatedBy;
+
+    @TableField("last_export_time")
+    @Schema(description = "最近导出中间实例数据集时间")
+    private LocalDateTime lastExportTime;
+
+    @TableField("last_export_source_updated_time")
+    @Schema(description = "最近导出时对应的源定义更新时间")
+    private LocalDateTime lastExportSourceUpdatedTime;
+
+    @TableField("last_export_by")
+    @Schema(description = "最近导出人")
+    private String lastExportBy;
+
+    @TableField("last_export_mid_count")
+    @Schema(description = "最近导出产生的中间实例数据集数量")
+    private Integer lastExportMidCount;
 }

@@ -28,6 +28,8 @@ public class InstanceDatasetServiceImpl extends ServiceImpl<InstanceDatasetMappe
 
     @Value("${sys.instancecfg.instancedata-root:/home/omen1/AI_TT_Platform/data/instance_dataset/}")
     private String instanceDataRoot;
+    @Value("${sys.instancecfg.instancedata-mid-root:/home/omen1/AI_TT_Platform/data/instance_dataset_mid/}")
+    private String instanceDataMidRoot;
 
     @Override
     public List<InstanceDataset> getAllInstanceDatasets() {
@@ -68,7 +70,7 @@ public class InstanceDatasetServiceImpl extends ServiceImpl<InstanceDatasetMappe
 
         String rootPath = inferRootDirectory(dataset);
         if (rootPath != null) {
-            if (!rootPath.startsWith(instanceDataRoot)) {
+            if (!isUnderAllowedRoots(rootPath)) {
                 throw new IllegalArgumentException("非法路径，拒绝删除: " + rootPath);
             }
             Path root = Paths.get(rootPath);
@@ -92,6 +94,20 @@ public class InstanceDatasetServiceImpl extends ServiceImpl<InstanceDatasetMappe
         }
 
         return this.removeById(id);
+    }
+
+    private boolean isUnderAllowedRoots(String rootPath) {
+        try {
+            Path target = Paths.get(rootPath).toAbsolutePath().normalize();
+            Path finalRoot = Paths.get(instanceDataRoot).toAbsolutePath().normalize();
+            if (target.startsWith(finalRoot)) {
+                return true;
+            }
+            Path midRoot = Paths.get(instanceDataMidRoot).toAbsolutePath().normalize();
+            return target.startsWith(midRoot);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private String inferRootDirectory(InstanceDataset dataset) {
