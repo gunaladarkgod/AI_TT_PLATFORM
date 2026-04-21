@@ -40,19 +40,16 @@ public class TaskDatasetDevService {
 
     private final TaskDataset1Service taskDatasetService;
     private final OriginalDataset1Service originalDatasetService;
-    private final OriginalDatasetService originalDatasetQueryService;
     private final InstanceDatasetMidService instanceDatasetMidService;
     private final JdbcTemplate jdbcTemplate;
 
     public TaskDatasetDevService(
             TaskDataset1Service taskDatasetService,
             OriginalDataset1Service originalDatasetService,
-            OriginalDatasetService originalDatasetQueryService,
             InstanceDatasetMidService instanceDatasetMidService,
             JdbcTemplate jdbcTemplate) {
         this.taskDatasetService = taskDatasetService;
         this.originalDatasetService = originalDatasetService;
-        this.originalDatasetQueryService = originalDatasetQueryService;
         this.instanceDatasetMidService = instanceDatasetMidService;
         this.jdbcTemplate = jdbcTemplate;
     }
@@ -593,7 +590,7 @@ public class TaskDatasetDevService {
             if (StrUtil.isNotBlank(ext)) {
                 Path root = normalizeDatasetRoot(Paths.get(ext));
                 if (root != null) {
-                    out.add(new DatasetSource(root));
+                    out.add(new DatasetSource(n, root));
                     continue;
                 }
             }
@@ -601,7 +598,7 @@ public class TaskDatasetDevService {
             if (latest != null) {
                 Path root = normalizeDatasetRoot(parsePath(latest.getDataPath()));
                 if (root != null) {
-                    out.add(new DatasetSource(root));
+                    out.add(new DatasetSource(n, root));
                 }
             }
         }
@@ -667,8 +664,11 @@ public class TaskDatasetDevService {
 
     private int exportFromDatasetSources(String taskName, JSONObject taskDef, List<DatasetSource> sources) throws Exception {
         List<String> target = jsonArrayToList(taskDef.getJSONArray("target_schema"));
-        JSONObject mappedTargetCounts = buildMappedTargetClassCounts(taskDef);
-        String classListJson = JSONUtil.toJsonStr(mappedTargetCounts);
+        JSONObject mappingRules = taskDef.getJSONObject("mapping_rules");
+        LinkedHashMap<String, Long> mappedTargetCounts = new LinkedHashMap<>();
+        for (String one : target) {
+            if (StrUtil.isNotBlank(one)) mappedTargetCounts.put(one, 0L);
+        }
         int exportedCount = 0;
         String exportName = taskName;
         Path outRoot = Paths.get(instanceDatasetMidRoot.trim().replaceAll("/+$", ""), exportName).normalize();
@@ -690,11 +690,27 @@ public class TaskDatasetDevService {
         for (DatasetSource source : sources) {
             ResolvedExportPaths paths = resolveExportPaths(source.root);
             if (paths == null) continue;
-            trainImgCnt += copyDirContent(paths.trainImages, outTrainImg);
-            trainAnnoCnt += copyDirContent(paths.trainAnnos, outTrainAnno);
-            testImgCnt += copyDirContent(paths.testImages, outTestImg);
-            testAnnoCnt += copyDirContent(paths.testAnnos, outTestAnno);
-            exportedCount++;
+            JSONObject oneMap = mappingRules != null ? mappingRules.getJSONObject(source.datasetName) : null;
+            Map<String, String> labelMap = new LinkedHashMap<>();
+            if (oneMap != null) {
+                for (String k : oneMap.keySet()) {
+                    String mapped = trim(oneMap.getStr(k, ""));
+                    if (StrUtil.isBlank(mapped)) continue;
+                    labelMap.put(k, mapped);
+                }
+            }
+            if (labelMap.isEmpty()) {
+                continue;
+            }
+            ExportStat trainStat = exportSplitByMappedLabels(paths.trainImages, paths.trainAnnos, outTrainImg, outTrainAnno, labelMap, mappedTargetCounts);
+            ExportStat testStat = exportSplitByMappedLabels(paths.testImages, paths.testAnnos, outTestImg, outTestAnno, labelMap, mappedTargetCounts);
+            trainImgCnt += trainStat.imageCount;
+            trainAnnoCnt += trainStat.annoCount;
+            testImgCnt += testStat.imageCount;
+            testAnnoCnt += testStat.annoCount;
+            if (trainStat.imageCount + testStat.imageCount > 0) {
+                exportedCount++;
+            }
         }
         if (exportedCount > 0) {
             InstanceDatasetMid mid = new InstanceDatasetMid();
@@ -703,12 +719,11 @@ public class TaskDatasetDevService {
             mid.setSensorType("外部");
             mid.setTargetType("复合");
             mid.setDataFormat(0);
-            mid.setClassList(classListJson);
+            mid.setClassList(JSONUtil.toJsonStr(mappedTargetCounts));
             mid.setClassNum(target.size());
             int imgTotal = trainImgCnt + testImgCnt;
             mid.setImgNum(imgTotal);
-            // 与图片数一致：COCO 等单 json 标注时按「文件数」统计会得到 1，与真实图像数不符；预处理列表「样本数」与图像数对齐
-            mid.setAnnoNum(imgTotal);
+            mid.setAnnoNum(trainAnnoCnt + testAnnoCnt);
             mid.setTrainImagePath(toPosix(outTrainImg));
             mid.setTrainAnnoPath(toPosix(outTrainAnno));
             mid.setTestImagePath(toPosix(outTestImg));
@@ -721,48 +736,162 @@ public class TaskDatasetDevService {
         return exportedCount;
     }
 
-    /**
-     * 按 mapping_rules 将各数据集原始标签样本数累加到目标类别（与任务映射页一致）。
-     */
-    private JSONObject buildMappedTargetClassCounts(JSONObject taskDef) {
-        List<String> targets = jsonArrayToList(taskDef.getJSONArray("target_schema"));
-        LinkedHashMap<String, Long> acc = new LinkedHashMap<>();
-        for (String t : targets) {
-            if (StrUtil.isNotBlank(t)) {
-                acc.put(t, 0L);
-            }
+    private ExportStat exportSplitByMappedLabels(
+            Path srcImgDir,
+            Path srcAnnoDir,
+            Path dstImgDir,
+            Path dstAnnoDir,
+            Map<String, String> labelMap,
+            Map<String, Long> mappedTargetCounts) throws IOException {
+        if (srcImgDir == null || srcAnnoDir == null || !Files.isDirectory(srcImgDir) || !Files.isDirectory(srcAnnoDir)) {
+            return new ExportStat();
         }
-        List<String> testDatasets = jsonArrayToList(taskDef.getJSONArray("test_datasets"));
-        JSONObject mappingRules = taskDef.getJSONObject("mapping_rules");
-        if (mappingRules == null || testDatasets.isEmpty()) {
-            JSONObject empty = new JSONObject(new LinkedHashMap<>());
-            for (String t : targets) {
-                if (StrUtil.isNotBlank(t)) {
-                    empty.set(t, 0);
-                }
-            }
-            return empty;
+        Files.createDirectories(dstImgDir);
+        Files.createDirectories(dstAnnoDir);
+        ExportStat coco = tryExportCocoByMappedLabels(srcImgDir, srcAnnoDir, dstImgDir, dstAnnoDir, labelMap, mappedTargetCounts);
+        if (coco != null) {
+            return coco;
         }
-        for (String datasetName : testDatasets) {
-            JSONObject oneMap = mappingRules.getJSONObject(datasetName);
-            if (oneMap == null) {
+        // 非 COCO 结构暂按原有逻辑兜底（后续可继续扩展 DOTA/YOLO 的按标签过滤）
+        ExportStat fallback = new ExportStat();
+        fallback.imageCount = copyDirContent(srcImgDir, dstImgDir);
+        fallback.annoCount = copyDirContent(srcAnnoDir, dstAnnoDir);
+        return fallback;
+    }
+
+    private ExportStat tryExportCocoByMappedLabels(
+            Path srcImgDir,
+            Path srcAnnoDir,
+            Path dstImgDir,
+            Path dstAnnoDir,
+            Map<String, String> labelMap,
+            Map<String, Long> mappedTargetCounts) throws IOException {
+        List<Path> jsonFiles = new ArrayList<>();
+        collectFilesBySuffix(srcAnnoDir, ".json", jsonFiles);
+        if (jsonFiles.isEmpty()) {
+            return null;
+        }
+
+        ExportStat stat = new ExportStat();
+        Set<String> copiedImageRelPaths = new HashSet<>();
+        for (Path oneJson : jsonFiles) {
+            JSONObject root;
+            try {
+                root = JSONUtil.parseObj(Files.readString(oneJson, StandardCharsets.UTF_8));
+            } catch (Exception e) {
                 continue;
             }
-            Map<String, Long> origCounts = originalDatasetQueryService.resolveClassCountMapByDatasetName(datasetName);
-            for (String origKey : oneMap.keySet()) {
-                String mapped = trim(oneMap.getStr(origKey, ""));
-                if (StrUtil.isBlank(mapped) || !acc.containsKey(mapped)) {
+            JSONArray images = root.getJSONArray("images");
+            JSONArray annotations = root.getJSONArray("annotations");
+            JSONArray categories = root.getJSONArray("categories");
+            if (images == null || annotations == null || categories == null) {
+                continue;
+            }
+
+            Map<Integer, String> catIdToName = new HashMap<>();
+            JSONArray keptCategories = new JSONArray();
+            for (Object cObj : categories) {
+                if (!(cObj instanceof JSONObject c)) continue;
+                Integer id = c.getInt("id");
+                String n = c.getStr("name", "");
+                if (id == null || StrUtil.isBlank(n)) continue;
+                catIdToName.put(id, n);
+                if (labelMap.containsKey(n)) {
+                    keptCategories.add(c);
+                }
+            }
+            if (keptCategories.isEmpty()) {
+                continue;
+            }
+
+            Set<Long> keepImageIds = new HashSet<>();
+            List<JSONObject> candidateAnn = new ArrayList<>();
+            for (Object aObj : annotations) {
+                if (!(aObj instanceof JSONObject a)) continue;
+                Integer catId = a.getInt("category_id");
+                if (catId == null) continue;
+                String origName = catIdToName.get(catId);
+                if (StrUtil.isBlank(origName) || !labelMap.containsKey(origName)) continue;
+                Long imageId = a.getLong("image_id");
+                if (imageId != null) {
+                    keepImageIds.add(imageId);
+                }
+                candidateAnn.add(a);
+            }
+            if (keepImageIds.isEmpty()) {
+                continue;
+            }
+
+            JSONArray keptImages = new JSONArray();
+            Set<Long> copiedImageIds = new HashSet<>();
+            for (Object iObj : images) {
+                if (!(iObj instanceof JSONObject i)) continue;
+                Long id = i.getLong("id");
+                if (id == null || !keepImageIds.contains(id)) continue;
+                String fileName = i.getStr("file_name", "");
+                if (StrUtil.isBlank(fileName)) continue;
+                Path srcImage = srcImgDir.resolve(fileName).normalize();
+                if (!Files.isRegularFile(srcImage)) {
                     continue;
                 }
-                long add = origCounts.getOrDefault(origKey, 0L);
-                acc.put(mapped, acc.get(mapped) + add);
+                Path dstImage = dstImgDir.resolve(fileName).normalize();
+                Files.createDirectories(dstImage.getParent());
+                Files.copy(srcImage, dstImage, StandardCopyOption.REPLACE_EXISTING);
+                keptImages.add(i);
+                copiedImageIds.add(id);
+                String rel = fileName.replace("\\", "/");
+                if (copiedImageRelPaths.add(rel)) {
+                    stat.imageCount++;
+                }
+            }
+            if (copiedImageIds.isEmpty()) {
+                continue;
+            }
+
+            JSONArray keptAnn = new JSONArray();
+            for (JSONObject a : candidateAnn) {
+                Long imageId = a.getLong("image_id");
+                if (imageId == null || !copiedImageIds.contains(imageId)) continue;
+                keptAnn.add(a);
+                stat.annoCount++;
+                Integer catId = a.getInt("category_id");
+                if (catId == null) continue;
+                String origName = catIdToName.get(catId);
+                String mappedTarget = origName == null ? "" : labelMap.get(origName);
+                if (StrUtil.isNotBlank(mappedTarget) && mappedTargetCounts.containsKey(mappedTarget)) {
+                    mappedTargetCounts.put(mappedTarget, mappedTargetCounts.get(mappedTarget) + 1);
+                }
+            }
+
+            JSONObject out = new JSONObject(new LinkedHashMap<>());
+            for (String k : root.keySet()) {
+                if ("images".equals(k) || "annotations".equals(k) || "categories".equals(k)) continue;
+                out.set(k, root.get(k));
+            }
+            out.set("images", keptImages);
+            out.set("annotations", keptAnn);
+            out.set("categories", keptCategories);
+
+            Path relJson = srcAnnoDir.relativize(oneJson);
+            Path dstJson = dstAnnoDir.resolve(relJson);
+            Files.createDirectories(dstJson.getParent());
+            Files.writeString(dstJson, JSONUtil.toJsonPrettyStr(out), StandardCharsets.UTF_8);
+        }
+        return stat;
+    }
+
+    private void collectFilesBySuffix(Path dir, String suffix, List<Path> out) throws IOException {
+        if (dir == null || !Files.isDirectory(dir)) return;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            for (Path child : stream) {
+                if (Files.isDirectory(child)) {
+                    collectFilesBySuffix(child, suffix, out);
+                    continue;
+                }
+                String n = child.getFileName().toString().toLowerCase(Locale.ROOT);
+                if (n.endsWith(suffix)) out.add(child);
             }
         }
-        JSONObject out = new JSONObject(new LinkedHashMap<>());
-        for (Map.Entry<String, Long> e : acc.entrySet()) {
-            out.set(e.getKey(), e.getValue().intValue());
-        }
-        return out;
     }
 
     private ResolvedExportPaths resolveExportPaths(Path datasetRoot) {
@@ -926,11 +1055,18 @@ public class TaskDatasetDevService {
     }
 
     private static class DatasetSource {
+        final String datasetName;
         final Path root;
 
-        DatasetSource(Path root) {
+        DatasetSource(String datasetName, Path root) {
+            this.datasetName = datasetName;
             this.root = root;
         }
+    }
+
+    private static class ExportStat {
+        int imageCount;
+        int annoCount;
     }
 
     private static class ResolvedExportPaths {
