@@ -1,6 +1,6 @@
 <!-- instanceDatabase/create/index.vue -->
 <template>
-  <div class="content-div">
+  <div class="content-div" :class="{ 'content-div--embed': embedMode }">
     <div class="create-interface">
       <div class="create-header">
       <!--
@@ -8,7 +8,7 @@
           <el-icon><ArrowLeft /></el-icon>返回
         </el-button>
         -->
-        <h2 class="create-title">创建实例数据集</h2>
+        <h2 v-if="!embedHideCreateTitle" class="create-title">创建实例数据集</h2>
       </div>
       <div class="create-form">
         <!-- 预处理脚本选择区域 - 左右并排 -->
@@ -186,8 +186,9 @@
               <el-button @click="resetFilters" size="small">重置筛选</el-button>
             </div>
           </div>
-          <!-- 数据表格 -->
+          <!-- 数据表格（表格区滚动，分页条固定在下方） -->
           <div class="selection-table-container">
+            <div class="selection-table-scroll">
             <el-table 
               :data="paginatedSelectionData" 
               stripe 
@@ -223,6 +224,8 @@
               <el-table-column prop="annoNum" label="样本数" width="80"></el-table-column>
               <el-table-column prop="username" label="创建用户" width="120"></el-table-column>
             </el-table>
+            </div>
+            <div class="selection-table-footer">
             <div class="pagination-container flex-end" style="margin-top: 16px;">
               <el-pagination 
                 background 
@@ -234,6 +237,7 @@
                 :total="filteredSelectionData.length"
                 @size-change="handleSelectionPageChange" 
                 @current-change="handleSelectionPageChange" />
+            </div>
             </div>
           </div>
         </div>
@@ -602,6 +606,13 @@
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+
+defineProps({
+  /** 嵌入「数据集管理（dev）」时收紧外边距 */
+  embedMode: { type: Boolean, default: false },
+  /** 统合页已提供大标题时隐藏内层「创建实例数据集」标题 */
+  embedHideCreateTitle: { type: Boolean, default: false }
+})
 import { ArrowLeft } from '@element-plus/icons-vue'
 import { InstanceDatasetService, PreprocessScriptService, SourceInstanceDatasetService } from '@/api/api.js'
 
@@ -1123,6 +1134,8 @@ const openUploadDialog = () => {
   gap: 20px;
   width: 100%;
   box-sizing: border-box;
+  min-height: 0;
+  overflow: hidden;
 }
 .augmentation-section {
   background: #f8f9fa;
@@ -1187,6 +1200,8 @@ const openUploadDialog = () => {
   background: #f8f9fa;
   padding: 16px;
   border-radius: 4px;
+  min-height: 0;
+  overflow: hidden;
 }
 .section-title {
   margin: 0 0 12px 0;
@@ -1212,9 +1227,22 @@ const openUploadDialog = () => {
 }
 .selection-table-container {
   flex: 1;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   width: 100%;
   box-sizing: border-box;
+}
+
+.selection-table-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.selection-table-footer {
+  flex-shrink: 0;
 }
 .selection-table {
   width: 100% !important;
@@ -1228,6 +1256,7 @@ const openUploadDialog = () => {
   border-top: 1px solid #e8e8e8;
   width: 100%;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 .category-tags-container {
   display: flex;
@@ -1364,5 +1393,17 @@ const openUploadDialog = () => {
   align-items: center;
   margin-bottom: 12px;
   font-weight: bold;
+}
+
+.content-div--embed {
+  padding: 0;
+  background: transparent;
+}
+
+.content-div--embed .create-interface {
+  padding-top: 8px;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
 }
 </style>

@@ -181,7 +181,9 @@ const changeMenuMode = () => {
   });
 }
 
-const showPageTitleBar = computed(() => route.name !== 'taskDatasetManageDev')
+const showPageTitleBar = computed(
+  () => !['taskDatasetManageDev', 'datasetManageUnified'].includes(String(route.name || ''))
+)
 
 
 

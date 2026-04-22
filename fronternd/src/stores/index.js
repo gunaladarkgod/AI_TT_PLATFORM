@@ -6,19 +6,33 @@ import {apiRequest} from '@/api/axios'
 
 function injectDevTaskDatasetMenu(menuList = []) {
   const list = Array.isArray(menuList) ? [...menuList] : []
-  const exists = list.some(item => item && item.url === 'taskDatasetManageDev')
-  if (exists) return list
+  const existsDev = list.some(item => item && item.url === 'taskDatasetManageDev')
+  const existsUnified = list.some(item => item && item.url === 'datasetManageUnified')
+  if (existsDev && existsUnified) return list
 
   const baseMenu = list.find(item => item && item.url === 'taskDatasetbaseManage')
-  const devMenu = {
-    id: 99991,
-    url: 'taskDatasetManageDev',
-    name: '任务数据集管理（dev）',
-    order_num: baseMenu ? Number(baseMenu.order_num || 0) + 0.1 : 999,
-    is_hidden: 0,
-    parent_id: 0
+  const baseOrder = baseMenu ? Number(baseMenu.order_num || 0) : 999
+
+  if (!existsDev) {
+    list.push({
+      id: 99991,
+      url: 'taskDatasetManageDev',
+      name: '任务数据集管理（dev）',
+      order_num: baseOrder + 0.1,
+      is_hidden: 0,
+      parent_id: 0
+    })
   }
-  list.push(devMenu)
+  if (!existsUnified) {
+    list.push({
+      id: 99992,
+      url: 'datasetManageUnified',
+      name: '数据集管理（dev）',
+      order_num: baseOrder + 0.12,
+      is_hidden: 0,
+      parent_id: 0
+    })
+  }
   return list
 }
 

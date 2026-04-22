@@ -2,12 +2,16 @@ package com.xgls.web.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.xgls.web.dto.InstanceDatasetTrainingReadinessDto;
 import com.xgls.web.entity.InstanceDataset;
 import com.xgls.web.mapper.InstanceDatasetMapper;
 import com.xgls.web.service.InstanceDatasetService;
 import com.xgls.web.utils.InstanceDatasetPathUtil;
+import com.xgls.web.utils.InstanceDatasetTrainTestRandomSplitUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +27,8 @@ import java.util.Optional;
 @Service
 public class InstanceDatasetServiceImpl extends ServiceImpl<InstanceDatasetMapper, InstanceDataset> implements InstanceDatasetService {
 
+    private static final Logger log = LoggerFactory.getLogger(InstanceDatasetServiceImpl.class);
+
     @Autowired
     private InstanceDatasetMapper instanceDatasetMapper;
 
@@ -37,6 +43,54 @@ public class InstanceDatasetServiceImpl extends ServiceImpl<InstanceDatasetMappe
     }
 
     @Override
+    public List<InstanceDatasetTrainingReadinessDto> listInstanceDatasetTrainingReadiness() {
+        List<InstanceDataset> all = getAllInstanceDatasets();
+        List<InstanceDatasetTrainingReadinessDto> out = new ArrayList<>();
+        for (InstanceDataset info : all) {
+            InstanceDatasetTrainingReadinessDto row = new InstanceDatasetTrainingReadinessDto();
+            row.setId(info.getId());
+            row.setName(info.getName());
+            row.setFatherName(info.getFatherName());
+            List<String> reasons = new ArrayList<>();
+            if (info.getName() == null || info.getName().isBlank()) {
+                reasons.add("实例数据集名称为空，无法作为训练集标识");
+            }
+            if (!InstanceDatasetPathUtil.hasMmdetTrainableClassList(info.getClassList())) {
+                reasons.add("class_list 无效或为空，请维护有效的 JSON 类别（预处理后应写入非空 class_list）");
+            }
+            boolean pathResolveFailed = false;
+            Optional<InstanceDatasetPathUtil.ResolvedInstanceDiskPaths> paths = Optional.empty();
+            try {
+                paths = InstanceDatasetPathUtil.tryResolveTargetEnsuringTestDirs(info, instanceDataRoot);
+            } catch (IOException e) {
+                pathResolveFailed = true;
+                log.debug("解析实例数据集路径失败: name={}, err={}", info.getName(), e.toString());
+                String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                reasons.add("解析磁盘路径失败: " + msg);
+            }
+            if (paths.isEmpty() && !pathResolveFailed) {
+                reasons.add("无法定位实例数据目录，请确认预处理已落盘、根目录下存在 images/train 与 annotations/train，且与 father_name、name 一致");
+            }
+            if (paths.isPresent()) {
+                InstanceDatasetPathUtil.ResolvedInstanceDiskPaths p = paths.get();
+                if (!InstanceDatasetPathUtil.targetHasUsableTrainContent(p)) {
+                    reasons.add("训练集目录中缺少有效图片与标注对（子目录内需至少一张图与一份 txt/json/xml 标注）");
+                }
+                int testImgN = InstanceDatasetTrainTestRandomSplitUtil.countImages(Path.of(p.testImgPath()));
+                if (testImgN < 1) {
+                    reasons.add("测试集无图片，请先在「实例数据集」中完成训测划分或向 images/test 补充图片");
+                }
+            }
+            row.setReasons(reasons);
+            row.setQualified(reasons.isEmpty());
+            out.add(row);
+        }
+        out.sort(Comparator.comparing(
+                (InstanceDatasetTrainingReadinessDto d) -> Optional.ofNullable(d.getName()).orElse("").toLowerCase()));
+        return out;
+    }
+
+    @Override
     public List<String> listMmdetTrainableDatasetNames() {
         List<InstanceDataset> all = getAllInstanceDatasets();
         List<String> names = new ArrayList<>();
@@ -44,8 +98,12 @@ public class InstanceDatasetServiceImpl extends ServiceImpl<InstanceDatasetMappe
             if (!InstanceDatasetPathUtil.hasMmdetTrainableClassList(info.getClassList())) {
                 continue;
             }
-            Optional<InstanceDatasetPathUtil.ResolvedInstanceDiskPaths> paths =
-                    InstanceDatasetPathUtil.tryResolveTarget(info, instanceDataRoot);
+            Optional<InstanceDatasetPathUtil.ResolvedInstanceDiskPaths> paths = Optional.empty();
+            try {
+                paths = InstanceDatasetPathUtil.tryResolveTargetEnsuringTestDirs(info, instanceDataRoot);
+            } catch (IOException e) {
+                log.debug("解析实例数据集路径失败，跳过: name={}, err={}", info.getName(), e.toString());
+            }
             if (paths.isEmpty()) {
                 continue;
             }
@@ -58,6 +116,33 @@ public class InstanceDatasetServiceImpl extends ServiceImpl<InstanceDatasetMappe
         }
         names.sort(Comparator.comparing(String::toLowerCase));
         return names;
+    }
+
+    @Override
+    public InstanceDatasetTrainTestRandomSplitUtil.SplitResult splitInstanceDatasetRandomTrainTest(Long id, double trainRatio)
+            throws java.io.IOException {
+        if (id == null || id <= 0) {
+            throw new IllegalArgumentException("无效的实例数据集 id");
+        }
+        InstanceDataset d = this.getById(id);
+        if (d == null) {
+            throw new IllegalArgumentException("未找到实例数据集: " + id);
+        }
+        InstanceDatasetTrainTestRandomSplitUtil.SplitResult result =
+                InstanceDatasetTrainTestRandomSplitUtil.run(d, instanceDataRoot, trainRatio);
+        var paths = InstanceDatasetPathUtil.tryResolveTargetEnsuringTestDirs(d, instanceDataRoot);
+        if (paths.isEmpty()) {
+            return result;
+        }
+        var p = paths.get();
+        int imgN = InstanceDatasetTrainTestRandomSplitUtil.countImages(Path.of(p.trainImgPath()))
+                + InstanceDatasetTrainTestRandomSplitUtil.countImages(Path.of(p.testImgPath()));
+        int annoN = InstanceDatasetTrainTestRandomSplitUtil.countAnnoLabelFiles(Path.of(p.trainAnnoPath()))
+                + InstanceDatasetTrainTestRandomSplitUtil.countAnnoLabelFiles(Path.of(p.testAnnoPath()));
+        d.setImgNum(imgN);
+        d.setAnnoNum(annoN);
+        this.updateById(d);
+        return result;
     }
 
     @Override

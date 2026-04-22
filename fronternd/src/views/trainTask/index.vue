@@ -1540,9 +1540,65 @@
             <div class="mmdet-file-block">
               <span class="mmdet-file-title">dataset.py (数据加载配置)</span>
               <el-form-item label="实例数据集" required>
-                <el-select v-model="mmdetParameter.selected_dataset" class="width-200" :disabled="isSee" placeholder="仅显示磁盘可用数据集">
-                  <el-option v-for="item in exampleList" :key="item" :value="item" :label="item"></el-option>
-                </el-select>
+                <div class="mmdet-instance-dataset-block">
+                  <el-table
+                    v-loading="instanceReadinessLoading"
+                    :data="instanceReadinessList"
+                    size="small"
+                    class="mmdet-instance-readiness-table"
+                    max-height="280"
+                    empty-text="暂无实例数据集，请先在「数据集管理」中完成预处理"
+                  >
+                    <el-table-column width="44" align="center">
+                      <template #default="{ row }">
+                        <el-radio
+                          class="mmdet-dataset-radio"
+                          v-model="mmdetParameter.selected_dataset"
+                          :label="row.name"
+                          :disabled="isSee || !row.qualified"
+                        />
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="name" label="名称" min-width="96" show-overflow-tooltip />
+                    <el-table-column prop="fatherName" label="父任务" min-width="88" show-overflow-tooltip>
+                      <template #default="{ row }">
+                        <span>{{ row.fatherName || '—' }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="状态" width="72" align="center">
+                      <template #default="{ row }">
+                        <el-tag v-if="row.qualified" type="success" size="small">可选</el-tag>
+                        <el-tag v-else type="info" size="small">不可用</el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="说明" min-width="140">
+                      <template #default="{ row }">
+                        <span v-if="row.qualified" class="mmdet-readiness-ok">满足训前条件</span>
+                        <el-tooltip v-else :content="(row.reasons || []).join('；')" placement="top">
+                          <span class="mmdet-readiness-reason">{{ (row.reasons || []).join('；') }}</span>
+                        </el-tooltip>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="88" align="center">
+                      <template #default="{ row }">
+                        <el-button
+                          v-if="!row.qualified"
+                          type="primary"
+                          link
+                          size="small"
+                          @click="goInstanceDatasetFix(row)"
+                        >去处理</el-button>
+                        <span v-else class="mmdet-readiness-dash">—</span>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                  <div
+                    v-if="!instanceReadinessLoading && !qualifiedMmdetDatasetCount && !isSee"
+                    class="el-form-item__tip mmdet-readiness-tip"
+                  >
+                    当前没有可参与训练的实例数据集。请确认预处理已落盘、训练/测试目录有效，并在「实例数据集」中完成训测划分。
+                  </div>
+                </div>
               </el-form-item>
 
               <el-form-item label="图片尺寸" required>
@@ -2087,8 +2143,10 @@ const extFileList = ref([])
 
 // 权重文件
 const weightFileList = ref([])
-// 实例数据集
-const exampleList = ref([])
+// 实例数据集训前检查（全量列表；合格行可选，不合格展示原因与「去处理」）
+const instanceReadinessList = ref([])
+const instanceReadinessLoading = ref(false)
+const qualifiedMmdetDatasetCount = computed(() => instanceReadinessList.value.filter((r) => r.qualified).length)
 // 网络模板名称
 const netTemplateName=ref(["Faster R-CNN","Cascade R-CNN","DetectoRS"])
 // 网络模板名称-DETR
@@ -2135,7 +2193,7 @@ const props = defineProps({
 });
 const isSys = useUserStore().user.type == 1;
 const curUser = useUserStore().user.username;
-// const router = useRouter();
+const router = useRouter();
 const searchName = ref("");
 const searchStatus = ref(-1);
 const searchUser = ref('');
@@ -2503,6 +2561,11 @@ const showEditModal = (row) => {
   //查询train_data信息
   //查询train_args信息
   addVisible.value = true
+  nextTick(() => {
+    if (algMap.value.get(row.type)?.cmd === 'mmdet') {
+      fetchMmdetInstanceDatasets()
+    }
+  })
 }
 const showCloneModal = (row) => {
   isSee.value = false
@@ -2648,6 +2711,11 @@ const openCloneModal = (row1, flg) => {
     addForm.mmdet_cfg = default_mmdet_header;
   }
   addVisible.value = true
+  nextTick(() => {
+    if (algMap.value.get(row.type)?.cmd === 'mmdet') {
+      fetchMmdetInstanceDatasets()
+    }
+  })
 }
 
 const delRecord = (row) => {
@@ -3688,20 +3756,44 @@ const applyMmdetCnnQuickDefaults = () => {
   addForm.train_epoch = 12
 }
 
+function suggestInstanceDatasetScroll(row) {
+  const reasons = (row && row.reasons) || []
+  const t = reasons.join(' ')
+  if (t.includes('class_list') || t.includes('类别') || t.includes('预处理')) {
+    return 'sec-preprocess'
+  }
+  return 'sec-instance'
+}
+
+function goInstanceDatasetFix(row) {
+  const scroll = suggestInstanceDatasetScroll(row)
+  router.push({ path: '/datasetManageUnified', query: { scroll } })
+}
+
 const fetchMmdetInstanceDatasets = () => {
-  InstanceDatasetService.getTrainableNames().then((res) => {
-    if (res.code === 0) {
-      exampleList.value = res.data || []
-      if (exampleList.value.length) {
-        mmdetParameter.selected_dataset = exampleList.value[0]
-      } else {
-        mmdetParameter.selected_dataset = null
-        if (!isSee.value) {
-          ElMessage.warning('当前没有磁盘可用的实例数据集，请完成预处理或检查数据目录')
+  instanceReadinessLoading.value = true
+  InstanceDatasetService.listTrainingReadiness()
+    .then((res) => {
+      if (res.code === 0) {
+        instanceReadinessList.value = res.data || []
+        const names = instanceReadinessList.value.filter((r) => r.qualified).map((r) => r.name)
+        const cur = mmdetParameter.selected_dataset
+        if (cur && names.includes(cur)) {
+          // keep
+        } else if (names.length) {
+          mmdetParameter.selected_dataset = names[0]
+        } else {
+          mmdetParameter.selected_dataset = null
+          if (!isSee.value) {
+            ElMessage.warning('当前没有可参与训练的实例数据集，请完成预处理、训测划分或检查数据目录')
+          }
         }
       }
-    }
-  }).catch(() => {})
+    })
+    .catch(() => {})
+    .finally(() => {
+      instanceReadinessLoading.value = false
+    })
 }
 
 watch(
@@ -3832,6 +3924,11 @@ const saveMMdetRecord = () =>{
   if (mmdetParameter.selected_dataset == null) {
     ElMessage.warning('请选择实例数据集')
     return;
+  }
+  const selReadiness = instanceReadinessList.value.find((r) => r.name === mmdetParameter.selected_dataset)
+  if (!selReadiness || !selReadiness.qualified) {
+    ElMessage.warning('请选择在列表中标记为「可选」的实例数据集，或先到数据集管理完成预处理与训测划分')
+    return
   }
 
   if (mmdetParameter.optimizer == null) {
@@ -4028,7 +4125,6 @@ const transVisible = ref(false)
 const transForm = ref({ params: {} });
 const transLoading = ref(false);
 //跳转模型转换任务
-const router = useRouter();
 const goToTransTask = (name) => {
   // let name = "train_" + row.id + "_" + row.run_name
   router.push({ path: "/modelTrans", query: { name: name } });
@@ -4630,6 +4726,47 @@ const labelsHandleClose = (val) => {
   flex: 1;
   min-width: 200px;
   color: var(--el-text-color-regular);
+}
+
+.mmdet-instance-dataset-block {
+  width: 100%;
+  max-width: 100%;
+}
+
+.mmdet-instance-readiness-table {
+  width: 100%;
+}
+
+.mmdet-instance-readiness-table :deep(.mmdet-dataset-radio .el-radio__label) {
+  display: none;
+  padding: 0;
+}
+
+.mmdet-readiness-ok {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.mmdet-readiness-reason {
+  display: inline-block;
+  max-width: 100%;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.mmdet-readiness-dash {
+  color: var(--el-text-color-placeholder);
+}
+
+.mmdet-readiness-tip {
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.45;
+  margin-top: 8px;
 }
 
 .table-div {

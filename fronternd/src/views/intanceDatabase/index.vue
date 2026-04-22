@@ -1,44 +1,96 @@
 <template>
-  <div class="content">
-    <!-- 主体：中间任务数据集（布局与任务数据集管理、原始数据集页一致：全宽表格区） -->
-    <div class="split-layout">
-      <div class="task-title-row">
-        <h4 class="panel-title">任务数据集（请点选）</h4>
-        <el-select v-model="taskSortMode" size="small" style="width: 170px">
-          <el-option label="最近更新优先" value="updated" />
-          <el-option label="按名称排序" value="name" />
-        </el-select>
-      </div>
-      <div class="table-div">
-        <el-table
-          class="my-table"
-          :data="sortedTaskDatasetList"
-          stripe
-          size="small"
-          style="width: 100%"
-          @row-click="handleTaskRowClick"
-          :row-class-name="getRowClassName"
-          v-el-height-adaptive-table="{ bottomOffset: 70, isUse: true }"
-        >
-          <!-- 选择列：单选按钮 -->
-          <el-table-column label="选择" width="60" align="center">
-            <template #default="{ row }">
-              <el-radio
-                v-model="selectedTaskId"
-                :label="row.id"
-                @change="handleTaskSelect(row)"
-                style="margin: 0;"
-              />
+  <div class="content" :class="{ 'content--embed': embedMode }">
+    <!-- 统合内嵌：与「原始数据集」同构 — el-card 内工具行 + 可滚动主区域，分页在 card footer -->
+    <el-card
+      v-if="useInstanceUnifiedPanel"
+      class="original-dataset-panel original-dataset-panel--embed instance-embed-outer-card"
+      shadow="never"
+    >
+      <div class="original-dataset-panel__main original-dataset-panel__main--embed">
+        <div class="original-dataset-toolbar-row flex-between">
+          <div class="flex-start gap-8">
+            <el-button size="small" @click="clearInstanceToolbarFilters">清除列筛选</el-button>
+            <el-button size="small" @click="clearInstanceToolbarSort">清除列排序</el-button>
+          </div>
+          <div class="flex-start gap-8 original-dataset-toolbar-row__right">
+            <el-input
+              v-model="instanceToolbarSearch"
+              size="small"
+              clearable
+              placeholder="Type to search"
+              class="original-dataset-toolbar-search"
+            />
+          </div>
+        </div>
+        <div class="split-layout__main instance-embed-card-scroll">
+          <div
+            v-if="effectiveTaskViewAsTable"
+            class="table-div table-div--embed-scroll original-dataset-panel__scroll"
+          >
+            <el-table
+              ref="instanceTaskTableRef"
+              class="my-table"
+              :data="instanceTasksForTable"
+              stripe
+              size="small"
+              style="width: 100%"
+              :height="embedMode ? '100%' : undefined"
+              @sort-change="onInstanceTableSortChange"
+              @filter-change="onInstanceTableFilterChange"
+              @row-click="handleTaskRowClick"
+              :row-class-name="getRowClassName"
+              v-el-height-adaptive-table="{ bottomOffset: 70, isUse: !embedMode }"
+            >
+          <el-table-column label="序号" width="56" align="center" fixed="left">
+            <template #default="scope">
+              {{ (currentPage - 1) * pageSize + scope.$index + 1 }}
             </template>
           </el-table-column>
-
-          <el-table-column type="index" label="序号" width="60" align="center" />
-          <el-table-column prop="name" label="数据集名称" align="center" />
-          <el-table-column prop="sensorType" label="传感器类型" align="center" />
-          <el-table-column prop="targetType" label="目标类型" align="center" />
-          <el-table-column prop="coreClassNum" label="类别数" align="center" />
-          <!-- 类别名称 → 彩色标签 -->
-          <el-table-column label="类别名称" align="center">
+          <el-table-column
+            prop="name"
+            column-key="name"
+            label="数据集名称"
+            min-width="140"
+            align="center"
+            fixed="left"
+            sortable="custom"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            prop="sensorType"
+            column-key="sensorType"
+            label="传感器类型"
+            min-width="120"
+            align="center"
+            sortable="custom"
+            :filters="instanceSensorFilterOptions"
+            :filter-method="instanceTableFilterPassAll"
+            filter-placement="bottom-end"
+          />
+          <el-table-column
+            prop="targetType"
+            column-key="targetType"
+            label="目标类型"
+            min-width="120"
+            align="center"
+            sortable="custom"
+            :filters="instanceTargetFilterOptions"
+            :filter-method="instanceTableFilterPassAll"
+            filter-placement="bottom-end"
+          />
+          <el-table-column
+            prop="classNum"
+            column-key="classNum"
+            label="类别数"
+            align="center"
+            width="88"
+            sortable="custom"
+          >
+            <template #default="{ row }">
+              {{ displayCoreClassNum(row) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="类别名称" align="center" min-width="200">
             <template #default="{ row }">
               <div class="category-tags-container">
                 <el-tag
@@ -53,29 +105,236 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column prop="username" label="创建用户" align="center" />
-          <el-table-column label="操作" align="center" width="120">
-            <template #default="{ row }">
-              <el-button size="small" @click.stop="openTrainTestDrawer(row)">
-                训测划分
-              </el-button>
-            </template>
-          </el-table-column>
+          <el-table-column
+            prop="username"
+            column-key="username"
+            label="创建用户"
+            min-width="100"
+            align="center"
+            sortable="custom"
+            show-overflow-tooltip
+          />
         </el-table>
-        <!-- 分页 -->
-        <div class="flex-end mt-12">
+      </div>
+      <div v-else class="instance-task-card-grid instance-task-card-grid--embed original-dataset-panel__scroll">
+        <el-card
+          v-for="row in instanceTasksAfterSearch"
+          :key="row.id"
+          class="instance-task-card"
+          shadow="hover"
+          :class="{ 'is-selected': selectedTaskId === row.id }"
+          @click="handleTaskRowClick(row)"
+        >
+          <template #header>
+            <div class="instance-task-card__header">
+              <span class="instance-task-card__name">{{ row.name }}</span>
+            </div>
+          </template>
+          <el-descriptions :column="1" size="small" border>
+            <el-descriptions-item label="传感器类型">{{ row.sensorType || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="目标类型">{{ row.targetType || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="类别数">{{ displayCoreClassNum(row) }}</el-descriptions-item>
+            <el-descriptions-item label="创建用户">{{ row.username || '-' }}</el-descriptions-item>
+          </el-descriptions>
+          <div class="category-tags-container instance-task-card__tags">
+            <el-tag
+              v-for="(item, index) in getTaskCategoryList(row)"
+              :key="`${row.id}-${index}`"
+              size="small"
+              :type="getTagType(index)"
+              style="margin: 2px; white-space: nowrap;"
+            >
+              {{ item.name }}: {{ item.count ?? 0 }}
+            </el-tag>
+          </div>
+        </el-card>
+      </div>
+        </div>
+      </div>
+      <template #footer>
+        <div class="original-dataset-panel__footer">
           <el-pagination
+            v-if="effectiveTaskViewAsTable"
             background
             size="small"
             v-model:current-page="currentPage"
             v-model:page-size="pageSize"
-            :page-sizes="[5, 10, 20, 30]"
+            :page-sizes="[10, 20, 50, 100]"
+            layout="total, sizes, prev, pager, next, jumper"
+            :total="total"
+            @size-change="handleSizeChange"
+            @current-change="handleCurrentChange"
+          />
+          <el-pagination
+            v-else
+            background
+            size="small"
+            v-model:current-page="currentPage"
+            v-model:page-size="pageSize"
+            :page-sizes="[6, 12, 18, 24]"
             layout="total, sizes, prev, pager, next, jumper"
             :total="total"
             @size-change="handleSizeChange"
             @current-change="handleCurrentChange"
           />
         </div>
+      </template>
+    </el-card>
+
+    <div
+      v-else
+      class="split-layout instance-split-embed"
+      :class="{
+        'split-layout--embed': embedMode
+      }"
+    >
+      <div v-if="!embedUnifiedToolbar" class="task-title-row split-layout__toolbar">
+        <h4 class="panel-title">任务数据集（请点选）</h4>
+        <div class="task-title-toolbar">
+          <el-switch
+            v-model="effectiveTaskViewAsTable"
+            inline-prompt
+            active-text="列表"
+            inactive-text="卡片"
+          />
+        </div>
+      </div>
+      <div class="split-layout__main">
+        <div v-if="effectiveTaskViewAsTable" class="table-div table-div--embed-scroll">
+          <el-table
+            ref="instanceTaskTableRef"
+            class="my-table"
+            :data="instanceTasksForTable"
+            stripe
+            size="small"
+            style="width: 100%"
+            @sort-change="onInstanceTableSortChange"
+            @filter-change="onInstanceTableFilterChange"
+            @row-click="handleTaskRowClick"
+            :row-class-name="getRowClassName"
+            v-el-height-adaptive-table="{ bottomOffset: 70, isUse: !embedMode }"
+          >
+            <el-table-column label="序号" width="56" align="center" fixed="left">
+              <template #default="scope">
+                {{ (currentPage - 1) * pageSize + scope.$index + 1 }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              prop="name"
+              column-key="name"
+              label="数据集名称"
+              min-width="140"
+              align="center"
+              fixed="left"
+              sortable="custom"
+              show-overflow-tooltip
+            />
+            <el-table-column
+              prop="sensorType"
+              column-key="sensorType"
+              label="传感器类型"
+              min-width="120"
+              align="center"
+              sortable="custom"
+              :filters="instanceSensorFilterOptions"
+              :filter-method="instanceTableFilterPassAll"
+              filter-placement="bottom-end"
+            />
+            <el-table-column
+              prop="targetType"
+              column-key="targetType"
+              label="目标类型"
+              min-width="120"
+              align="center"
+              sortable="custom"
+              :filters="instanceTargetFilterOptions"
+              :filter-method="instanceTableFilterPassAll"
+              filter-placement="bottom-end"
+            />
+            <el-table-column
+              prop="classNum"
+              column-key="classNum"
+              label="类别数"
+              align="center"
+              width="88"
+              sortable="custom"
+            >
+              <template #default="{ row }">
+                {{ displayCoreClassNum(row) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="类别名称" align="center" min-width="200">
+              <template #default="{ row }">
+                <div class="category-tags-container">
+                  <el-tag
+                    v-for="(item, index) in getTaskCategoryList(row)"
+                    :key="`${row.id}-${index}`"
+                    size="small"
+                    :type="getTagType(index)"
+                    style="margin: 2px; white-space: nowrap;"
+                  >
+                    {{ item.name }}: {{ item.count ?? 0 }}
+                  </el-tag>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column
+              prop="username"
+              column-key="username"
+              label="创建用户"
+              min-width="100"
+              align="center"
+              sortable="custom"
+              show-overflow-tooltip
+            />
+          </el-table>
+        </div>
+        <div v-else class="instance-task-card-grid">
+          <el-card
+            v-for="row in instanceTasksAfterSearch"
+            :key="row.id"
+            class="instance-task-card"
+            shadow="hover"
+            :class="{ 'is-selected': selectedTaskId === row.id }"
+            @click="handleTaskRowClick(row)"
+          >
+            <template #header>
+              <div class="instance-task-card__header">
+                <span class="instance-task-card__name">{{ row.name }}</span>
+              </div>
+            </template>
+            <el-descriptions :column="1" size="small" border>
+              <el-descriptions-item label="传感器类型">{{ row.sensorType || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="目标类型">{{ row.targetType || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="类别数">{{ displayCoreClassNum(row) }}</el-descriptions-item>
+              <el-descriptions-item label="创建用户">{{ row.username || '-' }}</el-descriptions-item>
+            </el-descriptions>
+            <div class="category-tags-container instance-task-card__tags">
+              <el-tag
+                v-for="(item, index) in getTaskCategoryList(row)"
+                :key="`${row.id}-${index}`"
+                size="small"
+                :type="getTagType(index)"
+                style="margin: 2px; white-space: nowrap;"
+              >
+                {{ item.name }}: {{ item.count ?? 0 }}
+              </el-tag>
+            </div>
+          </el-card>
+        </div>
+      </div>
+      <div class="split-layout__pager">
+        <el-pagination
+          background
+          size="small"
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[5, 10, 20, 30]"
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+        />
       </div>
     </div>
 
@@ -88,6 +347,12 @@
     >
       <div class="right-panel">
         <h4>实例数据集（{{ selectedTask?.name || '未选择任务' }}）</h4>
+        <p v-if="selectedTask" class="instance-drawer-task-split-hint">
+          <el-button link type="primary" size="small" @click="openTrainTestDrawer(selectedTask)">
+            任务级训测划分（目标子集 / 多方案）
+          </el-button>
+          <span class="instance-drawer-task-split-hint__text">与下表「随机训测划分」不同，后者按图片比例拆分到 train/test 目录。</span>
+        </p>
         <el-table
           class="my-table"
           :data="instanceDatasetList"
@@ -113,6 +378,19 @@
             </template>
           </el-table-column>
           <el-table-column prop="username" label="创建用户" align="center" />
+          <el-table-column label="训测划分" align="center" width="100">
+            <template #default="{ row }">
+              <el-tooltip
+                content="按训练集占全部图片的比例，将图像与成对标注随机拆分到训练目录与测试目录；若测试侧已有文件，会先合并回训练集再按新比例划分"
+                placement="top"
+                :show-after="200"
+              >
+                <el-button type="primary" link size="small" @click.stop="openInstanceSplitDialog(row)">
+                  训测划分
+                </el-button>
+              </el-tooltip>
+            </template>
+          </el-table-column>
           <el-table-column label="示例" align="center" width="80">
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="openInstancePreview(row)">
@@ -142,6 +420,37 @@
         </el-table>
       </div>
     </el-drawer>
+
+    <el-dialog
+      v-model="instanceSplitDialogVisible"
+      title="随机训测划分"
+      width="440px"
+      :close-on-click-modal="false"
+      destroy-on-close
+    >
+      <p class="instance-split-dialog-hint">
+        训练集占比：划分后保留在 <code>images/train</code> 侧的图片比例，其余随机进入
+        <code>images/test</code>，并尽量移动同名标注。若此前全部在训练集，会先合并测试目录到训练集再划分。
+      </p>
+      <el-form label-width="120px">
+        <el-form-item label="训练集占比">
+          <el-input-number
+            v-model="instanceSplitTrainRatio"
+            :min="0.01"
+            :max="0.99"
+            :step="0.05"
+            :precision="2"
+            style="width: 180px"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="instanceSplitDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="instanceSplitLoading" @click="submitInstanceRandomSplit">
+          确定划分
+        </el-button>
+      </template>
+    </el-dialog>
 
     <!-- 训测划分 Drawer -->
     <el-drawer
@@ -299,7 +608,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { TaskDatasetService, InstanceDatasetService, SourceInstanceDatasetService } from '@/api/api'
 import { useRouter } from 'vue-router'
@@ -307,12 +616,38 @@ import { request } from '@/api/axios'
 
 const router = useRouter()
 
+const props = defineProps({
+  /** 嵌入「数据集管理（dev）」时由外层卡片承担边距，略收紧内边距 */
+  embedMode: { type: Boolean, default: false },
+  /** 统合页已提供标题栏时隐藏内层任务列表标题与排序/视图切换 */
+  embedUnifiedToolbar: { type: Boolean, default: false },
+  /** 与统合页 v-model:task-view-as-table 同步 */
+  taskViewAsTable: { type: Boolean, default: undefined }
+})
+
+const emit = defineEmits(['update:taskViewAsTable'])
+
+const localTaskViewAsTable = ref(true)
+
+const effectiveTaskViewAsTable = computed({
+  get: () => (props.taskViewAsTable !== undefined ? props.taskViewAsTable : localTaskViewAsTable.value),
+  set: (v) => {
+    if (props.taskViewAsTable !== undefined) emit('update:taskViewAsTable', v)
+    else localTaskViewAsTable.value = v
+  }
+})
+
 // 左侧任务数据集
 const taskDatasetList = ref([])
-const taskSortMode = ref('updated')
 const currentPage = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
+const instanceTaskTableRef = ref(null)
+const instanceToolbarSearch = ref('')
+
+const useInstanceUnifiedPanel = computed(
+  () => props.embedMode && props.embedUnifiedToolbar
+)
 const selectedTask = ref(null)
 // ✅ 修改：使用 selectedTaskId (number 类型)
 const selectedTaskId = ref(null)
@@ -322,12 +657,14 @@ const instanceDatasetList = ref([])
 const instanceLoading = ref(false)
 const instanceDrawerVisible = ref(false)
 
+const instanceSplitDialogVisible = ref(false)
+const instanceSplitRow = ref(null)
+const instanceSplitTrainRatio = ref(0.8)
+const instanceSplitLoading = ref(false)
+
+/** 默认按最近更新（与原先下拉「最近更新优先」一致）；表头再叠自定义排序 */
 const sortedTaskDatasetList = computed(() => {
   const src = Array.isArray(taskDatasetList.value) ? [...taskDatasetList.value] : []
-  if (taskSortMode.value === 'name') {
-    src.sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'zh-CN'))
-    return src
-  }
   const toTs = (row) => {
     const raw =
       row?.devUpdatedTime ??
@@ -346,6 +683,122 @@ const sortedTaskDatasetList = computed(() => {
     return String(a?.name || '').localeCompare(String(b?.name || ''), 'zh-CN')
   })
   return src
+})
+
+const colFilterSensor = ref([])
+const colFilterTarget = ref([])
+const instanceTableColumnSort = ref(null)
+
+const instanceSensorFilterOptions = computed(() => {
+  const set = new Set()
+  for (const r of taskDatasetList.value) {
+    const s = r.sensorType
+    if (s != null && String(s).trim() !== '') set.add(String(s))
+  }
+  return [...set]
+    .sort((a, b) => a.localeCompare(b, 'zh-CN'))
+    .map((s) => ({ text: s, value: s }))
+})
+
+const instanceTargetFilterOptions = computed(() => {
+  const set = new Set()
+  for (const r of taskDatasetList.value) {
+    const t = r.targetType
+    if (t != null && String(t).trim() !== '') set.add(String(t))
+  }
+  return [...set]
+    .sort((a, b) => a.localeCompare(b, 'zh-CN'))
+    .map((t) => ({ text: t, value: t }))
+})
+
+function instanceTableFilterPassAll() {
+  return true
+}
+
+function onInstanceTableFilterChange(filters) {
+  const f = filters || {}
+  colFilterSensor.value = f.sensorType || []
+  colFilterTarget.value = f.targetType || []
+  if (useInstanceUnifiedPanel.value) currentPage.value = 1
+}
+
+function compareInstanceRowsForSort(a, b, prop) {
+  if (prop === 'name') return String(a?.name || '').localeCompare(String(b?.name || ''), 'zh-CN')
+  if (prop === 'sensorType') {
+    return String(a?.sensorType || '').localeCompare(String(b?.sensorType || ''), 'zh-CN')
+  }
+  if (prop === 'targetType') {
+    return String(a?.targetType || '').localeCompare(String(b?.targetType || ''), 'zh-CN')
+  }
+  if (prop === 'username') {
+    return String(a?.username || '').localeCompare(String(b?.username || ''), 'zh-CN')
+  }
+  if (prop === 'classNum') {
+    return displayCoreClassNum(a) - displayCoreClassNum(b)
+  }
+  return 0
+}
+
+function onInstanceTableSortChange({ prop, order }) {
+  if (!order) {
+    instanceTableColumnSort.value = null
+  } else {
+    instanceTableColumnSort.value = { prop, order }
+  }
+  if (useInstanceUnifiedPanel.value) currentPage.value = 1
+}
+
+const instanceTasksAfterColFilters = computed(() => {
+  return sortedTaskDatasetList.value.filter((row) => {
+    const okS =
+      !colFilterSensor.value.length || colFilterSensor.value.includes(row.sensorType)
+    const okT =
+      !colFilterTarget.value.length || colFilterTarget.value.includes(row.targetType)
+    return okS && okT
+  })
+})
+
+/** 工具栏搜索（在列筛选之后） */
+const instanceTasksAfterSearch = computed(() => {
+  const list = instanceTasksAfterColFilters.value
+  const q = (instanceToolbarSearch.value || '').trim().toLowerCase()
+  if (!q) return list
+  return list.filter((row) => {
+    const n = (row?.name || '').toLowerCase()
+    const s = (row?.sensorType || '').toLowerCase()
+    const t = (row?.targetType || '').toLowerCase()
+    const u = (row?.username || '').toLowerCase()
+    return n.includes(q) || s.includes(q) || t.includes(q) || u.includes(q)
+  })
+})
+
+/** 列表模式下叠表头排序 */
+const instanceTasksForTable = computed(() => {
+  const list = [...instanceTasksAfterSearch.value]
+  if (!effectiveTaskViewAsTable.value) return list
+  const ts = instanceTableColumnSort.value
+  if (!ts?.prop || !ts?.order) return list
+  const mul = ts.order === 'descending' ? -1 : 1
+  list.sort((a, b) => compareInstanceRowsForSort(a, b, ts.prop) * mul)
+  return list
+})
+
+function clearInstanceToolbarFilters() {
+  instanceToolbarSearch.value = ''
+  colFilterSensor.value = []
+  colFilterTarget.value = []
+  if (useInstanceUnifiedPanel.value) currentPage.value = 1
+  nextTick(() => instanceTaskTableRef.value?.clearFilter?.())
+}
+
+function clearInstanceToolbarSort() {
+  instanceTableColumnSort.value = null
+  if (useInstanceUnifiedPanel.value) currentPage.value = 1
+  nextTick(() => instanceTaskTableRef.value?.clearSort?.())
+}
+
+watch(instanceToolbarSearch, () => {
+  if (useInstanceUnifiedPanel.value) currentPage.value = 1
 })
 
 // 训测划分 Drawer
@@ -522,6 +975,16 @@ const getTaskCategoryList = (row) => {
     }))
   }
   return []
+}
+
+function displayCoreClassNum(row) {
+  const raw = row?.coreClassNum ?? row?.core_class_num
+  const num = Number(raw)
+  if (Number.isFinite(num) && num > 0) return num
+  const list = getTaskCategoryList(row)
+  const fromList = Array.isArray(list) ? list.length : 0
+  if (fromList > 0) return fromList
+  return Number.isFinite(num) ? num : 0
 }
 
 // 删除功能
@@ -703,8 +1166,13 @@ const fetchInstanceList = async (fatherName) => {
   }
 }
 
-// ✅ 点击任务数据集行（支持选中/取消）
-const handleTaskRowClick = (row) => {
+// ✅ 点击任务数据集行（支持选中/取消；排除表头筛选/排序区域）
+const handleTaskRowClick = (row, _column, event) => {
+  if (event?.target) {
+    if (event.target.closest('.el-table__column-filter-trigger')) return
+    if (event.target.closest('.el-popper')) return
+    if (event.target.closest('button, .el-button')) return
+  }
   if (selectedTaskId.value === row.id) {
     selectedTask.value = null
     selectedTaskId.value = null
@@ -721,6 +1189,50 @@ const handleTaskSelect = (row) => {
   selectedTaskId.value = row.id // number 类型
   fetchInstanceList(row.name)
   instanceDrawerVisible.value = true
+}
+
+function openInstanceSplitDialog(row) {
+  instanceSplitRow.value = row
+  instanceSplitTrainRatio.value = 0.8
+  instanceSplitDialogVisible.value = true
+}
+
+async function submitInstanceRandomSplit() {
+  const row = instanceSplitRow.value
+  if (!row?.id) {
+    ElMessage.warning('无效的数据集')
+    return
+  }
+  instanceSplitLoading.value = true
+  try {
+    const response = await InstanceDatasetService.splitTrainTestRandom({
+      id: row.id,
+      trainRatio: instanceSplitTrainRatio.value
+    })
+    if (response && response.code === 0) {
+      const d = response.data || {}
+      ElMessage.success(
+        `划分完成：训练集 ${d.trainImages ?? 0} 张图，测试集 ${d.testImages ?? 0} 张图`
+      )
+      instanceSplitDialogVisible.value = false
+      if (selectedTask.value) {
+        await fetchInstanceList(selectedTask.value.name)
+      }
+    } else {
+      ElMessage.error(response?.msg || '划分失败')
+    }
+  } catch (error) {
+    console.error('splitTrainTestRandom', error)
+    const errMsg =
+      error?.msg ||
+      error?.message ||
+      error?.response?.data?.msg ||
+      (typeof error === 'string' ? error : null) ||
+      '未知错误'
+    ElMessage.error('划分失败：' + errMsg)
+  } finally {
+    instanceSplitLoading.value = false
+  }
 }
 
 // 打开训测划分 Drawer
@@ -880,15 +1392,125 @@ onMounted(() => {
   padding: 10px;
   background-color: #f5f7fa;
 }
+
+.content.content--embed {
+  padding: 0;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+}
+
+.original-dataset-toolbar-row {
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.original-dataset-toolbar-row__right {
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.original-dataset-toolbar-search {
+  width: 220px;
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+}
+
+.flex-start {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.gap-8 {
+  gap: 8px;
+}
+
+.instance-embed-outer-card {
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.instance-embed-outer-card :deep(.el-card__body) {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0 0;
+}
+
+.instance-embed-outer-card :deep(.el-card__footer) {
+  flex-shrink: 0;
+  border-top: 1px solid #ebeef5;
+  /* 与「原始数据集」content--embed 一致，左右留白由统合页 section 提供 */
+  padding: 12px 0 0;
+  background: transparent;
+}
+
+.original-dataset-panel__footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  row-gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 2px 0 4px;
+}
+
+.original-dataset-panel__main--embed {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.instance-embed-card-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.content.content--embed .instance-embed-outer-card {
+  border: none;
+  border-radius: 0;
+}
+
+.original-dataset-panel__scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+}
+
 .split-layout {
   display: block;
   margin-top: 12px;
   height: calc(100vh - 180px);
   overflow-y: auto;
-}
-.table-div {
-  padding-top: 8px;
-  padding-bottom: 8px;
 }
 .panel-title {
   margin: 0;
@@ -905,10 +1527,25 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
-.content ::v-deep(.el-table) {
+.content:not(.content--embed) :deep(.el-table) {
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
   border-radius: 8px;
   overflow: hidden;
+}
+
+.content.content--embed :deep(.el-table) {
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  overflow: visible;
+  min-width: min-content;
+}
+
+.table-div {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .content ::v-deep(.el-table__header-wrapper) {
@@ -941,9 +1578,85 @@ onMounted(() => {
   line-height: 20px;
 }
 
-/* 隐藏单选按钮的标签文本 */
-::v-deep .el-radio__label {
+/* 表格内单选：隐藏重复标签（卡片视图需显示名称） */
+.table-div :deep(.el-radio__label) {
   display: none !important;
+}
+
+.task-title-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.instance-task-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.instance-task-card.is-selected {
+  border-color: #409eff;
+  box-shadow: 0 0 0 1px rgba(64, 158, 255, 0.35);
+}
+
+.instance-task-card__name {
+  font-weight: 600;
+  color: #303133;
+}
+
+.instance-task-card__tags {
+  margin-top: 10px;
+}
+
+.instance-task-card__actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.content--embed {
+  padding: 0;
+  background: transparent;
+}
+
+.content--embed .split-layout {
+  height: auto;
+  min-height: 360px;
+  max-height: none;
+}
+
+/* 统合页嵌入：列表/卡片区滚动，分页条固定在区块底部 */
+.content--embed .split-layout.split-layout--embed {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  margin-top: 0;
+}
+
+.content--embed .split-layout--embed .split-layout__toolbar {
+  flex-shrink: 0;
+}
+
+.content--embed .split-layout--embed .split-layout__main {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.content--embed .split-layout--embed .split-layout__pager {
+  flex-shrink: 0;
+  margin-top: 8px;
+}
+
+.content--embed .split-layout--embed .split-layout__pager.mt-12 {
+  margin-top: 8px;
 }
 
 /* ========== 预览弹窗样式 ========== */
@@ -1015,13 +1728,48 @@ onMounted(() => {
   }
 }
 
+.instance-drawer-task-split-hint {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.instance-drawer-task-split-hint__text {
+  color: #909399;
+  font-size: 12px;
+}
+
+.instance-split-dialog-hint {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.6;
+}
+
+.instance-split-dialog-hint code {
+  font-size: 12px;
+  background: #f4f4f5;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
 /* ========== 类别标签样式 ========== */
 .category-tags-container {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   max-width: 100%;
-  overflow: hidden;
+  min-width: 0;
+  align-items: flex-start;
+  max-height: 96px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 2px 0;
 }
 .category-tags-container .el-tag {
   flex-shrink: 0;

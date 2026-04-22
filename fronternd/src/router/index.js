@@ -5,6 +5,7 @@ import Layout from '../components/layout/index.vue'
 import Login from '../views/login.vue'
 import EngineProject from '../views/engineProject/index.vue'
 import TaskDatasetManageDev from '../views/taskDatasetManageDev/index.vue'
+import DatasetManageUnified from '../views/datasetManageUnified/index.vue'
 
 const routes=[
     {
@@ -23,6 +24,12 @@ const routes=[
           name: 'taskDatasetManageDev',
           component: TaskDatasetManageDev,
           meta: { title: '任务数据集管理（dev）' }
+        },
+        {
+          path: '/datasetManageUnified',
+          name: 'datasetManageUnified',
+          component: DatasetManageUnified,
+          meta: { title: '数据集管理（dev）' }
         }
       ]
     },

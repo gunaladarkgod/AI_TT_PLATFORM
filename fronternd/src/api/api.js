@@ -543,6 +543,19 @@ export class InstanceDatasetService {
         return request('/instance/getTrainableNames', {}, 'post');
     }
 
+    /**
+     * 全部实例数据集的训前状态（id、名称、父任务、是否可训练、原因列表），用于训练界面全量展示与引导。
+     */
+    static async listTrainingReadiness() {
+        return request(
+            '/instance/instancedatasets/trainingReadiness',
+            {},
+            'post',
+            'application/json;charset=UTF-8',
+            'json'
+        )
+    }
+
 
     // /**
     //  * 修改：预处理请求体格式（不再需要 instanceDatasetName 和 taskDatasetId）
@@ -562,6 +575,20 @@ export class InstanceDatasetService {
  static async deleteById(id) {
     //  现在可以正常调用 request
     return request(`/instance/instancedatasets/${id}`, null, 'delete', 'application/json');
+  }
+
+  /**
+   * 按训测比随机划分图像与成对标注到 test/train（先合并 test 回 train 再重划）
+   * @param {{ id: number, trainRatio: number }} params
+   */
+  static async splitTrainTestRandom(params) {
+    return request(
+      '/instance/instancedatasets/splitTrainTest',
+      params,
+      'post',
+      'application/json;charset=UTF-8',
+      'json'
+    )
   }
 }
 

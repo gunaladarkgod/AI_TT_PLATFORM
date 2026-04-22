@@ -56,6 +56,87 @@ public final class InstanceDatasetPathUtil {
                 StrUtil.blankToDefault(name, "(无 name)")));
     }
 
+    /**
+     * 在 {@link #tryResolveTarget} 可解析时直接返回；否则在「仅存在 train 且 test 尚未创建」时，
+     * 按 father_name+name 或库中 train 路径补建空的 test 目录后再解析（训测随机划分等场景需要）。
+     */
+    public static Optional<ResolvedInstanceDiskPaths> tryResolveTargetEnsuringTestDirs(
+            InstanceDataset info, String instanceDataRoot) throws IOException {
+        Optional<ResolvedInstanceDiskPaths> direct = tryResolveTarget(info, instanceDataRoot);
+        if (direct.isPresent()) {
+            return direct;
+        }
+        Path rootConfigured = Paths.get(instanceDataRoot.trim().replaceAll("/+$", "")).normalize();
+        String name = info.getName();
+        if (StrUtil.isBlank(name)) {
+            return Optional.empty();
+        }
+        String father = info.getFatherName();
+        if (StrUtil.isNotBlank(father)) {
+            Path baseTask = rootConfigured.resolve(safeFinalDatasetDirSegment(father)).resolve(name.trim()).normalize();
+            Optional<ResolvedInstanceDiskPaths> from = ensureTestDirsFromStandardBase(baseTask);
+            if (from.isPresent()) {
+                return from;
+            }
+        }
+        Path base = rootConfigured.resolve(name.trim()).normalize();
+        Optional<ResolvedInstanceDiskPaths> from2 = ensureTestDirsFromStandardBase(base);
+        if (from2.isPresent()) {
+            return from2;
+        }
+        return ensureTestDirsFromDbTrainPaths(info, rootConfigured);
+    }
+
+    private static Optional<ResolvedInstanceDiskPaths> ensureTestDirsFromStandardBase(Path base) throws IOException {
+        Path tImg = base.resolve("images").resolve("train");
+        if (!Files.isDirectory(tImg)) {
+            return Optional.empty();
+        }
+        Path tAnno = base.resolve("annotations").resolve("train");
+        if (!Files.isDirectory(tAnno)) {
+            tAnno = base.resolve("anno").resolve("train");
+        }
+        if (!Files.isDirectory(tAnno)) {
+            return Optional.empty();
+        }
+        Path sImg = tImg.getParent().resolve("test");
+        Path sAnno = tAnno.getParent().resolve("test");
+        Files.createDirectories(sImg);
+        Files.createDirectories(sAnno);
+        log.info("[instance-dataset] 已补建 test 空目录, base={}", base);
+        return Optional.of(
+                new ResolvedInstanceDiskPaths(
+                        toPosixPath(tImg), toPosixPath(sImg), toPosixPath(tAnno), toPosixPath(sAnno)));
+    }
+
+    private static Optional<ResolvedInstanceDiskPaths> ensureTestDirsFromDbTrainPaths(
+            InstanceDataset info, Path rootConfigured) throws IOException {
+        String tImgS = normalizeStoredPath(info.getTrainImagePath(), rootConfigured);
+        String tAnnoS = normalizeStoredPath(info.getTrainAnnoPath(), rootConfigured);
+        if (StrUtil.isBlank(tImgS) || StrUtil.isBlank(tAnnoS)) {
+            return Optional.empty();
+        }
+        Path trainImg = Paths.get(tImgS).normalize();
+        Path trainAnno = Paths.get(tAnnoS).normalize();
+        if (!Files.isDirectory(trainImg) || !Files.isDirectory(trainAnno)) {
+            return Optional.empty();
+        }
+        if (!"train".equalsIgnoreCase(String.valueOf(trainImg.getFileName()))
+                || !"train".equalsIgnoreCase(String.valueOf(trainAnno.getFileName()))) {
+            return Optional.empty();
+        }
+        Path testImg = trainImg.resolveSibling("test");
+        Path testAnno = trainAnno.resolveSibling("test");
+        Files.createDirectories(testImg);
+        Files.createDirectories(testAnno);
+        log.info(
+                "[instance-dataset] 从库中 train 路径补建 test 目录: trainImg={}",
+                toPosixPath(trainImg));
+        return Optional.of(
+                new ResolvedInstanceDiskPaths(
+                        toPosixPath(trainImg), toPosixPath(testImg), toPosixPath(trainAnno), toPosixPath(testAnno)));
+    }
+
     public static Optional<ResolvedInstanceDiskPaths> tryResolveTarget(InstanceDataset info, String instanceDataRoot) {
         Path rootConfigured = Paths.get(instanceDataRoot.trim().replaceAll("/+$", "")).normalize();
 
@@ -115,7 +196,7 @@ public final class InstanceDatasetPathUtil {
         return s;
     }
 
-    /** MMDet 打包需要非空 JSONObject class_list（与 buildDatasetCfg 一致）。 */
+    /** MMDet 打包需要非空 JSONObject class_list（与 buildDatasetCfg / TrainTaskController 一致）。 */
     public static boolean hasMmdetTrainableClassList(String classList) {
         if (StrUtil.isBlank(classList) || !JSONUtil.isTypeJSONObject(classList)) {
             return false;
@@ -124,13 +205,14 @@ public final class InstanceDatasetPathUtil {
     }
 
     /**
-     * 训练集目录内至少有一张图、一个 DOTA txt（最终实例数据集打包口径）。
+     * 训练集侧至少有一张图、一份标注（txt/json/xml，与 {@link #hasMidExportLabelFileDeep} 一致）；
+     * 支持子目录中的文件（与预处理落盘、导出的目录层级一致），不再仅检查根目录。
      */
     public static boolean targetHasUsableTrainContent(ResolvedInstanceDiskPaths p) {
         try {
             Path trainImg = Paths.get(p.trainImgPath()).normalize();
             Path trainAnno = Paths.get(p.trainAnnoPath()).normalize();
-            return hasImageFile(trainImg) && hasTxtLabel(trainAnno);
+            return hasImageFileDeep(trainImg) && hasMidExportLabelFileDeep(trainAnno);
         } catch (IOException e) {
             return false;
         }
