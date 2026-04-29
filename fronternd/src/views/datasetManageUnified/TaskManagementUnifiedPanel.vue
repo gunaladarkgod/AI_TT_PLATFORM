@@ -229,13 +229,13 @@
               ref="taskListTableRef"
               :data="tasksPageData"
               row-key="name"
-              border
               stripe
               size="small"
               class="task-list-table my-table"
               table-layout="fixed"
               style="width: 100%"
               :height="'100%'"
+              scrollbar-always-on
               v-el-height-adaptive-table="{ bottomOffset: 120, isUse: false }"
               @sort-change="onTaskTableSortChange"
               @filter-change="onTaskTableFilterChange"
@@ -252,104 +252,70 @@
                 label="任务名称"
                 prop="name"
                 column-key="name"
-                min-width="260"
+                min-width="120"
                 fixed="left"
                 sortable="custom"
               >
                 <template #default="{ row }">
-                  <div class="table-task-name-with-status">
-                    <div class="table-task-name-left">
-                      <span class="table-task-name" :title="row.name">{{ row.name }}</span>
-                      <el-tooltip placement="top" :show-after="200">
-                        <template #content>
-                          <div
-                            v-if="taskTitleDotState(row) === 'error'"
-                            class="task-export-tooltip task-export-tooltip--plain"
-                          >
-                            {{ mappingStatusTooltip(row) }}
+                  <div class="table-task-name-cell">
+                    <span class="table-task-name" :title="row.name">{{ row.name }}</span>
+                    <el-tooltip placement="top" :show-after="200">
+                      <template #content>
+                        <div
+                          v-if="taskTitleDotState(row) === 'error'"
+                          class="task-export-tooltip task-export-tooltip--plain"
+                        >
+                          {{ mappingStatusTooltip(row) }}
+                        </div>
+                        <div v-else-if="taskTitleDotState(row) === 'pending'" class="task-export-tooltip">
+                          <div>
+                            <strong>{{ taskExportDotPendingSummary(row) }}</strong>
                           </div>
-                          <div v-else-if="taskTitleDotState(row) === 'pending'" class="task-export-tooltip">
-                            <div>
-                              <strong>{{ taskExportDotPendingSummary(row) }}</strong>
-                            </div>
-                            <div v-if="String(row.last_export_time || '').trim()">
-                              最近导出：{{ row.last_export_by || '-' }}
-                              {{ formatTaskDateTime(row.last_export_time) }}
-                            </div>
-                            <div v-else>最近导出：尚未导出到中间数据集</div>
-                            <div v-if="row.updated_by || row.updated_time">
-                              任务定义更新：{{ row.updated_by || '-' }}
-                              {{ formatTaskDateTime(row.updated_time) }}
-                            </div>
-                            <div v-else>任务定义更新：暂无记录</div>
-                            <div class="task-export-dot-tooltip-hint">请点击「导出/更新」同步到 instance_dataset_mid。</div>
+                          <div v-if="String(row.last_export_time || '').trim()">
+                            最近导出：{{ row.last_export_by || '-' }}
+                            {{ formatTaskDateTime(row.last_export_time) }}
                           </div>
-                          <div v-else class="task-export-tooltip">
-                            <div v-if="String(row.last_export_time || '').trim()">
-                              最近导出：{{ row.last_export_by || '-' }}
-                              {{ formatTaskDateTime(row.last_export_time) }}
-                            </div>
-                            <div v-else>最近导出：尚未导出到中间数据集</div>
-                            <div v-if="row.updated_by || row.updated_time">
-                              任务定义更新：{{ row.updated_by || '-' }}
-                              {{ formatTaskDateTime(row.updated_time) }}
-                            </div>
-                            <div v-else>任务定义更新：暂无记录</div>
-                            <div>中间实例数据已与当前任务/映射导出版本一致（已就绪）。</div>
+                          <div v-else>最近导出：尚未导出到中间数据集</div>
+                          <div v-if="row.updated_by || row.updated_time">
+                            任务定义更新：{{ row.updated_by || '-' }}
+                            {{ formatTaskDateTime(row.updated_time) }}
                           </div>
-                        </template>
+                          <div v-else>任务定义更新：暂无记录</div>
+                          <div class="task-export-dot-tooltip-hint">请点击「导出/更新」同步到 instance_dataset_mid。</div>
+                        </div>
+                        <div v-else class="task-export-tooltip">
+                          <div v-if="String(row.last_export_time || '').trim()">
+                            最近导出：{{ row.last_export_by || '-' }}
+                            {{ formatTaskDateTime(row.last_export_time) }}
+                          </div>
+                          <div v-else>最近导出：尚未导出到中间数据集</div>
+                          <div v-if="row.updated_by || row.updated_time">
+                            任务定义更新：{{ row.updated_by || '-' }}
+                            {{ formatTaskDateTime(row.updated_time) }}
+                          </div>
+                          <div v-else>任务定义更新：暂无记录</div>
+                          <div>中间实例数据已与当前任务/映射导出版本一致（已就绪）。</div>
+                        </div>
+                      </template>
+                      <span
+                        class="task-export-dot-wrap"
+                        :class="{
+                          'task-export-dot-wrap--error': taskTitleDotState(row) === 'error',
+                          'task-export-dot-wrap--pending': taskTitleDotState(row) === 'pending'
+                        }"
+                        @click.stop
+                      >
                         <span
-                          class="task-export-dot-wrap"
+                          class="task-export-dot"
                           :class="{
-                            'task-export-dot-wrap--error': taskTitleDotState(row) === 'error',
-                            'task-export-dot-wrap--pending': taskTitleDotState(row) === 'pending'
+                            'task-export-dot--error': taskTitleDotState(row) === 'error',
+                            'task-export-dot--pending': taskTitleDotState(row) === 'pending'
                           }"
-                          @click.stop
-                        >
-                          <span
-                            class="task-export-dot"
-                            :class="{
-                              'task-export-dot--error': taskTitleDotState(row) === 'error',
-                              'task-export-dot--pending': taskTitleDotState(row) === 'pending'
-                            }"
-                          />
-                        </span>
-                      </el-tooltip>
-                    </div>
-                    <div class="table-task-name-status" @click.stop>
-                      <el-tooltip :content="exportStatusTooltip(row.status_code)" placement="top">
-                        <el-tag :type="statusTagType(row.status_code)" size="small">
-                          {{ row.status_text || '未导出' }}
-                        </el-tag>
-                      </el-tooltip>
-                      <el-tooltip :content="mappingStatusTooltip(row)" placement="top" :show-after="150">
-                        <el-tag
-                          size="small"
-                          :type="mappingTagType(row.mapping_status_code)"
-                          :class="[
-                            'mapping-status-tag',
-                            { 'mapping-status-tag--error': row.mapping_status_code !== 'ok' }
-                          ]"
-                          @click.stop="handleMappingTagClick(row)"
-                        >
-                          {{ row.mapping_status_text || '映射错误' }}
-                        </el-tag>
-                      </el-tooltip>
-                    </div>
+                        />
+                      </span>
+                    </el-tooltip>
                   </div>
                 </template>
-              </el-table-column>
-              <el-table-column
-                label=" "
-                column-key="statusPair"
-                prop="statusPair"
-                width="40"
-                align="center"
-                fixed="left"
-                class-name="task-col-status-sort"
-                sortable="custom"
-              >
-                <template #default><span /></template>
               </el-table-column>
               <el-table-column
                 label="任务描述"
@@ -417,15 +383,25 @@
                 column-key="updated_time"
                 width="150"
                 align="center"
+                header-align="center"
                 sortable="custom"
               >
                 <template #default="{ row }">
                   <el-text size="small">{{ formatTaskDateTime(row.updated_time) || '-' }}</el-text>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="168" fixed="right" align="right">
+              <el-table-column
+                label="操作"
+                :width="String(ACTION_COL_PX)"
+                :min-width="String(ACTION_COL_PX)"
+                :resizable="false"
+                align="center"
+                header-align="center"
+                fixed="right"
+                class-name="task-col-actions"
+              >
                 <template #default="{ row }">
-                  <div class="task-table-actions" @click.stop>
+                  <div class="task-table-actions task-table-actions--table" @click.stop>
                     <el-dropdown
                       trigger="click"
                       @command="cmd => handleTaskTableMoreCommand(cmd, row)"
@@ -874,6 +850,9 @@ const props = defineProps({
 
 const viewAsTable = computed(() => props.taskViewAsTable)
 
+/** 任务表「操作」列宽（仅「操作」列 fixed=right） */
+const ACTION_COL_PX = 200
+
 const datasetOptions = ref([])
 const tasks = ref([])
 const selectedTaskName = ref('')
@@ -1107,6 +1086,19 @@ const tasksPageData = computed(() => {
   const start = (cardCurrentPage.value - 1) * cardPageSize.value
   return list.slice(start, start + cardPageSize.value)
 })
+
+function scheduleTaskListTableLayout() {
+  if (!viewAsTable.value) return
+  nextTick(() => {
+    taskListTableRef.value?.doLayout?.()
+  })
+}
+
+watch(
+  () => [tasksPageData.value, viewAsTable.value, tablePageSize.value, tableCurrentPage.value],
+  () => scheduleTaskListTableLayout(),
+  { flush: 'post' }
+)
 
 watch(
   [taskToolbarSearch, () => props.taskViewAsTable, tasksBaseSorted, tasksAfterColFilters],
@@ -2037,9 +2029,16 @@ async function saveMappingRules() {
   }
 }
 
-onMounted(async () => {
+function onTaskListSectionResize() {
   updateTaskCardDescrColumn()
-  window.addEventListener('resize', updateTaskCardDescrColumn, { passive: true })
+  nextTick(() => {
+    taskListTableRef.value?.doLayout?.()
+  })
+}
+
+onMounted(async () => {
+  onTaskListSectionResize()
+  window.addEventListener('resize', onTaskListSectionResize, { passive: true })
 
   const [datasetRes, taskRes] = await Promise.allSettled([loadDatasets(), loadTasks()])
   if (taskRes.status === 'rejected') {
@@ -2048,10 +2047,11 @@ onMounted(async () => {
   if (datasetRes.status === 'rejected') {
     ElMessage.warning(`数据集列表加载失败：${datasetRes.reason?.message || datasetRes.reason}`)
   }
+  scheduleTaskListTableLayout()
 })
 
 onUnmounted(() => {
-  window.removeEventListener('resize', updateTaskCardDescrColumn)
+  window.removeEventListener('resize', onTaskListSectionResize)
 })
 </script>
 
@@ -2397,13 +2397,6 @@ onUnmounted(() => {
   line-height: 1.55;
 }
 
-.table-task-name-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
 .table-task-name {
   font-weight: 600;
   overflow: hidden;
@@ -2417,43 +2410,27 @@ onUnmounted(() => {
   max-width: 300px;
 }
 
-.table-task-name-with-status {
+.table-task-name-cell {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
   width: 100%;
-  min-width: 0;
 }
 
-.table-task-name-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
+.table-task-name-cell .table-task-name {
+  max-width: min(100%, 320px);
   flex: 1;
+  min-width: 0;
 }
 
-.table-task-name-with-status .table-task-name {
-  max-width: min(200px, 45%);
-}
-
-.table-task-name-status {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  flex-shrink: 0;
-  max-width: 52%;
-}
-
-.task-list-table :deep(.task-col-status-sort) {
-  border-right: none;
-}
-
-.task-list-table :deep(.task-col-status-sort .cell) {
-  padding: 0 2px;
+/* 仅「操作」列 fixed=right，样式作用在右侧固定层该列上。 */
+.task-list-table :deep(.el-table__fixed-right th.task-col-actions .cell),
+.task-list-table :deep(.el-table__fixed-right td.task-col-actions .cell) {
+  text-align: center;
+  box-sizing: border-box;
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 .task-list-table {
@@ -2474,6 +2451,11 @@ onUnmounted(() => {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.task-table-actions.task-table-actions--table {
+  justify-content: center;
+  width: 100%;
 }
 
 
