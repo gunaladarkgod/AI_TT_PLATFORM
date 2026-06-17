@@ -1,44 +1,49 @@
-# OS/editor
+# ===================== IDE / 系统隐藏文件 =====================
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
+*.swp
+*.swo
 
-# Logs
+# ===================== 日志文件 =====================
 *.log
 logs/
+backend/logs/
+backend/logs/main/
 
-# Python
+# ===================== Python 环境 & 缓存 =====================
 __pycache__/
 *.py[cod]
+*.pyc
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .venv/
-mmdet_run/mmdet_runner_srv/.conda_runner/
 venv/
 env/
+mmdet_run/mmdet_runner_srv/.conda_runner/
 
-# Node
+# ===================== 前端 Node 依赖 & 日志 =====================
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Java / Maven
+# ===================== Java Maven 编译产物 =====================
 target/
+backend/target/
 *.class
+*.jar
 
-# Build outputs
+# ===================== 打包/构建输出目录 =====================
 dist/
 build/
 out/
+fronternd/dist/
 
-# Project data directory (datasets, task dev JSON, instance exports, etc.)
-/data/
-
-# Runtime / temp files
+# ===================== 临时运行文件 =====================
 *.pid
 *.seed
 *.stackdump
@@ -46,32 +51,26 @@ out/
 tmp/
 temp/
 
-# ML artifacts and datasets (optional to track; ignored by default)
+# ===================== 机器学习训练产物（权重、缓存、数据集） =====================
 runs/
 wandb/
 mlruns/
 datasets/
 checkpoints/
 weights/
+artifacts/
+mmdet_run/myfiles/modelcfg/
 *.pt
 *.pth
 *.onnx
 *.engine
 *.ckpt
 
-backend/logs/main/main.log
+# ===================== 数据集/业务临时导出数据 =====================
+/data/
 
-# ClearML local secrets (copy from env.clearml.example)
+# ===================== 本地密钥、环境配置（只忽略本地私有配置，保留example模板） =====================
 backend/env.clearml.local
-# 日志
-backend/logs/
-*.log
-# 模型权重、训练缓存
-mmdet_run/myfiles/modelcfg/
-artifacts/
-# Java编译产物
-backend/target/
-*.jar
-# Python缓存
-__pycache__/
-*.pyc
+backend/.env
+.env
+.env.local
