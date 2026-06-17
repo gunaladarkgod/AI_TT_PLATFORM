@@ -63,3 +63,15 @@ backend/logs/main/main.log
 
 # ClearML local secrets (copy from env.clearml.example)
 backend/env.clearml.local
+# 日志
+backend/logs/
+*.log
+# 模型权重、训练缓存
+mmdet_run/myfiles/modelcfg/
+artifacts/
+# Java编译产物
+backend/target/
+*.jar
+# Python缓存
+__pycache__/
+*.pyc
