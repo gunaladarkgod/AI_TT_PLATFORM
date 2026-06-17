@@ -106,10 +106,24 @@ sys:
     python-path: "${INSTANCE_PYTHON_PATH:/home/omen1/miniconda3/envs/platform/bin/python}"  # Python 解释器路径
 
 
+  # ClearML：优先自动加载 backend/env.clearml.local（见 ClearmlDotEnvEnvironmentPostProcessor）。
+  # 关闭集成：在 env 文件或系统环境中设置 CLEARML_ENABLED=false。
+  clearml:
+    enabled: ${CLEARML_ENABLED:true}
+    api-host: ${CLEARML_API_HOST:https://api.clear.ml}
+    web-host: ${CLEARML_WEB_HOST:https://app.clear.ml}
+    # REST 路径形如 https://api.clear.ml/v2.23/auth.login（带点号）；勿写成 v2_23。
+    api-version: ${CLEARML_API_VERSION:2.23}
+    access-key: ${CLEARML_API_ACCESS_KEY:}
+    secret-key: ${CLEARML_API_SECRET_KEY:}
+    project-name-contains: ${CLEARML_PROJECT_NAME_CONTAINS:}
+    active-tasks-page-size: ${CLEARML_ACTIVE_TASKS_PAGE_SIZE:50}
+
   runner:
     train-url: "${RUNNER_TRAIN_URL:http://127.0.0.1:8009/api/runner/train}"
-    # 是否在启动 Spring Boot 时自动拉起 MMDet Runner（子进程）。生产建议 false，用 Docker/systemd 单独托管。
-    auto-start: ${RUNNER_AUTO_START:false}
+    # 是否在启动 Spring Boot 时自动拉起 MMDet Runner（子进程）。默认 true，避免本地再手动执行 start_runner.sh。
+    # 生产若由 Docker/systemd 单独托管 Runner，请设置 RUNNER_AUTO_START=false。
+    auto-start: ${RUNNER_AUTO_START:true}
     # 停止后端时是否同时结束本进程拉起的 Runner（默认 false，避免 IDE 点 Stop 后 8009 被关掉）
     auto-stop-on-shutdown: ${RUNNER_AUTO_STOP_ON_SHUTDOWN:false}
     launch-script: "${RUNNER_LAUNCH_SCRIPT:/home/omen1/AI_TT_Platform/mmdet_run/mmdet_runner_srv/start_runner.sh}"

@@ -15,6 +15,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .venv/
+mmdet_run/mmdet_runner_srv/.conda_runner/
 venv/
 env/
 
@@ -59,3 +60,6 @@ weights/
 *.ckpt
 
 backend/logs/main/main.log
+
+# ClearML local secrets (copy from env.clearml.example)
+backend/env.clearml.local

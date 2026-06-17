@@ -61,6 +61,10 @@
   content: "\e628";
 }
 
+.icon-trainTaskClearML:before {
+  content: "\e628";
+}
+
 .icon-shouquan:before {
   content: "\e620";
 }

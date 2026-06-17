@@ -4548,6 +4548,11 @@ onMounted(() => {
   wsConnect();
   refreshRunnerHealth();
   runnerHealthTimer = setInterval(refreshRunnerHealth, 30000);
+  // 列表在 setup 时已请求一次；此处再拉一次避免登录态/Pinia 尚未就绪时首次为空
+  nextTick(() => {
+    queryUsers();
+    handleCurrentChange();
+  });
 })
 
 onBeforeUnmount(() => {

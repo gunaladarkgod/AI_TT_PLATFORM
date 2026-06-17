@@ -41,6 +41,10 @@ public class AjaxResult implements Serializable {
 		return new AjaxResult(1, msg, null);
 	}
 
+	public static AjaxResult error(String msg, Object data) {
+		return new AjaxResult(1, msg, data);
+	}
+
 	public static AjaxResult error(ErrorCode infos) {
 		return new AjaxResult(infos.getCode(), infos.getMsg(), null);
 	}

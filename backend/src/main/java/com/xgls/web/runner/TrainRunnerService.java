@@ -66,7 +66,8 @@ public class TrainRunnerService {
 
     /** 同步启动训练（等待 Python Runner 返回） */
     public RunnerTrainResponse startByRunId(String runId) {
-        int[] retryDelaysMs = {0, 1000};
+        // Runner 可能随后端刚拉起；略加长间隔以便自动启动完成健康检查后再连上
+        int[] retryDelaysMs = {0, 2000, 5000};
         RunnerTrainResponse lastError = RunnerTrainResponse.transportError("runner not called");
         for (int i = 0; i < retryDelaysMs.length; i++) {
             if (retryDelaysMs[i] > 0) {
@@ -124,6 +125,7 @@ public class TrainRunnerService {
                 resultsTxt = jo.getStr("result_text");
             }
             result.setResultsTxt(resultsTxt);
+            result.setClearmlTaskId(jo.getStr("clearml_task_id"));
         } catch (Exception ex) {
             result.setOk(statusCode >= 200 && statusCode < 300);
             result.setError("invalid runner response: " + ex.getMessage());

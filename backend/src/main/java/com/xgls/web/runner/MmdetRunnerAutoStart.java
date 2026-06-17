@@ -5,6 +5,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -24,7 +25,7 @@ import lombok.extern.slf4j.Slf4j;
  * 可选：与 Spring Boot 同进程生命周期内拉起 MMDet Runner（Python uvicorn）。
  * <p>
  * 生产环境更推荐 Docker Compose / systemd 单独托管 Runner；此处适合本机一键开发。
- * 开启：sys.runner.auto-start=true（或环境变量 RUNNER_AUTO_START=true）。
+ * 默认开启（application.yml）；关闭：RUNNER_AUTO_START=false。
  */
 @Slf4j
 @Component
@@ -67,13 +68,59 @@ public class MmdetRunnerAutoStart implements ApplicationListener<ApplicationRead
         pb.directory(script.getParent().toFile());
         pb.redirectErrorStream(true);
         pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()));
+        // 与子进程 uvicorn 一致：避免 Python 混入 ~/.local 中与 numpy/pandas 冲突导致 clearml 无法 import
+        pb.environment().putIfAbsent("PYTHONNOUSERSITE", "1");
         try {
             Process p = pb.start();
             processRef.set(p);
             log.info("[runner-autostart] 已启动 MMDet Runner 子进程，pid={}，日志: {}；停止后端时{}结束 Runner（sys.runner.auto-stop-on-shutdown={}）",
                     p.pid(), logFile, autoStopOnShutdown ? "将" : "默认不", autoStopOnShutdown);
+            waitUntilRunnerHealthyOrTimeout(p, logFile);
         } catch (IOException e) {
             log.error("[runner-autostart] 启动失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * uvicorn 绑定端口需要时间；就绪后再接受训练 HTTP，否则前端「发布」会立刻失败。
+     */
+    private void waitUntilRunnerHealthyOrTimeout(Process child, Path logFile) {
+        final int maxWaitSeconds = 45;
+        final long deadline = System.currentTimeMillis() + maxWaitSeconds * 1000L;
+        while (System.currentTimeMillis() < deadline) {
+            if (!child.isAlive()) {
+                log.error("[runner-autostart] Runner 进程已退出（pid={}）。请查看日志: {}", child.pid(), logFile);
+                return;
+            }
+            if (runnerRespondedOk()) {
+                log.info("[runner-autostart] Runner 已通过 GET /health（{}），可接收训练请求", healthUri());
+                return;
+            }
+            try {
+                Thread.sleep(400);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        log.warn(
+                "[runner-autostart] {} 秒内健康检查仍未通过（{}）。训练可能暂时失败；请检查日志: {}",
+                maxWaitSeconds,
+                healthUri(),
+                logFile);
+        tailLogPreview(logFile);
+    }
+
+    private void tailLogPreview(Path logFile) {
+        try {
+            if (!Files.isRegularFile(logFile)) {
+                return;
+            }
+            byte[] raw = Files.readAllBytes(logFile);
+            String text = new String(raw, StandardCharsets.UTF_8);
+            String tail = text.length() > 1200 ? text.substring(text.length() - 1200) : text;
+            log.warn("[runner-autostart] 日志末尾预览:\n{}", tail);
+        } catch (IOException ignored) {
         }
     }
 

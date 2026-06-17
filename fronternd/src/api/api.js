@@ -198,6 +198,19 @@ export class TrainTaskService {
 
 }
 
+/** ClearML 集群监控（dev），密钥仅存服务端 */
+export class ClearmlDevService {
+    static async status() {
+        return request('/clearml/status', {}, 'post', 'application/json;charset=UTF-8');
+    }
+    static async probe() {
+        return request('/clearml/probe', {}, 'post', 'application/json;charset=UTF-8');
+    }
+    static async activeTasks(params = {}) {
+        return request('/clearml/tasks/active', params, 'post', 'application/json;charset=UTF-8');
+    }
+}
+
 /**训练文件管理 */
 export class TrainYoloService {
     static async queryList(params) {

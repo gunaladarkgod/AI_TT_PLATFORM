@@ -2,3 +2,5 @@
 fastapi>=0.100.0
 uvicorn[standard]>=0.22.0
 typing_extensions>=4.8.0
+# 训练实验上报 ClearML（Runner 内 Task.init，子进程继承 CLEARML_* / CLEARML_TASK_ID）
+clearml>=1.14.0
