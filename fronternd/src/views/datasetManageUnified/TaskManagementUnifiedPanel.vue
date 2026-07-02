@@ -131,10 +131,10 @@
                       >
                         <span class="card-header-action-wrap">
                           <el-button
-                            type="primary"
+                            :type="exportButtonType(task)"
                             size="small"
                             :loading="exportLoadingTaskName === task.name"
-                            :disabled="task.mapping_status_code !== 'ok'"
+                            :disabled="task.mapping_status_code !== 'ok' || task.status_code === 'ready'"
                             @click.stop="exportTask(task)"
                           >
                             {{ exportActionText(task) }}
@@ -148,7 +148,7 @@
                     >
                         <span class="card-header-action-wrap">
                           <el-button type="warning" plain size="small" @click.stop="clearTask(task)">
-                            清除
+                            清除导出数据集
                           </el-button>
                         </span>
                       </el-tooltip>
@@ -166,7 +166,7 @@
                     </div>
                     <span v-else>-</span>
                   </el-descriptions-item>
-                  <el-descriptions-item label="关联数据集" :span="taskCardDescrColumn">
+                  <el-descriptions-item label="原始数据集" :span="taskCardDescrColumn">
                     <div class="info-tags info-tags--card-plain" v-if="task.test_datasets?.length">
                       <el-tag
                         v-for="ds in task.test_datasets"
@@ -204,6 +204,9 @@
                 <div class="task-card-footer" @click.stop>
                   <div class="task-card-footer-left">
                     <el-button plain @click="jumpToTaskMappingEditor(task)">查看和编辑映射关系</el-button>
+                    <el-button plain :disabled="!hasExportedDataset(task)" @click="openTaskPath(task)">
+                      打开路径
+                    </el-button>
                   </div>
                   <div class="task-card-footer-right">
                     <el-button type="primary" plain @click="editTask(task)">编辑</el-button>
@@ -354,7 +357,7 @@
                 </template>
               </el-table-column>
               <el-table-column
-                label="关联数据集"
+                label="原始数据集"
                 prop="testDatasets"
                 column-key="testDatasets"
                 min-width="180"
@@ -418,12 +421,18 @@
                         <el-dropdown-menu>
                           <el-dropdown-item
                             command="export"
-                            :disabled="row.mapping_status_code !== 'ok'"
+                            :disabled="row.mapping_status_code !== 'ok' || row.status_code === 'ready'"
                           >
                             {{ exportActionText(row) }}
                           </el-dropdown-item>
+                          <el-dropdown-item command="openPath" :disabled="!hasExportedDataset(row)">
+                            打开路径
+                          </el-dropdown-item>
                           <el-dropdown-item command="clear" divided>
-                            清除导出
+                            清除导出数据集
+                          </el-dropdown-item>
+                          <el-dropdown-item command="preview">
+                            查看示例
                           </el-dropdown-item>
                           <el-dropdown-item command="mapping">
                             查看和编辑映射
@@ -523,13 +532,13 @@
             </el-button>
           </div>
         </el-form-item>
-        <el-form-item label="测试数据集">
+        <el-form-item label="原始数据集">
           <el-select
             v-model="createForm.testDatasets"
             multiple
             filterable
             clearable
-            placeholder="选择一个或多个用于测试的数据集"
+            placeholder="选择一个或多个原始数据集"
             style="width: 100%"
           >
             <el-option
@@ -787,13 +796,13 @@
             </el-button>
           </div>
         </el-form-item>
-        <el-form-item label="测试数据集">
+        <el-form-item label="原始数据集">
           <el-select
             v-model="editForm.testDatasets"
             multiple
             filterable
             clearable
-            placeholder="选择一个或多个用于测试的数据集"
+            placeholder="选择一个或多个原始数据集"
             style="width: 100%"
           >
             <el-option
@@ -833,6 +842,12 @@
         </div>
       </template>
     </el-dialog>
+    <DatasetPreviewDialog
+      v-model="previewDialogVisible"
+      :title="previewTaskRow ? `查看示例 - ${previewTaskRow.name}` : '查看示例'"
+      empty-description="暂无可展示的已映射图片"
+      :load-preview="loadTaskPreview"
+    />
 
   </div>
 </template>
@@ -842,11 +857,17 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { OriginalDatasetService, TaskDatasetDevService } from '@/api/api'
+import { baseHost } from '@/api/axios'
+import DatasetPreviewDialog from '@/components/dataset/DatasetPreviewDialog.vue'
 
 const props = defineProps({
   /** 与统合父页同步（列表/卡片） */
-  taskViewAsTable: { type: Boolean, default: true }
+  taskViewAsTable: { type: Boolean, default: true },
+  datasetRefreshKey: { type: Number, default: 0 },
+  taskRefreshKey: { type: Number, default: 0 }
 })
+
+const emit = defineEmits(['midDatasetChanged'])
 
 const viewAsTable = computed(() => props.taskViewAsTable)
 
@@ -875,6 +896,13 @@ const editDialogVisible = ref(false)
 const createTaskDialogVisible = ref(false)
 const mappingEditorDialogVisible = ref(false)
 const exportLoadingTaskName = ref('')
+const previewDialogVisible = ref(false)
+const previewTaskRow = ref(null)
+const previewGroups = ref([])
+const previewLoading = ref(false)
+const groupRefreshing = ref({})
+const objectsMeta = ref({})
+const previewDiagnostics = ref([])
 const activeTargetTag = ref('')
 const issueHighlightTaskName = ref('')
 const issueHighlightPairMap = ref({})
@@ -1108,6 +1136,26 @@ watch(
   }
 )
 
+watch(
+  () => props.datasetRefreshKey,
+  async () => {
+    try {
+      await loadDatasets()
+    } catch (e) {
+      ElMessage.warning(`原始数据集列表刷新失败：${e?.message || e}`)
+    }
+  }
+)
+watch(
+  () => props.taskRefreshKey,
+  async () => {
+    try {
+      await loadTasks()
+    } catch (e) {
+      ElMessage.warning(`任务状态刷新失败：${e?.message || e}`)
+    }
+  }
+)
 function onTablePageSizeChange() {
   tableCurrentPage.value = 1
 }
@@ -1520,7 +1568,7 @@ async function createTask() {
     return false
   }
   if (!createForm.value.testDatasets.length) {
-    ElMessage.error('请至少选择一个数据集作为测试源')
+    ElMessage.error('请至少选择一个原始数据集')
     return false
   }
 
@@ -1599,6 +1647,9 @@ async function deleteTask(task) {
       alsoDeleteLocal ? '已删除任务记录，并已清理本地导出数据' : '已删除任务记录（本地导出目录未删除）'
     )
     tasks.value = Array.isArray(res?.data) ? res.data : []
+    if (alsoDeleteLocal) {
+      emit('midDatasetChanged')
+    }
     if (selectedTaskName.value === task.name) {
       selectedTaskName.value = ''
     }
@@ -1612,10 +1663,10 @@ async function clearTask(task) {
   try {
     await ElMessageBox.confirm(
       `确定清除任务「${task.name}」的本地已导出中间数据吗？\n将删除中间表 father_name 对应记录及 instance_dataset_mid 下相关目录；任务定义会保留，列表中的卡片不会消失。`,
-      '清除确认',
+      '清除导出数据集',
       {
         type: 'warning',
-        confirmButtonText: '确认清除',
+        confirmButtonText: '确认清除导出数据集',
         cancelButtonText: '取消'
       }
     )
@@ -1634,8 +1685,9 @@ async function clearTask(task) {
       }
       return
     }
-    ElMessage.success('已清除本地导出数据，任务记录仍保留')
+    ElMessage.success('已清除导出数据集，任务记录仍保留，可重新导出')
     tasks.value = Array.isArray(res?.data) ? res.data : []
+    emit('midDatasetChanged')
   } catch (e) {
     ElMessage.error(`清除失败：${e?.message || e}`)
   }
@@ -1692,6 +1744,12 @@ function handleTaskTableMoreCommand(cmd, row) {
       break
     case 'clear':
       clearTask(row)
+      break
+    case 'openPath':
+      openTaskPath(row)
+      break
+    case 'preview':
+      openTaskPreview(row)
       break
     case 'mapping':
       jumpToTaskMappingEditor(row)
@@ -1754,12 +1812,24 @@ function exportActionText(task) {
   const code = task?.status_code
   const hasExportTime = String(task?.last_export_time || '').trim().length > 0
   if (!hasExportTime || !code || code === 'never_exported') return '导出'
+  if (code === 'ready') return '已最新'
   return '更新'
+}
+
+function exportButtonType(task) {
+  return task?.status_code === 'ready' ? 'success' : 'warning'
+}
+
+function hasExportedDataset(task) {
+  return task?.has_exported_dataset === true && String(task?.export_path || '').trim().length > 0
 }
 
 function exportButtonTooltip(task) {
   if (task?.mapping_status_code !== 'ok') {
     return mappingStatusTooltip(task)
+  }
+  if (task?.status_code === 'ready') {
+    return `已最新：本地中间实例数据集与当前任务及映射一致。${task?.export_path ? ` 路径：${task.export_path}` : ''}`
   }
   const isFirst =
     !String(task?.last_export_time || '').trim() ||
@@ -1796,7 +1866,7 @@ function mappingStatusTooltip(task) {
   const fromBackend = String(task?.mapping_status_detail || '').trim()
   if (fromBackend) return fromBackend
   const analyzed = analyzeTaskMappingIssues(task, (datasetName, cls) => task?.mapping_rules?.[datasetName]?.[cls] || '')
-  return analyzed.detail || '请先完成每个测试数据集类别到目标类别的映射。'
+  return analyzed.detail || '请先完成每个原始数据集类别到目标类别的映射。'
 }
 
 function analyzeTaskMappingIssues(task, mappingResolver) {
@@ -1915,6 +1985,7 @@ async function exportTask(task) {
     }
     ElMessage.success('已导出到中间实例数据集（instance_dataset_mid）')
     tasks.value = Array.isArray(res?.data) ? res.data : []
+    emit('midDatasetChanged')
     if (selectedTaskName.value === task.name) {
       clearIssueHighlight()
     }
@@ -1925,6 +1996,235 @@ async function exportTask(task) {
   }
 }
 
+async function openTaskPath(task) {
+  if (!task?.name || !hasExportedDataset(task)) {
+    ElMessage.warning('该任务还没有已导出的本地中间实例数据集')
+    return
+  }
+  try {
+    const res = await TaskDatasetDevService.openTaskPath({ name: task.name })
+    if (res?.code !== 0) {
+      ElMessage.error(res?.msg || '打开路径失败')
+      return
+    }
+    ElMessage.success(`已打开：${res?.data?.path || task.export_path}`)
+  } catch (e) {
+    ElMessage.error(`打开路径失败：${e?.message || e}`)
+  }
+}
+
+function parsePreviewResponse(raw) {
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw)
+    } catch (_) {
+      return { code: -1, msg: '预览接口返回了非 JSON 字符串', raw }
+    }
+  }
+  return raw || {}
+}
+
+function unwrapPreviewData(raw) {
+  const obj = parsePreviewResponse(raw)
+  if (typeof obj?.data === 'string') {
+    try {
+      obj.data = JSON.parse(obj.data)
+    } catch (_) {
+      return { response: obj, data: { items: [] } }
+    }
+  }
+  return { response: obj, data: obj?.data || obj || {} }
+}
+function previewImageUrl(path, refreshKey = Date.now()) {
+  if (!path) return ''
+  const raw = String(path)
+  const sep = raw.includes('?') ? '&' : '?'
+  if (/^https?:\/\//i.test(raw)) return `${raw}${sep}_=${refreshKey}`
+  const clean = raw.startsWith('/') ? raw : `/${raw}`
+  const origin = `${window.location.protocol}//${baseHost}`
+  return `${origin}${clean}${sep}_=${refreshKey}`
+}
+
+function objectsUrlFromImageUrl(imgUrl) {
+  return String(imgUrl || '').replace('/image?', '/objects?')
+}
+
+function setPreviewTrace(key, status, label, message) {
+  const next = previewDiagnostics.value.filter(item => item.key !== key)
+  next.push({ key, status, label, message })
+  previewDiagnostics.value = next
+}
+
+function normalizeTaskPreviewGroups(items, refreshKey = Date.now()) {
+  return (Array.isArray(items) ? items : []).map(item => {
+    const rawImages = Array.isArray(item?.images)
+      ? item.images
+      : Array.isArray(item?.urls)
+        ? item.urls
+        : []
+    const images = rawImages
+      .map(image => typeof image === 'string' ? image : (image?.url || image?.src || ''))
+      .map(url => previewImageUrl(url, refreshKey))
+      .filter(Boolean)
+    return {
+      name: item?.label || item?.className || item?.name || '未命名类别',
+      count: Number(item?.count || images.length || 0),
+      images
+    }
+  }).filter(group => group.images.length)
+}
+
+function summarizePreviewItems(items) {
+  if (!Array.isArray(items)) return '后端 data.items 不是数组'
+  if (!items.length) return '后端 data.items 是空数组'
+  return items.map((item, index) => {
+    const images = Array.isArray(item?.images) ? item.images : []
+    const first = images[0]
+    const keys = first && typeof first === 'object' ? Object.keys(first).join(',') : typeof first
+    return `#${index + 1} ${item?.label || item?.name || '未命名'}: images=${images.length}, firstKeys=${keys || '-'}`
+  }).join('；')
+}
+function seedObjectsFromTaskPreview(items, refreshKey = Date.now()) {
+  const cache = {}
+  ;(Array.isArray(items) ? items : []).forEach(item => {
+    const images = Array.isArray(item?.images) ? item.images : []
+    images.forEach(image => {
+      if (!image || typeof image === 'string') return
+      const src = previewImageUrl(image.url || image.src || '', refreshKey)
+      if (!src) return
+      if (image.width || image.height || Array.isArray(image.objects)) {
+        cache[src] = {
+          width: Number(image.width || 0),
+          height: Number(image.height || 0),
+          objects: Array.isArray(image.objects) ? image.objects : []
+        }
+      }
+    })
+  })
+  objectsMeta.value = cache
+}
+
+function onTaskPreviewImageError(event, src) {
+  const target = event?.target
+  if (target) {
+    target.style.display = 'none'
+    target.parentElement?.classList.add('imgbox--fallback')
+  }
+  setPreviewTrace(`image:${src}`, 'error', '图片加载', `图片流加载失败：${src}`)
+}
+
+async function ensureTaskPreviewObjects(src) {
+  if (!src || objectsMeta.value[src]) return
+  try {
+    const url = objectsUrlFromImageUrl(src)
+    const resp = await fetch(url, { cache: 'no-store' })
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    const res = await resp.json()
+    if (res?.code !== undefined && res.code !== 0) throw new Error(res.msg || '标注接口返回失败')
+    const data = res?.data || res
+    if (data && (data.width || data.height || Array.isArray(data.objects))) {
+      objectsMeta.value = {
+        ...objectsMeta.value,
+        [src]: {
+          width: Number(data.width || 0),
+          height: Number(data.height || 0),
+          objects: Array.isArray(data.objects) ? data.objects : []
+        }
+      }
+      setPreviewTrace('objects', 'ok', '标注接口', '图片标注读取成功')
+    } else {
+      setPreviewTrace('objects', 'warn', '标注接口', '标注接口返回为空，图片可展示但没有框')
+    }
+  } catch (e) {
+    console.error('读取任务示例标注失败', e)
+    setPreviewTrace('objects', 'error', '标注接口', `读取标注失败：${e?.message || e}`)
+  }
+}
+
+function normalizePreviewPoint(point) {
+  if (Array.isArray(point)) return [Number(point[0] || 0), Number(point[1] || 0)]
+  if (typeof point === 'string') {
+    const parts = point.trim().split(/[\s,]+/).map(Number)
+    if (parts.length >= 2 && parts.every(Number.isFinite)) return [parts[0], parts[1]]
+  }
+  return null
+}
+
+function pointsAttr(points) {
+  if (!Array.isArray(points)) return ''
+  return points
+    .map(normalizePreviewPoint)
+    .filter(Boolean)
+    .map(point => point.join(','))
+    .join(' ')
+}
+
+function firstPoint(points) {
+  if (!Array.isArray(points)) return null
+  return normalizePreviewPoint(points[0])
+}
+
+function addPathDiagnostics(debug) {
+  if (!debug) return
+  setPreviewTrace(
+    'path-root',
+    debug.task_root_exists === false ? 'error' : 'ok',
+    '任务数据集目录',
+    `${debug.task_root || '-'}${debug.task_root_exists === false ? ' 不存在' : ''}`
+  )
+  setPreviewTrace(
+    'path-images',
+    debug.images_dir_exists === false ? 'error' : 'ok',
+    '图片目录',
+    `${debug.images_dir || '-'}${debug.images_dir_exists === false ? ' 不存在' : ''}`
+  )
+  setPreviewTrace(
+    'path-anno',
+    debug.annotation_file_exists === false ? 'error' : 'ok',
+    'COCO标注',
+    `${debug.annotation_file || '-'}${debug.annotation_file_exists === false ? ' 不存在' : ''}`
+  )
+  if (debug.coco_image_count !== undefined) {
+    setPreviewTrace('coco-count', 'ok', 'COCO内容', `图片 ${debug.coco_image_count}，标注 ${debug.coco_annotation_count || 0}，类别 ${debug.coco_category_count || 0}`)
+  }
+}
+
+function loadTaskPreview({ perLabel = 3 } = {}) {
+  if (!previewTaskRow.value?.name) {
+    throw new Error('缺少任务名称，无法加载示例')
+  }
+  return TaskDatasetDevService.previewTask(previewTaskRow.value.name, perLabel)
+}
+async function openTaskPreview(task) {
+  previewTaskRow.value = task || null
+  previewDialogVisible.value = true
+}
+
+async function refreshPreviewGroup(groupName) {
+  const taskName = previewTaskRow.value?.name
+  if (!taskName || !groupName) return
+  groupRefreshing.value = { ...groupRefreshing.value, [groupName]: true }
+  try {
+    const raw = await TaskDatasetDevService.previewTask(taskName, 3)
+    const { response: res, data } = unwrapPreviewData(raw)
+    addPathDiagnostics(data?.debug)
+    if (res?.code !== undefined && res.code !== 0) throw new Error(res?.msg || '刷新示例失败')
+    const refreshKey = Date.now()
+    const groups = normalizeTaskPreviewGroups(data?.items, refreshKey)
+    seedObjectsFromTaskPreview(data?.items, refreshKey)
+    const refreshed = groups.find(item => item.name === groupName)
+    if (refreshed) {
+      previewGroups.value = previewGroups.value.map(item => item.name === groupName ? refreshed : item)
+      setTimeout(() => refreshed.images.forEach(src => ensureTaskPreviewObjects(src)), 0)
+    }
+  } catch (e) {
+    console.error('刷新任务示例失败', e)
+    setPreviewTrace('refresh', 'error', '换一换', e?.message || '刷新示例失败')
+    ElMessage.error(e?.message || '刷新示例失败')
+  } finally {
+    groupRefreshing.value = { ...groupRefreshing.value, [groupName]: false }
+  }
+}
 async function submitEditTask() {
   const originalName = String(editForm.value.originalName || '').trim()
   const name = String(editForm.value.name || '').trim()
@@ -1943,7 +2243,7 @@ async function submitEditTask() {
     return
   }
   if (!(editForm.value.testDatasets || []).length) {
-    ElMessage.error('请至少选择一个数据集作为测试源')
+    ElMessage.error('请至少选择一个原始数据集')
     return
   }
 
@@ -2056,6 +2356,151 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.task-preview-content {
+  min-height: 180px;
+  max-height: 72vh;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.preview-trace {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--el-fill-color-lighter);
+  border: 1px solid var(--el-border-color-lighter);
+}
+
+.preview-trace__item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.preview-trace__label {
+  flex: 0 0 90px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+}
+
+.preview-trace__message {
+  min-width: 0;
+  color: var(--el-text-color-regular);
+  word-break: break-all;
+}
+
+.preview-trace__item--ok .preview-trace__label {
+  color: var(--el-color-success);
+}
+
+.preview-trace__item--warn .preview-trace__label {
+  color: var(--el-color-warning);
+}
+
+.preview-trace__item--error .preview-trace__label {
+  color: var(--el-color-danger);
+}
+
+.task-preview-cat-list {
+  display: grid;
+  gap: 4px;
+}
+.task-preview-category {
+  padding: 14px 0 18px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.task-preview-category:last-child {
+  border-bottom: 0;
+}
+
+.task-preview-category__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.task-preview-category__count {
+  margin-left: 10px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.task-preview-images {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.task-preview-image-box,
+.task-preview-image {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+  overflow: hidden;
+  position: relative;
+}
+
+.task-preview-photo {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  background: #fff;
+}
+
+.task-preview-anno-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+.preview-anno-poly {
+  fill: rgba(64, 158, 255, 0.14);
+  stroke: #409eff;
+  stroke-width: 2;
+}
+
+.preview-anno-label {
+  fill: #fff;
+  stroke: rgba(0, 0, 0, 0.55);
+  stroke-width: 3;
+  paint-order: stroke;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.task-preview-image {
+  display: block;
+}
+
+.task-preview-image__error {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .task-preview-images {
+    grid-template-columns: 1fr;
+  }
+}
+
 .doc-layout {
   display: flex;
   gap: 24px;
@@ -3113,3 +3558,5 @@ onUnmounted(() => {
   flex: 1 1 0;
 }
 </style>
+
+

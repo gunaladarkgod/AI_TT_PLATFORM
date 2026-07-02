@@ -249,6 +249,12 @@ public final class InstanceDatasetPathUtil {
             for (String folder : distinctNonBlankFolderNames(src.getName(), src.getFatherName())) {
                 Path base = root.resolve(folder).normalize();
                 quads.add(new String[] {
+                        toPosixPath(base.resolve("images")),
+                        toPosixPath(base.resolve("images")),
+                        toPosixPath(base.resolve("annotations")),
+                        toPosixPath(base.resolve("annotations"))
+                });
+                quads.add(new String[] {
                         toPosixPath(base.resolve("train").resolve("images")),
                         toPosixPath(base.resolve("test").resolve("images")),
                         toPosixPath(base.resolve("train").resolve("anno")),

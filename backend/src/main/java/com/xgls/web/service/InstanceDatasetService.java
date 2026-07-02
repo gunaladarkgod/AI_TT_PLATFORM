@@ -16,6 +16,10 @@ public interface InstanceDatasetService extends IService<InstanceDataset> {
 
     boolean deleteInstanceDatasetById(Long id);
 
+    String resolveInstanceDatasetRootPath(Long id);
+
+    String openInstanceDatasetPath(Long id) throws java.io.IOException;
+
     /**
      * 按训测比将图像与成对标注从 train 随机拆分到 test；执行前会先把 test 侧合并回 train。
      */

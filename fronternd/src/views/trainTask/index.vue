@@ -34,7 +34,8 @@
 
     <!-- 表格 -->
     <div class="table-div">
-      <el-table class="my-table" :data="tableData" stripe style="width: 100%" size="small"
+      <el-table class="my-table train-task-table" :data="tableData" stripe style="width: 100%" size="small"
+        @row-click="handleTrainTaskRowClick"
         v-el-height-adaptive-table="{ bottomOffset: 110, isUse: true }">
 
 
@@ -79,38 +80,42 @@
 
         <el-table-column label="耗时" align="center">
           <template #default="{ row }">
-            <el-text v-if="row.finish_date" size="small">{{ getTimeDif(row.started_date, row.finish_date) }}</el-text>
+            <el-text v-if="row.started_date" size="small">{{ getTrainElapsed(row) }}</el-text>
           </template>
         </el-table-column>
 
 
         <el-table-column prop="status" label="任务状态" align="center" width="160">
           <template #default="{ row }">
-            <el-button v-if="row.status == 0" loading size="small" type="info" link> {{
-              taskStatusMap.get(row.status) }}
-            </el-button>
-            <el-button v-else-if="row.status == 1" size="small" type="success" link>{{
-              taskStatusMap.get(row.status) }}
-            </el-button>
-            <el-button v-else-if="row.status == 2" size="small" type="warning" link>{{
-              taskStatusMap.get(row.status) }}
-            </el-button>
-            <el-space v-else-if="row.status == 3">
-              <el-button loading size="small" type="danger" link>{{ showStatus(row) }}
-              </el-button>
-              <el-button size="small" type="danger" link @click="openLog(row)" class="iconfont icon-genzong">
-              </el-button>
-            </el-space>
-            <el-space v-else-if="row.status == 4">
-              <el-button size="small" type="info" link>{{ showStatus(row) }}
-                <el-button size="small" type="info" link @click="openLog(row)" class="iconfont icon-genzong">
+            <el-tooltip :content="getTaskStatusHelp(row.status)" placement="top" :show-after="250">
+              <div class="task-status-tooltip-target">
+                <el-button v-if="row.status == 0" loading size="small" type="info" link> {{
+                  taskStatusMap.get(row.status) }}
                 </el-button>
-              </el-button>
-            </el-space>
-            <el-space v-else-if="row.status == 5">
-              <el-button size="small" type="warning" link>{{ showStatus(row) }}
-              </el-button>
-            </el-space>
+                <el-button v-else-if="row.status == 1" size="small" type="success" link>{{
+                  taskStatusMap.get(row.status) }}
+                </el-button>
+                <el-button v-else-if="row.status == 2" size="small" type="warning" link>{{
+                  taskStatusMap.get(row.status) }}
+                </el-button>
+                <el-space v-else-if="row.status == 3">
+                  <el-button loading size="small" type="danger" link>{{ showStatus(row) }}
+                  </el-button>
+                  <el-button size="small" type="danger" link @click="openLog(row)" class="iconfont icon-genzong">
+                  </el-button>
+                </el-space>
+                <el-space v-else-if="row.status == 4">
+                  <el-button size="small" type="info" link>{{ showStatus(row) }}
+                    <el-button size="small" type="info" link @click="openLog(row)" class="iconfont icon-genzong">
+                    </el-button>
+                  </el-button>
+                </el-space>
+                <el-space v-else-if="row.status == 5">
+                  <el-button size="small" type="warning" link>{{ showStatus(row) }}
+                  </el-button>
+                </el-space>
+              </div>
+            </el-tooltip>
           </template>
         </el-table-column>
 
@@ -142,8 +147,9 @@
                 <el-button link size="small" @click="showCloneModal(row)">
                   <el-tag size="small" type="primary" class="iconfont icon-guanlianxinghao fontSpan">克隆任务</el-tag>
                 </el-button>
-                <el-button @click="viewResult(row)" link size="small" v-show="isSys || curUser == row.username">
-                  <el-tag size="small" class="iconfont icon-chakan fontSpan">浏览文件</el-tag></el-button>
+                <el-button @click="viewLatestTrainLog(row)" link size="small"
+                  :loading="latestLogLoadingId === row.id" v-show="isSys || curUser == row.username">
+                  <el-tag size="small" class="iconfont icon-chakan fontSpan">查看日志</el-tag></el-button>
 
                 
                 <template v-if="isSys || curUser == row.username">
@@ -183,7 +189,8 @@
                     </el-button>
                   </template>
                   <template v-else-if="row.status == 3">
-                    <el-button link size="small" @click="stopTask(row)" :disabled="row.status != 3">
+                    <el-button link size="small" @click="stopTask(row)"
+                      :loading="stoppingTaskId === row.id" :disabled="row.status != 3 || stoppingTaskId !== null">
                       <el-tag size="small" type="danger" class="iconfont icon-tingzhiruanjian fontSpan">停止任务</el-tag>
                     </el-button>
                   </template>
@@ -223,30 +230,112 @@
 
 
   <!-- 创建训练任务 -->
-  <el-dialog top="1vh" v-model="addVisible" width="98%" :close-on-press-escape="false"
+  <el-dialog v-model="addVisible" width="94vw" class="train-task-edit-dialog" align-center
+    :close-on-press-escape="false"
     :title="is_create ? (is_add ? '创建任务(追加模式)' : '创建任务') : '编辑任务_#' + cur_task_id" draggable
     :close-on-click-modal="false">
     <el-form size="small" label-width="130" label-position="left">
-      <el-space wrap>
-        <el-form-item label="任务名称" required>
-          <el-input v-model="addForm.name" class="width-300" :disabled="isSee"></el-input>
-        </el-form-item>
-        <el-form-item label="模型类别" required>
-          <el-select v-model="addForm.type" class="width-150" :disabled="is_add || isSee" @change="handleTypeChange">
-            <el-option v-for="item in algList" :key="item.id" :value="item.id + ''" :label="item.name"></el-option>
-          </el-select>
-        </el-form-item>
+      <div v-if="is_create" class="task-overview task-create-overview">
+        <div class="task-overview-row task-overview-primary">
+          <div class="task-overview-item task-name-item">
+            <div class="task-overview-label required-label">任务名称</div>
+            <div class="task-overview-content">
+              <el-input v-model="addForm.name" :disabled="isSee" />
+            </div>
+          </div>
+          <div class="task-overview-item">
+            <div class="task-overview-label required-label">模型类别</div>
+            <div class="task-overview-content">
+              <el-select v-model="addForm.type" :disabled="is_add || isSee" @change="handleTypeChange">
+                <el-option v-for="item in algList" :key="item.id" :value="item.id + ''" :label="item.name" />
+              </el-select>
+            </div>
+          </div>
+          <div class="task-overview-item">
+            <div class="task-overview-label">算法模板</div>
+            <div class="task-overview-content">
+              <el-select v-model="addForm.temp" :disabled="!isMMDetSelected || isSee" @change="handleTempChange">
+                <el-option v-for="item in templateList" :key="item" :value="item" :label="item" />
+              </el-select>
+            </div>
+          </div>
+        </div>
+        <div class="task-overview-item task-create-remark-item">
+          <div class="task-overview-label">备注</div>
+          <div class="task-overview-content">
+            <el-input v-model="addForm.remark" type="textarea" :rows="3" maxlength="255" show-word-limit
+              placeholder="请输入任务备注（可选）" />
+          </div>
+        </div>
+      </div>
+      <div v-if="!is_create && editTaskMeta" class="task-overview">
+        <div class="task-overview-row task-overview-primary">
+          <div class="task-overview-item task-name-item">
+            <div class="task-overview-label required-label">任务名称</div>
+            <div class="task-overview-content">
+              <el-input v-model="addForm.name" :disabled="isSee" />
+            </div>
+          </div>
+          <div class="task-overview-item">
+            <div class="task-overview-label required-label">模型类别</div>
+            <div class="task-overview-content">
+              <el-select v-model="addForm.type" :disabled="is_add || isSee" @change="handleTypeChange">
+                <el-option v-for="item in algList" :key="item.id" :value="item.id + ''" :label="item.name" />
+              </el-select>
+            </div>
+          </div>
+          <div class="task-overview-item">
+            <div class="task-overview-label">算法模板</div>
+            <div class="task-overview-content">
+              <el-select v-model="addForm.temp" :disabled="!isMMDetSelected || isSee" @change="handleTempChange">
+                <el-option v-for="item in templateList" :key="item" :value="item" :label="item" />
+              </el-select>
+            </div>
+          </div>
+        </div>
 
-        <!-- 算法模板（一键填写网络参数及算法参数） -->
-        <el-form-item label="算法模板">
-          <el-select v-model="addForm.temp" class="width-150" :disabled="!isMMDetSelected||isSee"
-             @change="handleTempChange">
-            <el-option v-for="item in templateList" :key="item" :value="item"
-              :label="item"></el-option>
-          </el-select>
-          
-        </el-form-item>
-      </el-space>
+        <div class="task-overview-row task-overview-runtime">
+          <div class="task-overview-item">
+            <div class="task-overview-label">任务状态</div>
+            <div class="task-overview-content">
+              <el-tooltip :content="getTaskStatusHelp(editTaskMeta.status)" placement="top" :show-after="250">
+                <el-tag class="task-status-help" size="small" :type="getTaskStatusTagType(editTaskMeta.status)">
+                  {{ taskStatusMap.get(editTaskMeta.status) || editTaskMeta.status }}
+                </el-tag>
+              </el-tooltip>
+            </div>
+          </div>
+          <div class="task-overview-item">
+            <div class="task-overview-label">最近耗时</div>
+            <div class="task-overview-content">
+              {{ editTaskMeta.started_date ? getTrainElapsed(editTaskMeta) : '—' }}
+            </div>
+          </div>
+          <div class="task-overview-item task-time-item">
+            <div class="task-overview-label">上次运行开始</div>
+            <div class="task-overview-content">
+              {{ showDateTime(editTaskMeta.started_date) || '—' }}
+            </div>
+          </div>
+          <div class="task-overview-item task-time-item">
+            <div class="task-overview-label">上次运行结束</div>
+            <div class="task-overview-content">
+              {{ showDateTime(editTaskMeta.finish_date) || '—' }}
+            </div>
+          </div>
+        </div>
+
+        <div class="task-overview-item task-remark-item">
+          <div class="task-overview-label">备注</div>
+          <div class="task-overview-content task-remark-editor">
+            <el-input v-model="addForm.remark" type="textarea" :rows="4" maxlength="255" show-word-limit
+              placeholder="请输入任务备注" />
+            <el-button type="primary" size="small" :loading="savingRemark" @click="saveTaskRemark">
+              保存备注
+            </el-button>
+          </div>
+        </div>
+      </div>
       <el-row v-if="!isMMDetSelected">
         <el-col :span="6">
           <el-form-item label="模型标签" required>
@@ -1190,17 +1279,20 @@
 
       <div v-else class="mmdet-div">
         <el-divider />
+        <el-alert class="single-config-tip" type="info" :closable="false" show-icon
+          title="所有参数均从一个完整模板读取，保存后只生成 modelcfg/{任务名称}/config.py" />
         <el-row :gutter="20">
           <el-col :span="14">
             <div class="mmdet-file-block">
-              <span class="mmdet-file-title">model.py (模型结构配置)</span>
+              <span class="mmdet-file-title">config.py · 模型与网络参数</span>
               
               <div v-if="addForm.temp!=='DETR'">
                 <div class="config-text">网络架构</div>
                 <div class="sub-param-box">
                   <el-form-item label="网络模板名称：" required>
                     <el-select v-model="mmdetParameter.selected_template" class="width-200" :disabled="isSee">
-                      <el-option v-for="item in netTemplateName" :key="item" :value="item" :label="item"></el-option>
+                      <el-option v-for="item in networkTemplateOptions" :key="item.name" :value="item.name"
+                        :label="item.available ? item.name : `${item.name}（缺少模板）`" :disabled="!item.available" />
                     </el-select>
                   </el-form-item>
                   <el-form-item label="主干网名称：" required>
@@ -1328,8 +1420,8 @@
                 <div class="sub-param-box">
                   <el-form-item label="网络模板名称：" required>
                     <el-select v-model="mmdetParameter.selected_template" class="width-200" :disabled="isSee">
-                      <el-option v-for="item in netTemplateName_DETR" :key="item" :value="item"
-                        :label="item"></el-option>
+                      <el-option v-for="item in networkTemplateOptions" :key="item.name" :value="item.name"
+                        :label="item.available ? item.name : `${item.name}（缺少模板）`" :disabled="!item.available" />
                     </el-select>
                   </el-form-item>
                   <el-form-item label="主干网名称：" required>
@@ -1538,7 +1630,7 @@
           <el-col :span="10">
             
             <div class="mmdet-file-block">
-              <span class="mmdet-file-title">dataset.py (数据加载配置)</span>
+              <span class="mmdet-file-title">config.py · 数据集参数</span>
               <el-form-item label="实例数据集" required>
                 <div class="mmdet-instance-dataset-block">
                   <el-table
@@ -1618,7 +1710,7 @@
             </div>
 
             <div class="mmdet-file-block">
-              <span class="mmdet-file-title">schedule.py (训练策略配置)</span>
+              <span class="mmdet-file-title">config.py · 训练策略参数</span>
               <el-form-item label="优化器" required>
                 <el-select v-model="mmdetParameter.optimizer" class="width-200" :disabled="isSee">
                   <el-option v-for="item in optimizerList" :key="item" :value="item" :label="item"></el-option>
@@ -1641,7 +1733,7 @@
             </div>
 
             <div class="mmdet-file-block">
-              <span class="mmdet-file-title">default_runtime.py (运行环境配置)</span>
+              <span class="mmdet-file-title">config.py · 运行参数</span>
               <el-form-item label="权值保存轮次间隔" required>
                 <el-input v-model="mmdetParameter.weight_round" class="width-200" :disabled="isSee"></el-input>
               </el-form-item>
@@ -1737,7 +1829,7 @@
     </div>
   </el-drawer>
 
-  <el-dialog v-model="txtVisible" width="60%" top="5vh" title="查看" draggable :close-on-click-modal="true"
+  <el-dialog v-model="txtVisible" width="75%" top="3vh" :title="txtTitle" draggable :close-on-click-modal="true"
     :destroy-on-close="true">
     <pre class="preBox">{{ cur_text }}</pre>
     <template #footer>
@@ -2110,7 +2202,6 @@ import { basePath_TASK, basePath_YOLO, basePath_TRAIN, basePath_WS_TASK, nginx_t
 import fileview from "../../components/fileview.vue";
 import { isNum } from "../../utils/regex";
 import { taskStatusMap, taskStatusList, perspectiveMap } from '../../utils/selfmaps'
-import { getTimeDif } from '../../utils/time'
 import { uuid } from 'vue-uuid'
 import authimg from '../../components/authimg.vue'
 import logview from '../../components/logger.vue'
@@ -2147,10 +2238,18 @@ const weightFileList = ref([])
 const instanceReadinessList = ref([])
 const instanceReadinessLoading = ref(false)
 const qualifiedMmdetDatasetCount = computed(() => instanceReadinessList.value.filter((r) => r.qualified).length)
-// 网络模板名称
-const netTemplateName=ref(["Faster R-CNN","Cascade R-CNN","DetectoRS"])
-// 网络模板名称-DETR
-const netTemplateName_DETR=ref(["DETR","Deformable DETR","DINO"])
+// 网络模板以 mmdet_run/myfiles/template 中是否存在实际文件为准。
+const templateCatalog = ref([
+  { name: 'Faster R-CNN', group: 'CNN', available: true },
+  { name: 'Cascade R-CNN', group: 'CNN', available: false },
+  { name: 'DetectoRS', group: 'CNN', available: false },
+  { name: 'DETR', group: 'DETR', available: true },
+  { name: 'Deformable DETR', group: 'DETR', available: true },
+  { name: 'DINO', group: 'DETR', available: true },
+  { name: 'YOLOv3', group: 'YOLO', available: true },
+])
+const networkTemplateOptions = computed(() => templateCatalog.value.filter(item => item.group === addForm.temp))
+const restoringMmdetParams = ref(false)
 // 主干网
 const backboneNetwork=ref(["ResNet","ConvNext","SwinTransformer"])
 
@@ -2203,11 +2302,81 @@ const currentPage = ref(1);
 const currentSize = ref(10);
 const total = ref(0);
 const tableData = ref([]);
+const stoppingTaskId = ref(null)
+const editTaskMeta = ref(null)
+const savingRemark = ref(false)
+const trainNowTick = ref(Date.now())
+let trainElapsedTimer = null
+
+const formatElapsedClock = (start, end) => {
+  const startMs = new Date(start).getTime()
+  const endMs = new Date(end).getTime()
+  const total = Number.isFinite(startMs) && Number.isFinite(endMs)
+    ? Math.max(0, Math.floor((endMs - startMs) / 1000))
+    : 0
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = total % 60
+  return [hours, minutes, seconds].map(value => String(value).padStart(2, '0')).join(':')
+}
+
+const getTrainElapsed = (row) => {
+  const end = row.status === 3 ? trainNowTick.value : row.finish_date
+  return end ? formatElapsedClock(row.started_date, end) : '—'
+}
+
+const getTaskStatusTagType = (status) => {
+  if (status === 1) return 'success'
+  if (status === 2) return 'warning'
+  if (status === 3) return 'danger'
+  return 'info'
+}
+
+const taskStatusHelpMap = new Map([
+  [0, '后台正在生成训练配置并检查数据集。通常只需短暂等待；长时间不变化时，请检查后端日志、模板路径和数据集路径。'],
+  [1, '训练配置已经生成完成，任务可以发布或提交训练。'],
+  [2, '任务已经进入训练队列，正在等待 Runner 空闲并启动。'],
+  [3, 'Runner 正在执行训练，可点击旁边的日志按钮查看实时输出。'],
+  [4, '本次训练已经结束，可查看日志和训练结果确认是否达到预期。'],
+  [5, '生成训练配置时发生错误，请重点检查后端日志、配置模板及数据集文件路径。'],
+])
+
+const getTaskStatusHelp = (status) => taskStatusHelpMap.get(Number(status)) || '未知任务状态'
+
+const handleTrainTaskRowClick = (row, _column, event) => {
+  if (!row || !event?.target) return
+  if (event.target.closest('button, a, .el-button, .el-link, .el-tag, .el-popper, .el-table__column-filter-trigger')) return
+  if (!(isSys || curUser === row.username)) return
+  showEditModal(row)
+}
+
+const saveTaskRemark = async () => {
+  if (!editTaskMeta.value?.id || savingRemark.value) return
+  savingRemark.value = true
+  try {
+    const res = await TrainTaskService.updateRemark({
+      id: editTaskMeta.value.id,
+      remark: addForm.remark || '',
+    })
+    if (res.code !== 0) {
+      ElMessage.warning(res.msg || '备注保存失败')
+      return
+    }
+    editTaskMeta.value.remark = addForm.remark || ''
+    const row = tableData.value.find(item => item.id === editTaskMeta.value.id)
+    if (row) row.remark = addForm.remark || ''
+    ElMessage.success('备注已保存')
+  } finally {
+    savingRemark.value = false
+  }
+}
 const showExt = ref(false)
 
 const runnerHealthOk = ref(null)
 const runnerHealthDetail = ref('正在检测 Runner 服务…')
 let runnerHealthTimer = null
+const runnerBaseUrl = `${window.location.protocol}//${window.location.hostname}:8009`
+
 const refreshRunnerHealth = async () => {
   try {
     const res = await TrainTaskService.runnerHealth({})
@@ -2327,7 +2496,7 @@ const is_create = ref(false)   // 创建/编辑
 const is_add = ref(false) // 追加模式
 const cur_task_id = ref(0);
 const algList = ref([])
-const templateList = ref(["CNN","DETR"])
+const templateList = ref(["CNN","DETR","YOLO"])
 const algMap = ref(Map);
 const cur_type = computed(() => {
   return algMap.value.get(addForm.type)?.name;
@@ -2345,6 +2514,16 @@ const queryAlgs = () => {
       })
       algMap.value = map;
     }
+  })
+}
+
+const fetchConfigTemplates = () => {
+  TrainTaskService.configTemplates().then((res) => {
+    if (res.code === 0 && Array.isArray(res.data)) {
+      templateCatalog.value = res.data
+    }
+  }).catch(() => {
+    // Runner 重启前沿用页面内的保守默认值，缺失模板仍保持禁用。
   })
 }
 
@@ -2393,6 +2572,7 @@ const showAddModal = () => {
   mmdetParameter.loss_iou_weight = 2
 
   weightFileList.value = []
+  fetchConfigTemplates()
 
   addForm.mmdet_cfg = default_mmdet_header;
 
@@ -2418,6 +2598,7 @@ const showAddModal = () => {
 }
 /**编辑模式 */
 const showEditModal = (row) => {
+  editTaskMeta.value = { ...row }
   isSee.value = row.run_name   //设置是否编辑
   //算法模版初始化
   templateAlgorithm.value = null
@@ -2430,6 +2611,7 @@ const showEditModal = (row) => {
   addForm.status = row.status;
   addForm.remark = row.remark;
   addForm.clone_from = null;
+  fetchConfigTemplates()
   //查询train_label信息
   TrainTaskService.queryArgs({ id: row.id }).then(res => {
     if (res.code === 0) {
@@ -2546,14 +2728,21 @@ const showEditModal = (row) => {
   TrainTaskService.getExtQuery({ id: row.id }).then(res => {
     if (res.code === 0) {
       addForm.ext_params = res.data?.params || ""
+      if (algMap.value.get(row.type)?.cmd === 'mmdet' && res.data?.params) {
+        try {
+          applyStoredMmdetParams(JSON.parse(res.data.params))
+        } catch (_) {
+          ElMessage.warning('任务参数记录无法解析，将显示默认配置')
+        }
+      }
       addForm.ext_file_update = false
       extFileList.value = []
     }
   })
   // 回显mmdet_cfg
   if (algMap.value.get(row.type)?.cmd == 'mmdet') {
-    FileService.getFile(basePath_TRAIN + '/' + row.id + "/file/cfg.py").then(res => {
-      addForm.mmdet_cfg = res
+    TrainTaskService.readConfig({ id: row.id, includeText: true }).then(res => {
+      if (res.code === 0) addForm.mmdet_cfg = res.data?.text || ''
     })
   } else {
     addForm.mmdet_cfg = default_mmdet_header;
@@ -3316,6 +3505,33 @@ const queryYoloFiles = () => {
 }
 const txtVisible = ref(false);
 const cur_text = ref('')
+const txtTitle = ref('查看')
+const latestLogLoadingId = ref(null)
+
+const viewLatestTrainLog = async (row) => {
+  latestLogLoadingId.value = row.id
+  try {
+    const res = await TrainTaskService.latestTrainLog({ id: row.id, lines: 2000 })
+    if (res.code !== 0 || !res.data) {
+      ElMessage.warning(res.msg || '该任务还没有训练日志')
+      return
+    }
+    const log = res.data
+    txtTitle.value = `最新训练日志 - ${row.name}`
+    cur_text.value = [
+      `日志文件：${log.log_path || '-'}`,
+      `更新时间：${log.modified_time || '-'}`,
+      `显示行数：${log.returned_lines || 0} / ${log.total_lines || 0}`,
+      '',
+      log.content || '(日志为空)'
+    ].join('\n')
+    txtVisible.value = true
+  } catch (e) {
+    ElMessage.error('读取训练日志失败')
+  } finally {
+    latestLogLoadingId.value = null
+  }
+}
 const viewFile = (row) => {
   let url = basePath_YOLO + row.type + "_" + row.id + row.path
   if (row.type === 'weights') {
@@ -3326,6 +3542,7 @@ const viewFile = (row) => {
 }
 const readTxt = (url) => {
   if (!url) return;
+  txtTitle.value = '查看文件'
   FileService.getFile(url)
     .then((res) => {
       const text = res.toString();
@@ -3809,6 +4026,7 @@ watch(
 
 // DETR / CNN 算法模板切换（不要用 immediate: true，否则 temp 为 null 时会清空已设好的 CNN 默认）
 watch(() => addForm.temp, (newType) => {
+  if (restoringMmdetParams.value) return
   if (newType === 'DETR') {
     mmdetParameter.use_custom_pretrained = false
     mmdetParameter.pretrained_address = ''
@@ -3830,6 +4048,21 @@ watch(() => addForm.temp, (newType) => {
     addForm.weight_round = 1
   } else if (newType === 'CNN') {
     applyMmdetCnnQuickDefaults()
+  } else if (newType === 'YOLO') {
+    mmdetParameter.use_custom_pretrained = false
+    mmdetParameter.pretrained_address = ''
+    mmdetParameter.selected_template = 'YOLOv3'
+    mmdetParameter.selected_network = 'Darknet53'
+    mmdetParameter.deep = 53
+    mmdetParameter.train_bath_size = 8
+    mmdetParameter.train_epoch = 273
+    mmdetParameter.photo_width = 320
+    mmdetParameter.photo_height = 320
+    mmdetParameter.optimizer = 'SGD'
+    mmdetParameter.stu_rate = 0.001
+    mmdetParameter.down_round = '218, 246'
+    mmdetParameter.weight_round = 7
+    mmdetParameter.valid_round = 7
   }
 })
 
@@ -3860,27 +4093,50 @@ const handleTypeChange = () => {
 
 // 计算属性 - 可用的主干网选项
 const availableBackboneNetworks = computed(() => {
-  // 当选择DetectoRS时，只有ResNet可用，其他选项禁用
-  if (mmdetParameter.selected_template === "DetectoRS") {
-    return backboneNetwork.value.map(item => ({
-      value: item,
-      label: item,
-      disabled: item !== "ResNet"
-    }))
+  if (addForm.temp === 'YOLO') {
+    return [{ value: 'Darknet53', label: 'Darknet53', disabled: false }]
   }
-  
-  // 其他情况下所有选项都可用
+  // 当前落盘的 CNN/DETR 单文件模板均为 ResNet 版本；未提供对应模板结构前禁用其他主干。
   return backboneNetwork.value.map(item => ({
     value: item,
-    label: item,
-    disabled: false
+    label: item === 'ResNet' ? item : `${item}（模板暂缺）`,
+    disabled: item !== 'ResNet'
   }))
 })
+
+const applyStoredMmdetParams = (p) => {
+  restoringMmdetParams.value = true
+  addForm.temp = p.mmdetType || addForm.temp || 'CNN'
+  const mapping = {
+    selected_template: 'mmdet_network', selected_network: 'mmdet_backbone', deep: 'mmdet_depth',
+    dcn_sac_use: 'mmdet_dcn', exist_stage: 'mmdet_dcnStage', scale: 'mmdet_conv_arch',
+    window_size: 'mmdet_window', photo_width: 'mmdet_input_width', photo_height: 'mmdet_input_height',
+    train_bath_size: 'mmdet_batchsize', optimizer: 'mmdet_opt', stu_rate: 'mmdet_inlr',
+    train_epoch: 'mmdet_epoch', down_round: 'mmdet_step', weight_round: 'mmdet_weight_interval',
+    valid_round: 'mmdet_val_interval', RFP: 'mmdet_rfp_steps', ASPP: 'mmdet_aspp_dilation',
+    iter_count: 'mmdet_detectors_itrnum', measure: 'detr_neck_mode', embedding_dimension: 'detr_embed_dims',
+    encoder_layers: 'detr_encoder_layers', decoder_layers: 'detr_decoder_layers', attention_num: 'detr_num_heads',
+    attention_discard_rate: 'detr_attn_dropout', FFN_intermediate_layer_dimension: 'detr_ffn_channels',
+    FFN_linear_layer_num: 'detr_ffn_num_fcs', FFN_discard_rate: 'detr_ffn_dropout',
+    FFN_active_func: 'detr_ffn_act', temperature: 'detr_pos_temperature', loss_cls: 'detr_loss_cls_type',
+    loss_bbox: 'detr_loss_bbox_type', loss_iou: 'detr_loss_iou_type', loss_cls_weight: 'detr_loss_cls_weight',
+    loss_bbox_weight: 'detr_loss_bbox_weight', loss_iou_weight: 'detr_loss_iou_weight',
+    use_custom_pretrained: 'mmdet_use_custom_pretrained', pretrained_address: 'mmdet_pretrained_address',
+    selected_dataset: 'dataset',
+  }
+  Object.entries(mapping).forEach(([field, key]) => {
+    if (p[key] !== undefined && p[key] !== null) mmdetParameter[field] = p[key]
+  })
+  nextTick(() => { restoringMmdetParams.value = false })
+}
 
 // 监听模板选择变化
 watch(() => mmdetParameter.selected_template, (newVal) => {
   if (newVal === "DetectoRS" && mmdetParameter.selected_network !== "ResNet") {
     mmdetParameter.selected_network = "ResNet"
+  }
+  if (newVal === 'YOLOv3' && mmdetParameter.selected_network !== 'Darknet53') {
+    mmdetParameter.selected_network = 'Darknet53'
   }
 })
 
@@ -3904,6 +4160,11 @@ const saveMMdetRecord = () =>{
   if (mmdetParameter.selected_template==null) {
     ElMessage.warning('请选择网络模板')
     return;
+  }
+  const selectedTemplate = templateCatalog.value.find(item => item.name === mmdetParameter.selected_template)
+  if (!selectedTemplate?.available) {
+    ElMessage.warning('当前网络模板文件不存在，请选择可用模板')
+    return
   }
   
 
@@ -3939,6 +4200,8 @@ const saveMMdetRecord = () =>{
   
   let params ={
     taskName: addForm.name,
+    taskId: is_create.value ? null : cur_task_id.value,
+    remark: addForm.remark || '',
 // 模型类别
     taskType: addForm.type,
 // 算法模板
@@ -4058,7 +4321,7 @@ const enqueueTask = (row) => {
 /**终止任务 */
 const stopTask = (row) => {
   ElMessageBox.confirm(
-    `确定要中止任务[${row.name}]?`,
+    `确定要中止任务[${row.name}]？这会终止 Runner 中的实际训练进程及其子进程。`,
     '',
     {
       confirmButtonText: '确定',
@@ -4066,17 +4329,26 @@ const stopTask = (row) => {
       type: 'warning',
     }
   )
-    .then(() => {
-      TrainTaskService.stop({ id: row.id }).then(res => {
+    .then(async () => {
+      stoppingTaskId.value = row.id
+      try {
+        const res = await TrainTaskService.stop({ id: row.id })
         if (res.code === 0) {
-          ElMessage.success(res.msg)
+          const pidText = res.data?.pid ? `（Runner PID ${res.data.pid} 已终止）` : ''
+          ElMessage.success(`${res.msg || '任务已停止'}${pidText}`)
           setTimeout(() => {
             handleCurrentChange()
-          }, 1000);
+          }, 1000)
         } else {
-          ElMessage.warning(res.msg)
+          ElMessage.warning(res.msg || '停止任务失败')
+          handleCurrentChange()
         }
-      })
+      } catch (e) {
+        ElMessage.error(`停止任务失败：${e?.msg || e?.message || String(e)}`)
+        refreshRunnerHealth()
+      } finally {
+        stoppingTaskId.value = null
+      }
     })
     .catch(() => {
     })
@@ -4548,6 +4820,7 @@ onMounted(() => {
   wsConnect();
   refreshRunnerHealth();
   runnerHealthTimer = setInterval(refreshRunnerHealth, 30000);
+  trainElapsedTimer = setInterval(() => { trainNowTick.value = Date.now() }, 1000)
   // 列表在 setup 时已请求一次；此处再拉一次避免登录态/Pinia 尚未就绪时首次为空
   nextTick(() => {
     queryUsers();
@@ -4556,6 +4829,10 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (trainElapsedTimer) {
+    clearInterval(trainElapsedTimer)
+    trainElapsedTimer = null
+  }
   if (runnerHealthTimer) {
     clearInterval(runnerHealthTimer);
     runnerHealthTimer = null;
@@ -4703,6 +4980,157 @@ const labelsHandleClose = (val) => {
 <style scoped>
 .content-div {
   padding: 10px;
+}
+
+.train-task-table :deep(.el-table__row) {
+  cursor: pointer;
+}
+
+.task-status-tooltip-target {
+  display: inline-flex;
+  align-items: center;
+}
+
+.task-status-help {
+  cursor: help;
+}
+
+.task-overview {
+  --task-label-width: 108px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.task-overview-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.task-overview-item {
+  display: flex;
+  min-width: 0;
+  min-height: 42px;
+  overflow: hidden;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+  background: var(--el-fill-color-blank);
+}
+
+.task-overview-primary .task-overview-item {
+  flex: 1 1 270px;
+}
+
+.task-overview-primary .task-name-item {
+  flex-grow: 1.55;
+  min-width: 360px;
+}
+
+.task-overview-runtime .task-overview-item {
+  flex: 1 1 220px;
+}
+
+.task-overview-runtime .task-time-item {
+  flex-grow: 1.35;
+  min-width: 300px;
+}
+
+.task-overview-label {
+  box-sizing: border-box;
+  display: flex;
+  flex: 0 0 var(--task-label-width);
+  align-items: center;
+  width: var(--task-label-width);
+  padding: 8px 10px;
+  color: var(--el-text-color-regular);
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--el-fill-color-light);
+  border-right: 1px solid var(--el-border-color-lighter);
+}
+
+.required-label::before {
+  margin-right: 4px;
+  color: var(--el-color-danger);
+  content: '*';
+}
+
+.task-overview-content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  padding: 5px 10px;
+}
+
+.task-overview-content :deep(.el-select) {
+  width: 100%;
+}
+
+.task-remark-item {
+  min-height: 122px;
+}
+
+.task-create-remark-item {
+  min-height: 98px;
+}
+
+.single-config-tip {
+  margin-bottom: 12px;
+}
+
+.task-remark-editor {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+}
+
+:deep(.train-task-edit-dialog) {
+  display: flex;
+  flex-direction: column;
+  width: 94vw;
+  max-width: 1600px;
+  height: 90vh;
+  max-height: 90vh;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+:deep(.train-task-edit-dialog .el-dialog__header) {
+  flex: 0 0 auto;
+  margin-right: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+:deep(.train-task-edit-dialog .el-dialog__body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+:deep(.train-task-edit-dialog .el-dialog__footer) {
+  flex: 0 0 auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+@media (max-width: 1200px) {
+  .task-overview-row {
+    flex-wrap: wrap;
+  }
+
+  .task-overview-primary .task-overview-item,
+  .task-overview-primary .task-name-item,
+  .task-overview-runtime .task-overview-item,
+  .task-overview-runtime .task-time-item {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 360px;
+  }
 }
 
 .runner-status-footer {

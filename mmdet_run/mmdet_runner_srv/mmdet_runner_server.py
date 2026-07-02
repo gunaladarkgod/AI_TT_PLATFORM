@@ -4,15 +4,24 @@
 import os
 import sys
 import re
+import signal
+import shlex
+import shutil
 import subprocess
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import FastAPI, Query
+from fastapi import Body, FastAPI, Query
 from fastapi.responses import JSONResponse
 
+from mmdet_config_service import generate_config, list_templates, read_config
+
 app = FastAPI(title="MMDet Runner Server (sync)")
+
+_ACTIVE_PROCESSES: Dict[str, subprocess.Popen] = {}
+_ACTIVE_PROCESSES_LOCK = threading.Lock()
 
 # 1) 训练用的 Python 解释器
 PY_EXE = os.getenv("MMDET_PY_EXE", "/home/omen1/miniconda3/envs/platform_mmdet/bin/python")
@@ -24,6 +33,18 @@ TRAIN_PY = str(Path(REPO_ROOT) / "tools" / "train.py")
 ROOT_UPLOAD = os.getenv("MMDET_UPLOAD_ROOT", "/home/omen1/AI_TT_Platform/mmdet_run/myfiles")
 # 5) 训练产出目录根路径
 DEFAULT_WORK_ROOT = os.getenv("MMDET_WORK_ROOT", "/home/omen1/AI_TT_Platform/artifacts/mmdet_runs")
+
+# Runner 模式直接写在本文件中，不从环境变量或启动脚本读取。
+# 可选值："original"（原 MMDet + ClearML 流程）/ "fixed"（固定命令且跳过 ClearML）。
+RUNNER_MODE = "fixed"
+
+# fixed 模式的全部执行信息也写在本文件中。
+# 实际效果：在 FIXED_EXEC_DIR 中执行：
+#   FIXED_PYTHON_PATH -u tools/runner_fixed_test.py --run-id ... --work-dir ...
+FIXED_PYTHON_PATH = r"C:\Users\Guo Qinyao\.conda\envs\openmmlab\python.exe"
+FIXED_EXEC_DIR = r"C:\Users\Guo Qinyao\Desktop\platform\AI_TT_PLATFORM\mmdet_run\mmdetection-3.0.0"
+FIXED_COMMAND_LINE = "tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}"
+FIXED_WORK_ROOT = r"C:\Users\Guo Qinyao\Desktop\platform\AI_TT_PLATFORM\artifacts\mmdet_runs"
 
 _RUNNER_DIR = Path(__file__).resolve().parent
 _REPO_ROOT_DIR = _RUNNER_DIR.parent.parent
@@ -210,13 +231,91 @@ def make_env() -> Dict[str, str]:
 
 
 def find_cfg_path(run_id: str) -> Path:
-    # D:/.../myfiles/modelcfg/{runId}/combined_base.py
-    return Path(ROOT_UPLOAD) / "modelcfg" / run_id / "combined_base.py"
+    # D:/.../myfiles/modelcfg/{runId}/config.py
+    return Path(ROOT_UPLOAD) / "modelcfg" / run_id / "config.py"
 
 
 def make_work_dir(run_id: str) -> Path:
     # D:/xgls/artifacts/mmdet_runs/{runId}_from_pyserver_sync_{ts}
-    return Path(DEFAULT_WORK_ROOT) / f"{run_id}_from_pyserver_sync_{ts_for_path()}"
+    root = FIXED_WORK_ROOT if current_runner_mode() == "fixed" else DEFAULT_WORK_ROOT
+    return Path(root) / f"{run_id}_from_pyserver_sync_{ts_for_path()}"
+
+
+def find_latest_train_log(run_id: str) -> Optional[Path]:
+    """查找该 runId 最近一次运行产生的 train.log。"""
+    if not run_id or run_id in (".", "..") or any(c in run_id for c in ("/", "\\")):
+        raise ValueError("invalid runId")
+    root = Path(FIXED_WORK_ROOT if current_runner_mode() == "fixed" else DEFAULT_WORK_ROOT)
+    if not root.is_dir():
+        return None
+    prefix = f"{run_id}_from_pyserver_sync_"
+    candidates = []
+    for child in root.iterdir():
+        if child.is_dir() and child.name.startswith(prefix):
+            log_path = child / "train.log"
+            if log_path.is_file():
+                candidates.append(log_path)
+    return max(candidates, key=lambda p: p.stat().st_mtime, default=None)
+
+
+def find_result_work_dir(run_id: str, finished_at: Optional[str]) -> Optional[Path]:
+    """在 Runner 输出根目录内定位与结果完成时间最接近的单个训练目录。"""
+    if not run_id or run_id in (".", "..") or any(c in run_id for c in ("/", "\\")):
+        raise ValueError("invalid runId")
+    root = Path(FIXED_WORK_ROOT if current_runner_mode() == "fixed" else DEFAULT_WORK_ROOT).resolve()
+    if not root.is_dir():
+        return None
+    prefix = f"{run_id}_from_pyserver_sync_"
+    candidates = [child.resolve() for child in root.iterdir()
+                  if child.is_dir() and child.name.startswith(prefix)]
+    candidates = [child for child in candidates if child.parent == root]
+    if not candidates:
+        return None
+    if not finished_at:
+        return max(candidates, key=lambda p: p.stat().st_mtime)
+    try:
+        target_time = datetime.fromisoformat(finished_at).timestamp()
+    except ValueError as exc:
+        raise ValueError("invalid finishedAt") from exc
+    return min(candidates, key=lambda p: abs(p.stat().st_mtime - target_time))
+
+
+def current_runner_mode() -> str:
+    if RUNNER_MODE not in ("original", "fixed"):
+        raise ValueError(
+            f"unsupported MMDET_RUNNER_MODE={RUNNER_MODE!r}; expected 'original' or 'fixed'"
+        )
+    return RUNNER_MODE
+
+
+def build_fixed_execution(
+    python_path: str,
+    execution_dir: str,
+    command_line: str,
+    run_id: str,
+    work_dir: Path,
+) -> Tuple[List[str], str, str]:
+    """接收固定 Python、执行目录和命令行模板，构造无 shell 的安全执行参数。"""
+    rendered = command_line.format(
+        run_id=shlex.quote(run_id),
+        work_dir=shlex.quote(str(work_dir)),
+    )
+    command_args = shlex.split(rendered, posix=True)
+    if not command_args:
+        raise ValueError("FIXED_COMMAND_LINE cannot be empty")
+
+    python_file = Path(python_path)
+    cwd = Path(execution_dir)
+    script = Path(command_args[0])
+    if not script.is_absolute():
+        script = cwd / script
+
+    missing = [str(p) for p in (python_file, cwd, script) if not p.exists()]
+    if missing:
+        raise FileNotFoundError("missing: " + ", ".join(missing))
+
+    cmd = [python_path, "-u", *command_args]
+    return cmd, str(cwd), str(script.resolve())
 
 
 def write_header(log_path: Path, repo_root: str, work_dir: str, cfg_path: str, cmd_str: str):
@@ -344,16 +443,87 @@ def api_response(ok: bool, code: int, message: str, **kwargs):
     return payload
 
 
+def stop_process_tree(proc: subprocess.Popen) -> None:
+    """跨平台停止训练进程及其子进程。"""
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        completed = subprocess.run(
+            ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if completed.returncode != 0 and proc.poll() is None:
+            proc.kill()
+    else:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
 # =========================
 # API
 # =========================
+@app.get("/api/config/templates")
+def config_templates():
+    return api_response(True, 0, "ok", templates=list_templates(ROOT_UPLOAD))
+
+
+@app.post("/api/config/generate")
+def config_generate(payload: Dict[str, Any] = Body(...)):
+    try:
+        result = generate_config(ROOT_UPLOAD, payload)
+        return api_response(True, 0, "config generated", **result)
+    except (ValueError, FileNotFoundError) as e:
+        return JSONResponse(
+            content=api_response(False, 400, "config generation rejected", error=str(e)),
+            status_code=400,
+        )
+    except Exception as e:
+        return JSONResponse(
+            content=api_response(False, 500, "config generation failed", error=f"{type(e).__name__}: {e}"),
+            status_code=500,
+        )
+
+
+@app.get("/api/config/read")
+def config_read(runId: str = Query(...), includeText: bool = Query(False)):
+    try:
+        result = read_config(ROOT_UPLOAD, runId, includeText)
+        return api_response(True, 0, "ok", config=result)
+    except (ValueError, FileNotFoundError) as e:
+        return JSONResponse(
+            content=api_response(False, 404, "config not found", error=str(e)),
+            status_code=404,
+        )
+    except Exception as e:
+        return JSONResponse(
+            content=api_response(False, 500, "config read failed", error=f"{type(e).__name__}: {e}"),
+            status_code=500,
+        )
+
+
 @app.post("/api/runner/train")
 def start_train(
     runId: str = Query(..., description="前端/Java 只需传 runId")
 ):
-    # 1) 计算 cfg_path
+    try:
+        mode = current_runner_mode()
+    except ValueError as e:
+        return JSONResponse(
+            content=api_response(False, 400, "invalid runner mode", error=str(e)),
+            status_code=400,
+        )
+
+    # 1) 原始模式读取生成的 MMDet 配置；固定模式执行代码中写死的测试脚本。
     cfg_path = find_cfg_path(runId)
-    if not cfg_path.exists():
+    if mode == "original" and not cfg_path.exists():
         return JSONResponse(
             content=api_response(False, 400, "cfg_path not found", error=f"cfg_path not found: {str(cfg_path)}"),
             status_code=400,
@@ -364,40 +534,76 @@ def start_train(
     ensure_dir(work_dir)
     log_path = work_dir / "train.log"
 
-    # 3) 组装命令
-    cmd = [PY_EXE, "-u", TRAIN_PY, str(cfg_path), "--work-dir", str(work_dir), "--launcher", "none", *EXTRA_ARGS]
+    # 3) 组装命令。original 分支保持原命令；fixed 分支完全使用固定值。
+    if mode == "original":
+        cmd = [PY_EXE, "-u", TRAIN_PY, str(cfg_path), "--work-dir", str(work_dir), "--launcher", "none", *EXTRA_ARGS]
+        process_cwd = REPO_ROOT
+        executed_script = TRAIN_PY
+    else:
+        try:
+            cmd, process_cwd, executed_script = build_fixed_execution(
+                FIXED_PYTHON_PATH,
+                FIXED_EXEC_DIR,
+                FIXED_COMMAND_LINE,
+                runId,
+                work_dir,
+            )
+        except (ValueError, FileNotFoundError) as e:
+            return JSONResponse(
+                content=api_response(False, 500, "fixed runner configuration invalid", error=str(e)),
+                status_code=500,
+            )
+        cfg_path = Path(executed_script)
     cmd_str = fmt_cmd(cmd)
 
     # 4) 写 header 并 ClearML Task.init（调度仍在本 Runner HTTP 进程内）
     ensure_dir(log_path.parent)
-    write_header(log_path, REPO_ROOT, str(work_dir), str(cfg_path), cmd_str)
+    write_header(log_path, process_cwd, str(work_dir), str(cfg_path), cmd_str)
+    _append_log(log_path, f"[server] runner_mode={mode}")
+    _append_log(log_path, f"[server] executed_script={executed_script}")
 
     env = make_env()
 
     clearml_task = None
     clearml_task_id: Optional[str] = None
-    try:
-        clearml_task, clearml_task_id = init_clearml_task(runId, env, log_path)
-    except RuntimeError as e:
-        return JSONResponse(
-            content=api_response(False, 400, "clearml_required_failed", error=str(e)),
-            status_code=400,
-        )
+    if mode == "original":
+        try:
+            clearml_task, clearml_task_id = init_clearml_task(runId, env, log_path)
+        except RuntimeError as e:
+            return JSONResponse(
+                content=api_response(False, 400, "clearml_required_failed", error=str(e)),
+                status_code=400,
+            )
+    else:
+        _append_log(log_path, "[clearml] skipped: fixed runner mode")
 
     exit_code = 1
     proc = None
     try:
         with open(log_path, "a", encoding="utf-8") as log_f:
+            popen_options = {}
+            if os.name == "nt":
+                popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            else:
+                popen_options["start_new_session"] = True
             proc = subprocess.Popen(
                 cmd,
-                cwd=REPO_ROOT,
+                cwd=process_cwd,
                 stdout=log_f,
                 stderr=subprocess.STDOUT,
                 env=env,
                 shell=False,
                 close_fds=False,
+                **popen_options,
             )
-            exit_code = proc.wait()
+            with _ACTIVE_PROCESSES_LOCK:
+                _ACTIVE_PROCESSES[runId] = proc
+            try:
+                exit_code = proc.wait()
+            finally:
+                with _ACTIVE_PROCESSES_LOCK:
+                    if _ACTIVE_PROCESSES.get(runId) is proc:
+                        _ACTIVE_PROCESSES.pop(runId, None)
     except Exception as e:
         finalize_clearml_task(clearml_task, 1, log_path)
         return JSONResponse(
@@ -440,7 +646,9 @@ def start_train(
         "work_dir": str(work_dir),
         "log": str(log_path),
         "cmd": cmd_str,
-        "repo_root": REPO_ROOT,
+        "repo_root": process_cwd,
+        "runner_mode": mode,
+        "executed_script": executed_script,
         "results_file": str(results_file),
         "results_txt": parsed,
         "clearml_task_id": clearml_task_id,
@@ -451,10 +659,102 @@ def start_train(
     return JSONResponse(content=resp, status_code=200)
 
 
+@app.post("/api/runner/stop")
+def stop_train(runId: str = Query(..., description="训练任务名称/runId")):
+    if not runId or runId in (".", "..") or any(c in runId for c in ("/", "\\")):
+        return JSONResponse(content=api_response(False, 400, "invalid runId"), status_code=400)
+    with _ACTIVE_PROCESSES_LOCK:
+        proc = _ACTIVE_PROCESSES.get(runId)
+    if proc is None or proc.poll() is not None:
+        return JSONResponse(
+            content=api_response(False, 404, "active training process not found", run_id=runId),
+            status_code=404,
+        )
+    pid = proc.pid
+    try:
+        stop_process_tree(proc)
+        proc.wait(timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return JSONResponse(
+            content=api_response(False, 500, "failed to stop training process", error=str(e)),
+            status_code=500,
+        )
+    return api_response(True, 0, "training stopped", run_id=runId, pid=pid, stopped=True)
+
+
+@app.get("/api/runner/log/latest")
+def latest_train_log(
+    runId: str = Query(..., description="训练任务名称/runId"),
+    tailLines: int = Query(1000, ge=10, le=5000),
+):
+    try:
+        log_path = find_latest_train_log(runId)
+    except ValueError as e:
+        return JSONResponse(
+            content=api_response(False, 400, "invalid runId", error=str(e)),
+            status_code=400,
+        )
+    if log_path is None:
+        return JSONResponse(
+            content=api_response(False, 404, "train log not found", run_id=runId),
+            status_code=404,
+        )
+
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    all_lines = text.splitlines()
+    stat = log_path.stat()
+    return api_response(
+        True,
+        0,
+        "ok",
+        run_id=runId,
+        runner_mode=current_runner_mode(),
+        work_dir=str(log_path.parent),
+        log_path=str(log_path),
+        modified_time=datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(timespec="seconds"),
+        total_lines=len(all_lines),
+        returned_lines=min(len(all_lines), tailLines),
+        content="\n".join(all_lines[-tailLines:]),
+    )
+
+
+@app.post("/api/runner/result/delete")
+def delete_result_files(
+    runId: str = Query(..., description="训练任务名称/runId"),
+    finishedAt: Optional[str] = Query(None, description="结果完成时间，用于匹配对应训练目录"),
+):
+    try:
+        work_dir = find_result_work_dir(runId, finishedAt)
+    except ValueError as e:
+        return JSONResponse(
+            content=api_response(False, 400, "invalid delete request", error=str(e)),
+            status_code=400,
+        )
+    if work_dir is None:
+        return JSONResponse(
+            content=api_response(False, 404, "result files not found", run_id=runId),
+            status_code=404,
+        )
+    try:
+        shutil.rmtree(work_dir)
+    except OSError as e:
+        return JSONResponse(
+            content=api_response(False, 500, "delete result files failed", error=str(e)),
+            status_code=500,
+        )
+    return api_response(True, 0, "deleted", deleted=True, work_dir=str(work_dir))
+
+
 # 健康检查
 @app.get("/health")
 def health():
-    return api_response(True, 0, "ok", time=now_str())
+    try:
+        mode = current_runner_mode()
+        with _ACTIVE_PROCESSES_LOCK:
+            active_runs = list(_ACTIVE_PROCESSES.keys())
+        return api_response(True, 0, "ok", time=now_str(), runner_mode=mode, active_runs=active_runs)
+    except ValueError as e:
+        return api_response(False, 400, "invalid runner mode", time=now_str(), error=str(e))
 
 
 if __name__ == "__main__":

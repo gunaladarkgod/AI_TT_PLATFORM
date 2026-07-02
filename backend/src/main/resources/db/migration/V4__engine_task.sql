@@ -52,7 +52,7 @@ CREATE TABLE `engine_task`  (
   `a_place` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT '',
   `a_obtained_time` datetime NULL DEFAULT NULL,
   PRIMARY KEY (`id`) USING BTREE,
-  INDEX `idx_pid`(`project_id` ASC, `status` ASC,  y`created_date` ASC) USING BTREE
+  INDEX `idx_pid`(`project_id` ASC, `status` ASC, `created_date` ASC) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 35 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
 
 SET FOREIGN_KEY_CHECKS = 1;

@@ -60,10 +60,13 @@ public class DatabaseInit implements ApplicationRunner {
     @Autowired
     private DataSource dataSource;
 
+    @Value("${app.redis.required:true}")
+    private boolean redisRequired;
+
     @Override
     public void run(ApplicationArguments args) throws Exception {
         // 等待外部依赖（你原有逻辑）
-        while (!databaseChecker.isMySqlConnected() || !databaseChecker.isRedisConnected()) {
+        while (!databaseChecker.isMySqlConnected() || (redisRequired && !databaseChecker.isRedisConnected())) {
             log.warn("waiting for mysql and redis ~~~~~~~~~~~~~~~~~~~");
             Thread.sleep(3000);
         }

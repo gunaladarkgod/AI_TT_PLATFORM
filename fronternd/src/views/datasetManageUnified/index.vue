@@ -39,6 +39,7 @@
             <OriginalDatasetManage
               v-model:view-as-table="originalViewAsTable"
               :embed-mode="true"
+              @dataset-changed="handleOriginalDatasetChanged"
             />
           </div>
         </section>
@@ -68,6 +69,9 @@
           <div class="section-body section-embed section-embed--task">
             <TaskManagementUnifiedPanel
               v-model:task-view-as-table="taskViewAsTable"
+              :dataset-refresh-key="datasetRefreshKey"
+              :task-refresh-key="taskRefreshKey"
+              @mid-dataset-changed="handleMidDatasetChanged"
             />
           </div>
         </section>
@@ -85,7 +89,12 @@
             </div>
           </div>
           <div class="section-body section-embed section-embed--preprocess">
-            <PreprocessPage :embed-mode="true" :embed-hide-create-title="true" />
+            <PreprocessPage
+              :embed-mode="true"
+              :embed-hide-create-title="true"
+              :source-refresh-key="preprocessSourceRefreshKey"
+              @mid-dataset-changed="handleMidDatasetChanged"
+            />
           </div>
         </section>
 
@@ -99,7 +108,7 @@
               <p class="section-desc section-desc--inline">
                 按任务查看中间实例数据集与训测划分等；表头支持排序与列筛选，下方为清除与搜索（与「原始数据集」一致）。
               </p>
-              <div class="section-task-toolbar" @click.stop>
+              <div v-if="false" class="section-task-toolbar" @click.stop>
                 <el-switch
                   v-model="instanceViewAsTable"
                   inline-prompt
@@ -146,6 +155,18 @@ import InstanceDatabasePage from '@/views/intanceDatabase/index.vue'
 const originalViewAsTable = ref(true)
 const taskViewAsTable = ref(true)
 const instanceViewAsTable = ref(true)
+const datasetRefreshKey = ref(0)
+const taskRefreshKey = ref(0)
+const preprocessSourceRefreshKey = ref(0)
+
+function handleOriginalDatasetChanged() {
+  datasetRefreshKey.value += 1
+}
+
+function handleMidDatasetChanged() {
+  taskRefreshKey.value += 1
+  preprocessSourceRefreshKey.value += 1
+}
 
 function scrollToAnchor(href) {
   if (!href || typeof href !== 'string') return

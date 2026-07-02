@@ -63,6 +63,7 @@ public class ShiroConfig {
         // 原始数据集预览放行
         chain.put("/original-dataset/**", "anon");
         chain.put("/taskDataset/**", "anon");
+        chain.put("/taskDatasetDev/**", "anon");
         // === 新增：任务数据集子集预览 & 图片放行（关键） ===
         // /taskDataset/{id}/subset-preview?subset=core&perLabel=3
         chain.put("/taskDataset/*/subset-preview", "anon");

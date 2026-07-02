@@ -120,6 +120,12 @@ public class OriginalDatasetController {
         originalDatasetService.streamExternalImage(datasetPath, relImgPath, response);
     }
 
+    @GetMapping("/external/objects")
+    public AjaxResult externalObjects(@RequestParam("path") String datasetPath,
+                                      @RequestParam("img") String relImgPath) {
+        return originalDatasetService.getExternalDotaObjects(datasetPath, relImgPath);
+    }
+
     /** 随机样例（默认 3 张，可排除上一批） */
     @PostMapping("/sample-random")
     public AjaxResult sampleRandom(@RequestBody Map<String, Object> req,
@@ -284,3 +290,4 @@ public class OriginalDatasetController {
         return originalDatasetService.getDotaObjects(id, imgName);
     }
 }
+

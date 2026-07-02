@@ -25,6 +25,7 @@
                   style="width: 300px;"
                   clearable
                 >
+                  <el-option label="不使用脚本" :value="0" />
                   <el-option
                     v-for="script in enhancementScripts"
                     :key="script.id"
@@ -97,6 +98,7 @@
                   style="width: 300px;"
                   clearable
                 >
+                  <el-option label="不使用脚本" :value="0" />
                   <el-option
                     v-for="script in augmentationScripts"
                     :key="script.id"
@@ -222,7 +224,24 @@
               </el-table-column>
               <el-table-column prop="imgNum" label="图片数" width="80"></el-table-column>
               <el-table-column prop="annoNum" label="样本数" width="80"></el-table-column>
-              <el-table-column prop="username" label="创建用户" width="120"></el-table-column>
+                            <el-table-column prop="username" label="创建用户" width="120"></el-table-column>
+              <el-table-column label="操作" width="132" fixed="right">
+                <template #default="{ row }">
+                  <el-dropdown trigger="click" @command="(command) => handleSourceDatasetAction(command, row)">
+                    <el-button type="primary" plain size="small" @click.stop>
+                      操作
+                      <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                    </el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="preview">查看示例</el-dropdown-item>
+                        <el-dropdown-item command="openPath">打开路径</el-dropdown-item>
+                        <el-dropdown-item command="clear" divided>清除导出数据集</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </template>
+              </el-table-column>
             </el-table>
             </div>
             <div class="selection-table-footer">
@@ -307,7 +326,7 @@
             />
             <el-alert
               v-else
-              title="未选择增强脚本"
+              title="不使用增强脚本"
               type="info"
               :closable="false"
               show-icon
@@ -327,7 +346,7 @@
             />
             <el-alert
               v-else
-              title="未选择增广脚本"
+              title="不使用增广脚本"
               type="info"
               :closable="false"
               show-icon
@@ -600,6 +619,12 @@
     </el-button>
   </template>
 </el-dialog>
+    <DatasetPreviewDialog
+      v-model="sourcePreviewDialogVisible"
+      :title="sourcePreviewRow ? `查看示例 - ${sourcePreviewRow.name}` : '查看示例'"
+      empty-description="暂无可展示图片"
+      :load-preview="loadSourcePreview"
+    />
   </div>
 </template>
 
@@ -607,17 +632,22 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-defineProps({
+const props = defineProps({
   /** 嵌入「数据集管理（dev）」时收紧外边距 */
   embedMode: { type: Boolean, default: false },
   /** 统合页已提供大标题时隐藏内层「创建实例数据集」标题 */
-  embedHideCreateTitle: { type: Boolean, default: false }
+  embedHideCreateTitle: { type: Boolean, default: false },
+  sourceRefreshKey: { type: Number, default: 0 }
 })
-import { ArrowLeft } from '@element-plus/icons-vue'
-import { InstanceDatasetService, PreprocessScriptService, SourceInstanceDatasetService } from '@/api/api.js'
+
+const emit = defineEmits(['midDatasetChanged'])
+import { ArrowLeft, ArrowDown } from '@element-plus/icons-vue'
+import { InstanceDatasetService, PreprocessScriptService, SourceInstanceDatasetService, TaskDatasetDevService } from '@/api/api.js'
 
 // ========== 新增：上传脚本所需 ==========
 import { Upload } from '@element-plus/icons-vue'
+import { baseHost } from '@/api/axios'
+import DatasetPreviewDialog from '@/components/dataset/DatasetPreviewDialog.vue'
 import { uploadScript } from '@/api/api.js' // 确保你已新增该函数
 
 // ========== 状态（完全保留，仅移除非必要） ==========
@@ -628,13 +658,9 @@ const showCreateInstanceDialog = ref(false)
 const createFormRef = ref()
 
 
-// 默认不选择
-// const selectedAugmentationScript = ref('')
-// const selectedEnhancementScript = ref('')
-
-// 默认选择不执行
-const selectedAugmentationScript = ref(2)
-const selectedEnhancementScript = ref(1)
+// 0 表示不使用脚本，避免依赖数据库中的“空操作”脚本记录
+const selectedAugmentationScript = ref(0)
+const selectedEnhancementScript = ref(0)
 
 const augmentationScripts = ref([])
 const enhancementScripts = ref([])
@@ -645,6 +671,11 @@ const filteredSelectionData = ref([])
 const selectedTaskDatasets = ref([])
 const selectionCurrentPage = ref(1)
 const selectionCurrentSize = ref(10)
+const sourcePreviewDialogVisible = ref(false)
+const sourcePreviewLoading = ref(false)
+const sourcePreviewRow = ref(null)
+const sourcePreviewGroups = ref([])
+
 
 const sensorTypeOptions = ref([])
 const targetTypeOptions = ref([])
@@ -734,6 +765,155 @@ const getScriptName = (scriptId, scriptList) => {
   return script ? script.name : '未知脚本'
 }
 
+const isCanonicalMidSourceDataset = (row) => {
+  const name = String(row?.name || '').trim()
+  const father = String(row?.fatherName || '').trim()
+  return !!name && !!father && name === father
+}
+
+const getSourceTaskName = (row) => String(row?.fatherName || row?.name || '').trim()
+
+const handleSourceDatasetAction = async (command, row) => {
+  if (command === 'preview') {
+    await openSourcePreview(row)
+    return
+  }
+  if (command === 'openPath') {
+    await openSourcePath(row)
+    return
+  }
+  if (command === 'clear') {
+    await clearSourceDataset(row)
+  }
+}
+
+const openSourcePath = async (row) => {
+  const name = getSourceTaskName(row)
+  if (!name) {
+    ElMessage.warning('缺少中间实例数据集名称')
+    return
+  }
+  try {
+    const res = await TaskDatasetDevService.openTaskPath({ name })
+    if (res?.code !== 0) {
+      ElMessage.error(res?.msg || '打开路径失败')
+      return
+    }
+    ElMessage.success('已打开中间实例数据集目录')
+  } catch (e) {
+    ElMessage.error('打开路径失败：' + (e?.message || e))
+  }
+}
+
+const clearSourceDataset = async (row) => {
+  const name = getSourceTaskName(row)
+  if (!name) {
+    ElMessage.warning('缺少中间实例数据集名称')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定清除中间实例数据集“${name}”吗？这会删除 data/instance_dataset_mid 下的导出目录和中间表记录，任务定义会保留。`,
+      '清除导出数据集',
+      { confirmButtonText: '确认清除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch (e) {
+    return
+  }
+  try {
+    const res = await TaskDatasetDevService.clearTask({ name })
+    if (res?.code !== 0) {
+      ElMessage.error(res?.msg || '清除失败')
+      return
+    }
+    ElMessage.success('已清除导出数据集')
+    await loadSourceDatasetsForSelection()
+    emit('midDatasetChanged')
+  } catch (e) {
+    ElMessage.error('清除失败：' + (e?.message || e))
+  }
+}
+
+const normalizePreviewUrl = (url) => {
+  if (!url) return ''
+  if (/^https?:\/\//i.test(url)) return url
+  const clean = String(url).startsWith('/') ? String(url) : `/${url}`
+  return `${window.location.protocol}//${baseHost}${clean}`
+}
+
+const normalizePreviewImage = (item) => {
+  if (typeof item === 'string') {
+    return { url: item, src: normalizePreviewUrl(item), fileName: '', width: 0, height: 0, objects: [] }
+  }
+  const rawUrl = item?.url || item?.src || ''
+  return {
+    ...item,
+    url: rawUrl,
+    src: normalizePreviewUrl(rawUrl),
+    fileName: item?.fileName || item?.file_name || item?.name || '',
+    width: Number(item?.width || 0),
+    height: Number(item?.height || 0),
+    objects: Array.isArray(item?.objects) ? item.objects : []
+  }
+}
+
+const normalizeSourcePreviewGroups = (items) => {
+  if (!Array.isArray(items)) return []
+  return items.map((item) => {
+    const name = item?.label || item?.className || item?.name || '未命名类别'
+    const images = Array.isArray(item?.images) ? item.images : Array.isArray(item?.urls) ? item.urls : []
+    return { name, images: images.map(normalizePreviewImage) }
+  }).filter(group => group.images.length > 0)
+}
+
+const loadSourcePreview = ({ perLabel = 3 } = {}) => {
+  const name = getSourceTaskName(sourcePreviewRow.value)
+  if (!name) throw new Error('缺少中间实例数据集名称')
+  return TaskDatasetDevService.previewTask(name, perLabel)
+}
+const openSourcePreview = async (row) => {
+  const name = getSourceTaskName(row)
+  if (!name) {
+    ElMessage.warning('缺少中间实例数据集名称')
+    return
+  }
+  sourcePreviewRow.value = row
+  sourcePreviewDialogVisible.value = true
+}
+
+const refreshSourcePreviewGroup = async (groupName) => {
+  const row = sourcePreviewRow.value
+  const name = getSourceTaskName(row)
+  if (!name) return
+  try {
+    const res = await TaskDatasetDevService.previewTask(name, 3)
+    const data = res?.data || res
+    const groups = normalizeSourcePreviewGroups(data?.items)
+    const refreshed = groups.find(g => g.name === groupName)
+    if (refreshed) {
+      sourcePreviewGroups.value = sourcePreviewGroups.value.map(g => g.name === groupName ? refreshed : g)
+    }
+  } catch (e) {
+    ElMessage.error('换一换失败：' + (e?.message || e))
+  }
+}
+
+const getPreviewBoxStyle = (obj, image) => {
+  const box = obj?.bbox || obj?.box || obj
+  let x = Number(box?.x ?? box?.left ?? (Array.isArray(box) ? box[0] : NaN))
+  let y = Number(box?.y ?? box?.top ?? (Array.isArray(box) ? box[1] : NaN))
+  let w = Number(box?.w ?? box?.width ?? (Array.isArray(box) ? box[2] : NaN))
+  let h = Number(box?.h ?? box?.height ?? (Array.isArray(box) ? box[3] : NaN))
+  const imgW = Number(image?.width || 0)
+  const imgH = Number(image?.height || 0)
+  if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0 || imgW <= 0 || imgH <= 0) return null
+  return {
+    left: `${Math.max(0, Math.min(100, (x / imgW) * 100))}%`,
+    top: `${Math.max(0, Math.min(100, (y / imgH) * 100))}%`,
+    width: `${Math.max(0, Math.min(100, (w / imgW) * 100))}%`,
+    height: `${Math.max(0, Math.min(100, (h / imgH) * 100))}%`
+  }
+}
 const loadPreprocessScripts = async () => {
   try {
     console.log('开始加载预处理脚本...')
@@ -812,8 +992,8 @@ const loadSourceDatasetsForSelection = async () => {
         data = rawData.data
       }
     }
-    selectionData.value = data
-    filteredSelectionData.value = [...data]
+    selectionData.value = data.filter(isCanonicalMidSourceDataset)
+    filteredSelectionData.value = [...selectionData.value]
     if (!data.length) {
       ElMessage.info('未找到磁盘上路径完整且含训练样本的中间实例数据集，请先在任务数据集中生成实例数据')
     }
@@ -833,6 +1013,12 @@ const loadSourceDatasetsForSelection = async () => {
   }
 }
 
+watch(
+  () => props.sourceRefreshKey,
+  async () => {
+    await loadSourceDatasetsForSelection()
+  }
+)
 const handleSelectionChange = (selection) => {
   selectedTaskDatasets.value = selection
 }
@@ -967,9 +1153,9 @@ if (selectedAugmentationScript.value && selectedAugmentationScriptObj.value) {
 }
         const requestBody = {
           sourceInstanceIds: selectedTaskDatasets.value.map(item => item.id),
-          enhanceScriptId: selectedEnhancementScript.value || 0,
+          enhanceScriptId: selectedEnhancementScript.value || null,
           enhanceParams: enhanceParams,
-          augmentScriptId: selectedAugmentationScript.value || 0,
+          augmentScriptId: selectedAugmentationScript.value || null,
           augmentParams: augmentParams
         };
         console.log(' 发送预处理请求:', requestBody);

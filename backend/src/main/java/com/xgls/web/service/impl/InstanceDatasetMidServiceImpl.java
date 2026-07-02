@@ -9,10 +9,10 @@ import com.xgls.web.mapper.InstanceDatasetMapper;
 import com.xgls.web.mapper.InstanceDatasetMidMapper;
 import com.xgls.web.service.InstanceDatasetMidService;
 import com.xgls.web.utils.InstanceDatasetPathUtil;
+import com.xgls.web.utils.WorkspacePathUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -40,9 +40,6 @@ public class InstanceDatasetMidServiceImpl extends ServiceImpl<InstanceDatasetMi
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @Value("${sys.instancecfg.instancedata-mid-root:/home/omen1/AI_TT_Platform/data/instance_dataset_mid/}")
-    private String instanceDatasetMidRoot;
-
     /**
      * 列举预处理源数据集：优先 {@code instance_dataset_mid}，合并「仅中间导出」形态的 {@code instance_dataset} 行，
      * 并对磁盘上已存在标准导出目录但库中无记录的情况自动补库（与任务数据集导出目录结构一致）。
@@ -58,15 +55,8 @@ public class InstanceDatasetMidServiceImpl extends ServiceImpl<InstanceDatasetMi
                 merged.putIfAbsent(midMergeKey(m), m);
             }
         }
-        if (tableExists("instance_dataset")) {
-            for (InstanceDataset d : instanceDatasetMapper.selectList(null)) {
-                if (!isMidLikeLegacyInstanceDataset(d)) {
-                    continue;
-                }
-                InstanceDatasetMid m = copyToMid(d);
-                merged.putIfAbsent(midMergeKey(m), m);
-            }
-        }
+        // 预处理源只允许来自中间实例数据集：instance_dataset_mid + data/instance_dataset_mid 磁盘目录。
+        // 真正实例数据集（instance_dataset）不再混入这里，避免前端把两类数据源混在一起。
         return new ArrayList<>(merged.values());
     }
 
@@ -75,11 +65,7 @@ public class InstanceDatasetMidServiceImpl extends ServiceImpl<InstanceDatasetMi
      * 解决「磁盘已有导出、库无记录」导致预处理页无选项的问题。
      */
     private void materializeExportFoldersFromDisk() {
-        String raw = StrUtil.trimToEmpty(instanceDatasetMidRoot);
-        if (StrUtil.isBlank(raw)) {
-            return;
-        }
-        Path root = Paths.get(raw.replaceAll("/+$", "")).normalize();
+        Path root = WorkspacePathUtil.instanceDatasetMidRoot();
         if (!Files.isDirectory(root)) {
             return;
         }
@@ -96,7 +82,8 @@ public class InstanceDatasetMidServiceImpl extends ServiceImpl<InstanceDatasetMi
                     continue;
                 }
                 InstanceDatasetMid probe = buildProbeFromExportFolder(child, folder);
-                if (!InstanceDatasetPathUtil.isSourceInstanceDatasetOnDisk(probe, instanceDatasetMidRoot)) {
+                if (!InstanceDatasetPathUtil.isSourceInstanceDatasetOnDisk(
+                        probe, WorkspacePathUtil.instanceDatasetMidRoot().toString())) {
                     continue;
                 }
                 probe.setUsername(StrUtil.blankToDefault(probe.getUsername(), "磁盘同步"));
@@ -133,10 +120,19 @@ public class InstanceDatasetMidServiceImpl extends ServiceImpl<InstanceDatasetMi
         mid.setClassNum(0);
         mid.setImgNum(0);
         mid.setAnnoNum(0);
-        mid.setTrainImagePath(pathWithTrailingSlash(base.resolve("train").resolve("images")));
-        mid.setTrainAnnoPath(pathWithTrailingSlash(base.resolve("train").resolve("anno")));
-        mid.setTestImagePath(pathWithTrailingSlash(base.resolve("test").resolve("images")));
-        mid.setTestAnnoPath(pathWithTrailingSlash(base.resolve("test").resolve("anno")));
+        Path flatImages = base.resolve("images");
+        Path flatAnnotations = base.resolve("annotations");
+        if (Files.isDirectory(flatImages) && Files.isDirectory(flatAnnotations)) {
+            mid.setTrainImagePath(pathWithTrailingSlash(flatImages));
+            mid.setTrainAnnoPath(pathWithTrailingSlash(flatAnnotations));
+            mid.setTestImagePath(pathWithTrailingSlash(flatImages));
+            mid.setTestAnnoPath(pathWithTrailingSlash(flatAnnotations));
+        } else {
+            mid.setTrainImagePath(pathWithTrailingSlash(base.resolve("train").resolve("images")));
+            mid.setTrainAnnoPath(pathWithTrailingSlash(base.resolve("train").resolve("anno")));
+            mid.setTestImagePath(pathWithTrailingSlash(base.resolve("test").resolve("images")));
+            mid.setTestAnnoPath(pathWithTrailingSlash(base.resolve("test").resolve("anno")));
+        }
         return mid;
     }
 

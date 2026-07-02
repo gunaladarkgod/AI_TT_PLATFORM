@@ -1,396 +1,396 @@
 <template>
   <div class="content" :class="{ 'content--embed': embedMode }">
     <el-card
-      class="original-dataset-panel"
-      :class="{ 'original-dataset-panel--embed': embedMode }"
-      shadow="never"
+        class="original-dataset-panel"
+        :class="{ 'original-dataset-panel--embed': embedMode }"
+        shadow="never"
     >
       <div
-        class="original-dataset-panel__main"
-        :class="{ 'original-dataset-panel__main--embed': embedMode }"
+          class="original-dataset-panel__main"
+          :class="{ 'original-dataset-panel__main--embed': embedMode }"
       >
-      <div class="original-dataset-toolbar-row flex-between">
-        <div class="flex-start gap-8">
-          <el-button size="small" @click="clearTableColumnFilters">清除列筛选</el-button>
-          <el-button size="small" @click="clearTableSort">清除列排序</el-button>
+        <div class="original-dataset-toolbar-row flex-between">
+          <div class="flex-start gap-8">
+            <el-button size="small" @click="clearTableColumnFilters">清除列筛选</el-button>
+            <el-button size="small" @click="clearTableSort">清除列排序</el-button>
+          </div>
+          <div class="flex-start gap-8 original-dataset-toolbar-row__right">
+            <el-input
+                v-model="tableSearch"
+                size="small"
+                clearable
+                placeholder="Type to search"
+                class="original-dataset-toolbar-search"
+            />
+            <el-dropdown trigger="click">
+              <el-button type="primary" size="small">
+                数据操作
+                <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item :disabled="loading" @click="reload">
+                    CVAT数据刷新
+                  </el-dropdown-item>
+                  <el-dropdown-item @click="openImportDialog">
+                    导入外来数据集
+                  </el-dropdown-item>
+                  <el-dropdown-item @click="goCvatHome">
+                    查看CVAT主页
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
         </div>
-        <div class="flex-start gap-8 original-dataset-toolbar-row__right">
-          <el-input
-            v-model="tableSearch"
-            size="small"
-            clearable
-            placeholder="Type to search"
-            class="original-dataset-toolbar-search"
-          />
-          <el-dropdown trigger="click">
-            <el-button type="primary" size="small">
-              数据操作
-              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-            </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item :disabled="loading" @click="reload">
-                  CVAT数据刷新
-                </el-dropdown-item>
-                <el-dropdown-item @click="openImportDialog">
-                  导入外来数据集
-                </el-dropdown-item>
-                <el-dropdown-item @click="goCvatHome">
-                  查看CVAT主页
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </div>
-      </div>
 
-    <!-- 表格区域：Element Plus 表头筛选 + 自定义排序（与官方示例一致的风格） -->
-    <div
-      v-if="effectiveViewAsTable"
-      class="table-div"
-      :class="{
+        <!-- 表格区域：Element Plus 表头筛选 + 自定义排序（与官方示例一致的风格） -->
+        <div
+            v-if="effectiveViewAsTable"
+            class="table-div"
+            :class="{
         'table-div--embed-scroll': embedMode,
         'original-dataset-panel__scroll': embedMode
       }"
-    >
-      <!-- 列宽：本表各 el-table-column 的 width / min-width（像素，字符串数字） -->
-      <el-table
-        ref="tableRef"
-        row-key="id"
-        class="my-table my-table--dataset-detail"
-        :data="pageData"
-        table-layout="fixed"
-        style="width: 100%"
-        stripe
-        size="small"
-        v-loading="loading"
-        :height="embedMode ? '100%' : undefined"
-        @filter-change="onElTableFilterChange"
-        @sort-change="onTableSortChange"
-        @row-click="handleOriginalDatasetTableRowClick"
-        v-el-height-adaptive-table="{ bottomOffset: 120, isUse: !embedMode }"
-      >
-        <!-- 序号 -->
-        <el-table-column
-          label="序号"
-          width="40"
-          align="center"
-          fixed="left"
         >
-          <template #default="scope">
-            <!-- 这里用分页后的真实序号 -->
-            <el-text size="small">
-              {{ (tableCurrentPage - 1) * tablePageSize + scope.$index + 1 }}
-            </el-text>
-          </template>
-        </el-table-column>
-
-        <!-- 数据集名称：固定列 + 固定宽度，避免被中间列撑开 -->
-        <el-table-column
-          prop="name"
-          label="数据集名称"
-          width="150"
-          align="left"
-          fixed="left"
-          sortable="custom"
-          column-key="name"
-          show-overflow-tooltip
-        >
-          <template #default="scope">
-            <el-text size="small" truncated>{{ scope.row.name }}</el-text>
-          </template>
-        </el-table-column>
-
-        <el-table-column
-          prop="source"
-          label="数据来源"
-          width="120"
-          align="center"
-          column-key="source"
-          sortable="custom"
-          :filters="sourceFilterOptions"
-          :filter-method="tableColumnFilterPassAll"
-          filter-placement="bottom-end"
-        >
-          <template #default="scope">
-            <el-tag
+          <!-- 列宽：本表各 el-table-column 的 width / min-width（像素，字符串数字） -->
+          <el-table
+              ref="tableRef"
+              row-key="id"
+              class="my-table my-table--dataset-detail"
+              :data="pageData"
+              table-layout="fixed"
+              style="width: 100%"
+              stripe
               size="small"
-              disable-transitions
-              :type="scope.row.source === '外部导入' ? 'success' : 'info'"
+              v-loading="loading"
+              :height="embedMode ? '100%' : undefined"
+              @filter-change="onElTableFilterChange"
+              @sort-change="onTableSortChange"
+              @row-click="handleOriginalDatasetTableRowClick"
+              v-el-height-adaptive-table="{ bottomOffset: 120, isUse: !embedMode }"
+          >
+            <!-- 序号 -->
+            <el-table-column
+                label="序号"
+                width="40"
+                align="center"
+                fixed="left"
             >
-              {{ scope.row.source || 'CVAT' }}
-            </el-tag>
-          </template>
-        </el-table-column>
+              <template #default="scope">
+                <!-- 这里用分页后的真实序号 -->
+                <el-text size="small">
+                  {{ (tableCurrentPage - 1) * tablePageSize + scope.$index + 1 }}
+                </el-text>
+              </template>
+            </el-table-column>
 
-        <!-- 传感器类型 -->
-        <el-table-column
-          prop="sensor"
-          label="传感器类型"
-          width="120"
-          align="center"
-          column-key="sensor"
-          sortable="custom"
-          :filters="sensorColumnFilters"
-          :filter-method="tableColumnFilterPassAll"
-        >
-          <template #default="scope">
-            <el-text size="small">
-              {{ scope.row.sensor || '-' }}
-            </el-text>
-          </template>
-        </el-table-column>
+            <!-- 数据集名称：固定列 + 固定宽度，避免被中间列撑开 -->
+            <el-table-column
+                prop="name"
+                label="数据集名称"
+                width="150"
+                align="left"
+                fixed="left"
+                sortable="custom"
+                column-key="name"
+                show-overflow-tooltip
+            >
+              <template #default="scope">
+                <el-text size="small" truncated>{{ scope.row.name }}</el-text>
+              </template>
+            </el-table-column>
 
-        <!-- 目标类型（须容纳标题 + 排序 + 筛选图标同一行） -->
-        <el-table-column
-          prop="targets"
-          label="目标类型"
-          min-width="120"
-          align="center"
-          column-key="targets"
-          sortable="custom"
-          :filters="targetColumnFilters"
-          :filter-method="tableColumnFilterPassAll"
-          filter-placement="bottom-end"
-        >
-          <template #default="scope">
-            <el-text size="small">
-              {{ scope.row.targets && scope.row.targets.length ? scope.row.targets.join('、') : '-' }}
-            </el-text>
-          </template>
-        </el-table-column>
+            <el-table-column
+                prop="source"
+                label="数据来源"
+                width="120"
+                align="center"
+                column-key="source"
+                sortable="custom"
+                :filters="sourceFilterOptions"
+                :filter-method="tableColumnFilterPassAll"
+                filter-placement="bottom-end"
+            >
+              <template #default="scope">
+                <el-tag
+                    size="small"
+                    disable-transitions
+                    :type="scope.row.source === '外部导入' ? 'success' : 'info'"
+                >
+                  {{ scope.row.source || 'CVAT' }}
+                </el-tag>
+              </template>
+            </el-table-column>
 
-        <!-- 类别数 -->
-        <el-table-column
-          prop="classCount"
-          label="类别数"
-          width="80"
-          align="center"
-          column-key="classCount"
-          sortable="custom"
-        >
-          <template #default="scope">
-            <el-text size="small">
-              {{ scope.row.classes ? scope.row.classes.length : 0 }}
-            </el-text>
-          </template>
-        </el-table-column>
+            <!-- 传感器类型 -->
+            <el-table-column
+                prop="sensor"
+                label="传感器类型"
+                width="120"
+                align="center"
+                column-key="sensor"
+                sortable="custom"
+                :filters="sensorColumnFilters"
+                :filter-method="tableColumnFilterPassAll"
+            >
+              <template #default="scope">
+                <el-text size="small">
+                  {{ scope.row.sensor || '-' }}
+                </el-text>
+              </template>
+            </el-table-column>
 
-        <!-- 类别名称（标签 + 更多）：限制列宽，避免整表随标签无限变宽 -->
-        <el-table-column
-          label="类别名称"
-          min-width="200"
-          align="left"
-        >
-          <template #default="scope">
-            <div class="class-tags class-tags--table-cell">
+            <!-- 目标类型（须容纳标题 + 排序 + 筛选图标同一行） -->
+            <el-table-column
+                prop="targets"
+                label="目标类型"
+                min-width="120"
+                align="center"
+                column-key="targets"
+                sortable="custom"
+                :filters="targetColumnFilters"
+                :filter-method="tableColumnFilterPassAll"
+                filter-placement="bottom-end"
+            >
+              <template #default="scope">
+                <el-text size="small">
+                  {{ scope.row.targets && scope.row.targets.length ? scope.row.targets.join('、') : '-' }}
+                </el-text>
+              </template>
+            </el-table-column>
+
+            <!-- 类别数 -->
+            <el-table-column
+                prop="classCount"
+                label="类别数"
+                width="80"
+                align="center"
+                column-key="classCount"
+                sortable="custom"
+            >
+              <template #default="scope">
+                <el-text size="small">
+                  {{ scope.row.classes ? scope.row.classes.length : 0 }}
+                </el-text>
+              </template>
+            </el-table-column>
+
+            <!-- 类别名称（标签 + 更多）：限制列宽，避免整表随标签无限变宽 -->
+            <el-table-column
+                label="类别名称"
+                min-width="200"
+                align="left"
+            >
+              <template #default="scope">
+                <div class="class-tags class-tags--table-cell">
               <span
-                v-for="cls in scope.row.classes.slice(0, 5)"
-                :key="scope.row.id + '-' + cls.name"
-                class="tag"
-                :title="cls.name + '：' + cls.count"
+                  v-for="cls in scope.row.classes.slice(0, 5)"
+                  :key="scope.row.id + '-' + cls.name"
+                  class="tag"
+                  :title="cls.name + '：' + cls.count"
               >
                 {{ cls.name }}：{{ cls.count }}
               </span>
 
-              <el-button
-                v-if="scope.row.classes.length > 5"
-                class="more-btn"
-                text
-                size="small"
-                @click="openClassNamesDialog(scope.row)"
-              >
-                更多 ({{ scope.row.classes.length - 5 }})
-              </el-button>
-            </div>
-          </template>
-        </el-table-column>
+                  <el-button
+                      v-if="scope.row.classes.length > 5"
+                      class="more-btn"
+                      text
+                      size="small"
+                      @click="openClassNamesDialog(scope.row)"
+                  >
+                    更多 ({{ scope.row.classes.length - 5 }})
+                  </el-button>
+                </div>
+              </template>
+            </el-table-column>
 
-        <!-- 图片数 -->
-        <el-table-column
-          prop="imageCount"
-          label="图片数"
-          width="100"
-          align="center"
-          column-key="imageCount"
-          sortable="custom"
-        >
-          <template #default="scope">
-            <el-text size="small">
-              {{ fmtNum(scope.row.imageCount) }}
-            </el-text>
-          </template>
-        </el-table-column>
-
-        <!-- 样本数 -->
-        <el-table-column
-          prop="sampleCount"
-          label="样本数"
-          width="100"
-          align="center"
-          column-key="sampleCount"
-          sortable="custom"
-        >
-          <template #default="scope">
-            <el-text size="small">
-              {{ fmtNum(scope.row.sampleCount) }}
-            </el-text>
-          </template>
-        </el-table-column>
-
-        <!-- 创建用户 -->
-        <el-table-column
-          prop="user"
-          label="创建用户"
-          width="120"
-          align="center"
-          column-key="user"
-          sortable="custom"
-        >
-          <template #default="scope">
-            <el-text size="small">
-              {{ safeUser(scope.row) }}
-            </el-text>
-          </template>
-        </el-table-column>
-
-        <!-- 操作 -->
-        <el-table-column
-          label="操作"
-          width="180"
-          align="center"
-          fixed="right"
-        >
-          <template #default="scope">
-            <div class="original-dataset-row-actions">
-              <el-button
-                size="small"
-                type="primary"
-                @click="openPreview(scope.row)"
-              >
-                示例
-              </el-button>
-              <el-button
-                size="small"
-                type="danger"
-                @click="handleDeleteDataset(scope.row)"
-              >
-                删除
-              </el-button>
-            </div>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
-
-    <div
-      v-else
-      class="original-dataset-card-grid"
-      :class="{ 'original-dataset-panel__scroll': embedMode }"
-    >
-      <div
-        v-for="row in pageData"
-        :key="row.id"
-        class="original-dataset-card"
-        @click="handleOriginalDatasetCardClick(row, $event)"
-      >
-        <el-descriptions
-          class="original-dataset-card-descriptions"
-          :column="cardDescColumns"
-          size="small"
-          border
-        >
-          <template #title>
-            <span class="original-dataset-card-title-text">{{ row.name }}</span>
-          </template>
-          <el-descriptions-item label="数据来源" :span="1">
-            <el-tag
-              size="small"
-              disable-transitions
-              :type="row.source === '外部导入' ? 'success' : 'info'"
+            <!-- 图片数 -->
+            <el-table-column
+                prop="imageCount"
+                label="图片数"
+                width="100"
+                align="center"
+                column-key="imageCount"
+                sortable="custom"
             >
-              {{ row.source || 'CVAT' }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="传感器" :span="1">{{ row.sensor || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="类别数" :span="1">
-            {{ row.classes ? row.classes.length : 0 }}
-          </el-descriptions-item>
-          <el-descriptions-item label="目标类型" :span="cardDescColumns">
-            {{ row.targets && row.targets.length ? row.targets.join('、') : '-' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="图片数" :span="1">{{ fmtNum(row.imageCount) }}</el-descriptions-item>
-          <el-descriptions-item label="样本数" :span="1">{{ fmtNum(row.sampleCount) }}</el-descriptions-item>
-          <el-descriptions-item label="用户" :span="1">{{ safeUser(row) }}</el-descriptions-item>
-        </el-descriptions>
+              <template #default="scope">
+                <el-text size="small">
+                  {{ fmtNum(scope.row.imageCount) }}
+                </el-text>
+              </template>
+            </el-table-column>
 
-        <div class="original-dataset-card-footer" @click.stop>
-          <div class="original-dataset-card-footer-left" />
-          <div class="original-dataset-card-footer-right">
-            <el-button type="primary" plain size="small" @click="openPreview(row)">
-              示例
-            </el-button>
-            <el-button type="danger" plain size="small" @click="handleDeleteDataset(row)">
-              删除
-            </el-button>
+            <!-- 样本数 -->
+            <el-table-column
+                prop="sampleCount"
+                label="样本数"
+                width="100"
+                align="center"
+                column-key="sampleCount"
+                sortable="custom"
+            >
+              <template #default="scope">
+                <el-text size="small">
+                  {{ fmtNum(scope.row.sampleCount) }}
+                </el-text>
+              </template>
+            </el-table-column>
+
+            <!-- 创建用户 -->
+            <el-table-column
+                prop="user"
+                label="创建用户"
+                width="120"
+                align="center"
+                column-key="user"
+                sortable="custom"
+            >
+              <template #default="scope">
+                <el-text size="small">
+                  {{ safeUser(scope.row) }}
+                </el-text>
+              </template>
+            </el-table-column>
+
+            <!-- 操作 -->
+            <el-table-column
+                label="操作"
+                width="180"
+                align="center"
+                fixed="right"
+            >
+              <template #default="scope">
+                <div class="original-dataset-row-actions">
+                  <el-button
+                      size="small"
+                      type="primary"
+                      @click="openPreview(scope.row)"
+                  >
+                    示例
+                  </el-button>
+                  <el-button
+                      size="small"
+                      type="danger"
+                      @click="handleDeleteDataset(scope.row)"
+                  >
+                    删除
+                  </el-button>
+                </div>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <div
+            v-else
+            class="original-dataset-card-grid"
+            :class="{ 'original-dataset-panel__scroll': embedMode }"
+        >
+          <div
+              v-for="row in pageData"
+              :key="row.id"
+              class="original-dataset-card"
+              @click="handleOriginalDatasetCardClick(row, $event)"
+          >
+            <el-descriptions
+                class="original-dataset-card-descriptions"
+                :column="cardDescColumns"
+                size="small"
+                border
+            >
+              <template #title>
+                <span class="original-dataset-card-title-text">{{ row.name }}</span>
+              </template>
+              <el-descriptions-item label="数据来源" :span="1">
+                <el-tag
+                    size="small"
+                    disable-transitions
+                    :type="row.source === '外部导入' ? 'success' : 'info'"
+                >
+                  {{ row.source || 'CVAT' }}
+                </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="传感器" :span="1">{{ row.sensor || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="类别数" :span="1">
+                {{ row.classes ? row.classes.length : 0 }}
+              </el-descriptions-item>
+              <el-descriptions-item label="目标类型" :span="cardDescColumns">
+                {{ row.targets && row.targets.length ? row.targets.join('、') : '-' }}
+              </el-descriptions-item>
+              <el-descriptions-item label="图片数" :span="1">{{ fmtNum(row.imageCount) }}</el-descriptions-item>
+              <el-descriptions-item label="样本数" :span="1">{{ fmtNum(row.sampleCount) }}</el-descriptions-item>
+              <el-descriptions-item label="用户" :span="1">{{ safeUser(row) }}</el-descriptions-item>
+            </el-descriptions>
+
+            <div class="original-dataset-card-footer" @click.stop>
+              <div class="original-dataset-card-footer-left" />
+              <div class="original-dataset-card-footer-right">
+                <el-button type="primary" plain size="small" @click="openPreview(row)">
+                  示例
+                </el-button>
+                <el-button type="danger" plain size="small" @click="handleDeleteDataset(row)">
+                  删除
+                </el-button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-    </div>
       </div>
 
       <template #footer>
         <div class="original-dataset-panel__footer">
           <el-pagination
-            v-if="effectiveViewAsTable"
-            background
-            size="small"
-            v-model:current-page="tableCurrentPage"
-            v-model:page-size="tablePageSize"
-            :page-sizes="[10, 20, 50, 100]"
-            layout="total, sizes, prev, pager, next, jumper"
-            :total="total"
-            @size-change="onTablePageSizeChange"
+              v-if="effectiveViewAsTable"
+              background
+              size="small"
+              v-model:current-page="tableCurrentPage"
+              v-model:page-size="tablePageSize"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next, jumper"
+              :total="total"
+              @size-change="onTablePageSizeChange"
           />
           <el-pagination
-            v-else
-            background
-            size="small"
-            v-model:current-page="cardCurrentPage"
-            v-model:page-size="cardPageSize"
-            :page-sizes="[6, 12, 18, 24]"
-            layout="total, sizes, prev, pager, next, jumper"
-            :total="total"
-            @size-change="onCardPageSizeChange"
+              v-else
+              background
+              size="small"
+              v-model:current-page="cardCurrentPage"
+              v-model:page-size="cardPageSize"
+              :page-sizes="[6, 12, 18, 24]"
+              layout="total, sizes, prev, pager, next, jumper"
+              :total="total"
+              @size-change="onCardPageSizeChange"
           />
         </div>
       </template>
     </el-card>
 
     <el-dialog
-      v-model="datasetDetailVisible"
-      title="数据集详情"
-      class="original-dataset-detail-dialog"
-      width="1000px"
-      destroy-on-close
-      align-center
-      @closed="onDatasetDetailClosed"
+        v-model="datasetDetailVisible"
+        title="数据集详情"
+        class="original-dataset-detail-dialog"
+        width="1000px"
+        destroy-on-close
+        align-center
+        @closed="onDatasetDetailClosed"
     >
       <div v-if="datasetDetailRow" class="original-dataset-detail-dialog__body">
         <el-descriptions
-          :column="2"
-          border
-          size="small"
-          class="original-dataset-detail-descriptions"
+            :column="2"
+            border
+            size="small"
+            class="original-dataset-detail-descriptions"
         >
           <el-descriptions-item label="数据集名称" :span="2">
             {{ datasetDetailRow.name || '-' }}
           </el-descriptions-item>
           <el-descriptions-item label="数据来源" :span="1">
             <el-tag
-              size="small"
-              disable-transitions
-              :type="datasetDetailRow.source === '外部导入' ? 'success' : 'info'"
+                size="small"
+                disable-transitions
+                :type="datasetDetailRow.source === '外部导入' ? 'success' : 'info'"
             >
               {{ datasetDetailRow.source || 'CVAT' }}
             </el-tag>
@@ -401,8 +401,8 @@
           <el-descriptions-item label="目标类型" :span="2">
             {{
               datasetDetailRow.targets && datasetDetailRow.targets.length
-                ? datasetDetailRow.targets.join('、')
-                : '-'
+                  ? datasetDetailRow.targets.join('、')
+                  : '-'
             }}
           </el-descriptions-item>
           <el-descriptions-item label="类别数" :span="1">
@@ -419,14 +419,14 @@
           </el-descriptions-item>
           <el-descriptions-item label="类别明细" :span="2">
             <div
-              v-if="datasetDetailRow.classes && datasetDetailRow.classes.length"
-              class="class-tags class-tags--dialog"
+                v-if="datasetDetailRow.classes && datasetDetailRow.classes.length"
+                class="class-tags class-tags--dialog"
             >
               <span
-                v-for="cls in datasetDetailRow.classes"
-                :key="'detail-' + datasetDetailRow.id + '-' + cls.name"
-                class="tag"
-                :title="cls.name + '：' + cls.count"
+                  v-for="cls in datasetDetailRow.classes"
+                  :key="'detail-' + datasetDetailRow.id + '-' + cls.name"
+                  class="tag"
+                  :title="cls.name + '：' + cls.count"
               >
                 {{ cls.name }}：{{ cls.count }}
               </span>
@@ -434,9 +434,9 @@
             <span v-else>-</span>
           </el-descriptions-item>
           <el-descriptions-item
-            v-if="datasetDetailRow.isExternal && datasetDetailRow.externalPath"
-            label="本地路径"
-            :span="2"
+              v-if="datasetDetailRow.isExternal && datasetDetailRow.externalPath"
+              label="本地路径"
+              :span="2"
           >
             <span class="original-dataset-detail-path">{{ datasetDetailRow.externalPath }}</span>
           </el-descriptions-item>
@@ -453,17 +453,16 @@
     </el-dialog>
 
     <el-dialog
-      v-model="importDialogVisible"
-      title="导入外来数据集"
-      width="560px"
-      :close-on-click-modal="false"
+        v-model="importDialogVisible"
+        title="导入外来数据集"
+        width="560px"
+        :close-on-click-modal="false"
     >
       <el-form label-width="110px">
         <el-form-item label="数据集路径">
           <el-input
-            v-model="importForm.path"
-            readonly
-            placeholder="请输入绝对路径，例如 /mnt/data/my_dataset"
+              v-model="importForm.path"
+              placeholder="请输入绝对路径，例如 /mnt/data/my_dataset"
           >
             <template #append>
               <el-button @click="pickLocalDir">选择目录</el-button>
@@ -472,9 +471,9 @@
         </el-form-item>
         <el-form-item label="显示名称">
           <el-input
-            v-model="importForm.name"
-            placeholder="例如：自定义项目_V1"
-            clearable
+              v-model="importForm.name"
+              placeholder="例如：自定义项目_V1"
+              clearable
           />
         </el-form-item>
       </el-form>
@@ -494,19 +493,69 @@
     </el-dialog>
 
     <el-dialog
-      v-model="classNamesDialogVisible"
-      :title="classNamesDialogTitle"
-      width="520px"
-      destroy-on-close
-      @closed="onClassNamesDialogClosed"
+        v-model="dirBrowserVisible"
+        title="选择数据集目录"
+        width="720px"
+        :close-on-click-modal="false"
+    >
+      <el-alert
+          type="info"
+          show-icon
+          :closable="false"
+          title="这里只选择后端可访问的目录路径，不会上传图片文件。Windows 本地后端会从盘符开始浏览。"
+          style="margin-bottom: 12px;"
+      />
+      <div class="dir-browser-current">
+        <span>当前目录：</span>
+        <el-text type="primary">{{ dirBrowser.base || '我的电脑' }}</el-text>
+      </div>
+      <div class="dir-browser-actions">
+        <el-button size="small" :disabled="!dirBrowser.parent" @click="loadBrowseDirs(dirBrowser.parent)">上一级</el-button>
+        <el-button size="small" @click="loadBrowseDirs('')">盘符/根目录</el-button>
+        <el-button size="small" type="success" :disabled="!dirBrowser.base" @click="confirmSelectDirBrowserPath(dirBrowser.base)">
+          选中当前目录
+        </el-button>
+      </div>
+      <el-table
+          v-loading="dirBrowseLoading"
+          :data="dirBrowserRows"
+          height="360"
+          size="small"
+          border
+          empty-text="当前目录下没有子目录"
+          @row-dblclick="openDirBrowserRow"
+      >
+        <el-table-column prop="name" label="目录名" min-width="260" show-overflow-tooltip />
+        <el-table-column prop="path" label="路径" min-width="320" show-overflow-tooltip />
+        <el-table-column label="操作" width="150" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openDirBrowserRow(row)">打开</el-button>
+            <el-button link type="success" @click="confirmSelectDirBrowserPath(row.path)">选择</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="dirBrowserVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!dirBrowserSelectedPath" @click="confirmSelectDirBrowserPath(dirBrowserSelectedPath)">
+          确定
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+        v-model="classNamesDialogVisible"
+        :title="classNamesDialogTitle"
+        width="520px"
+        destroy-on-close
+        @closed="onClassNamesDialogClosed"
     >
       <div class="class-names-dialog-body">
         <div v-if="classNamesDialogClasses.length" class="class-tags class-tags--dialog">
           <span
-            v-for="cls in classNamesDialogClasses"
-            :key="'dlg-' + cls.name"
-            class="tag"
-            :title="cls.name + '：' + cls.count"
+              v-for="cls in classNamesDialogClasses"
+              :key="'dlg-' + cls.name"
+              class="tag"
+              :title="cls.name + '：' + cls.count"
           >
             {{ cls.name }}：{{ cls.count }}
           </span>
@@ -544,41 +593,49 @@
               <div class="cat-label">{{ group.name }}</div>
               <div class="cat-images">
                 <div
-                  v-for="(src, i) in group.images"
-                  :key="group.name + '-' + i"
-                  class="imgbox"
+                    v-for="(src, i) in group.images"
+                    :key="group.name + '-' + i"
+                    class="imgbox"
                 >
                   <!-- 有标注：SVG 叠加多边形（去掉文字标签） -->
                   <svg
-                    v-if="objectsMeta[src]?.width && objectsMeta[src]?.height"
-                    class="anno-svg"
-                    :viewBox="`0 0 ${objectsMeta[src].width} ${objectsMeta[src].height}`"
-                    preserveAspectRatio="xMidYMid meet"
+                      v-if="objectsMeta[src]?.width && objectsMeta[src]?.height"
+                      class="anno-svg"
+                      :viewBox="`0 0 ${objectsMeta[src].width} ${objectsMeta[src].height}`"
+                      preserveAspectRatio="xMidYMid meet"
                   >
                     <image
-                      :href="src"
-                      :width="objectsMeta[src].width"
-                      :height="objectsMeta[src].height"
+                        :href="src"
+                        :width="objectsMeta[src].width"
+                        :height="objectsMeta[src].height"
                     />
                     <g
-                      v-for="(obj, idx2) in objectsMeta[src].objects || []"
-                      :key="idx2"
+                        v-for="(obj, idx2) in objectsMeta[src].objects || []"
+                        :key="idx2"
                     >
                       <polygon
-                        :points="pointsAttr(obj.points)"
-                        class="anno-poly"
+                          :points="pointsAttr(obj.points)"
+                          class="anno-poly"
                       />
+                      <text
+                          v-if="firstPoint(obj.points)"
+                          :x="firstPoint(obj.points)[0]"
+                          :y="Math.max(14, firstPoint(obj.points)[1] - 4)"
+                          class="anno-label"
+                      >
+                        {{ obj.label || obj.name || group.name }}
+                      </text>
                     </g>
                   </svg>
 
                   <!-- 暂无标注数据：先出图，再异步拉取 -->
                   <img
-                    v-else
-                    :src="src"
-                    alt="示例图片"
-                    class="anno-fallback"
-                    @error="onImgError($event)"
-                    @load="ensureAnnoFor(src)"
+                      v-else
+                      :src="src"
+                      alt="示例图片"
+                      class="anno-fallback"
+                      @error="onImgError($event)"
+                      @load="ensureAnnoFor(src)"
                   />
                 </div>
               </div>
@@ -597,7 +654,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { EngineProjectService, OriginalDatasetService } from '@/api/api'
 
@@ -610,7 +667,7 @@ const props = defineProps({
   sortMode: { type: String, default: undefined }
 })
 
-const emit = defineEmits(['update:viewAsTable', 'update:sortMode'])
+const emit = defineEmits(['update:viewAsTable', 'update:sortMode', 'datasetChanged'])
 
 const internalViewAsTable = ref(true)
 const effectiveViewAsTable = computed({
@@ -649,11 +706,11 @@ const sourceFilterOptions = [
 ]
 
 const sensorColumnFilters = computed(() =>
-  sensorOptions.value.map(s => ({ text: s, value: s }))
+    sensorOptions.value.map(s => ({ text: s, value: s }))
 )
 
 const targetColumnFilters = computed(() =>
-  targetOptions.value.map(t => ({ text: t, value: t }))
+    targetOptions.value.map(t => ({ text: t, value: t }))
 )
 
 function tableColumnFilterPassAll() {
@@ -794,6 +851,18 @@ const loading = ref(false)
 const importDialogVisible = ref(false)
 const importChecking = ref(false)
 const importing = ref(false)
+const directoryInputRef = ref(null)
+const uploadFiles = ref([])
+const uploadRootName = ref('')
+const uploadProgress = ref(0)
+const dirBrowserVisible = ref(false)
+const dirBrowseLoading = ref(false)
+const dirBrowser = ref({
+  base: '',
+  parent: null,
+  dirs: []
+})
+const dirBrowserSelectedPath = ref('')
 const importForm = ref({
   path: '',
   name: ''
@@ -815,7 +884,7 @@ const total = ref(0)
 
 /** 卡片描述列数：多列紧凑；窄屏降为 2/1 列避免挤压 */
 const windowWidth = ref(
-  typeof window !== 'undefined' ? window.innerWidth : 1200
+    typeof window !== 'undefined' ? window.innerWidth : 1200
 )
 const cardDescColumns = computed(() => {
   const w = windowWidth.value
@@ -823,6 +892,15 @@ const cardDescColumns = computed(() => {
   if (w < 720) return 2
   return 3
 })
+
+const dirBrowserRows = computed(() => {
+  const base = String(dirBrowser.value.base || '')
+  return (dirBrowser.value.dirs || []).map(name => ({
+    name,
+    path: joinDirPath(base, name)
+  }))
+})
+
 function onWindowResize() {
   windowWidth.value = window.innerWidth
 }
@@ -854,7 +932,7 @@ function mapDatasetRow(r) {
   }))
 
   const rawTs =
-    r.created_time ?? r.createdTime ?? r.updated_time ?? r.updatedTime ?? r.created_at ?? ''
+      r.created_time ?? r.createdTime ?? r.updated_time ?? r.updatedTime ?? r.created_at ?? ''
   const parsed = rawTs ? Date.parse(String(rawTs).trim()) : NaN
   const sortTs = Number.isFinite(parsed) ? parsed : 0
 
@@ -907,12 +985,12 @@ async function loadDatasets() {
     const dataNode = obj && obj.data !== undefined ? obj.data : obj
     const extNode = extObj && extObj.data !== undefined ? extObj.data : extObj
     const items = Array.isArray(dataNode?.items)
-      ? dataNode.items
-      : Array.isArray(obj?.items)
-      ? obj.items
-      : Array.isArray(obj)
-      ? obj
-      : []
+        ? dataNode.items
+        : Array.isArray(obj?.items)
+            ? obj.items
+            : Array.isArray(obj)
+                ? obj
+                : []
     const extItems = Array.isArray(extNode) ? extNode : []
 
     const rows = [...items, ...extItems].map(mapDatasetRow)
@@ -957,13 +1035,13 @@ const filtered = computed(() => {
   return allDatasets.value.filter(r => {
     const src = r.source || 'CVAT'
     const colSourceOk =
-      !colFilterSource.value.length || colFilterSource.value.includes(src)
+        !colFilterSource.value.length || colFilterSource.value.includes(src)
     const colSensorOk =
-      !colFilterSensor.value.length || colFilterSensor.value.includes(r.sensor)
+        !colFilterSensor.value.length || colFilterSensor.value.includes(r.sensor)
     const t0 = r.targets?.[0]
     const colTargetOk =
-      !colFilterTarget.value.length ||
-      (t0 && colFilterTarget.value.includes(t0))
+        !colFilterTarget.value.length ||
+        (t0 && colFilterTarget.value.includes(t0))
     const clsNames = (r.classes || []).map(c => c.name)
     const hay = [
       r.id,
@@ -973,8 +1051,8 @@ const filtered = computed(() => {
       (r.targets || []).join(','),
       clsNames.join(',')
     ]
-      .join(' ')
-      .toLowerCase()
+        .join(' ')
+        .toLowerCase()
     const searchOk = !q || hay.includes(q)
     return colSourceOk && colSensorOk && colTargetOk && searchOk
   })
@@ -998,7 +1076,7 @@ const orderedForDisplay = computed(() => {
   if (!ts?.prop || !ts?.order) return list
   const mul = ts.order === 'descending' ? -1 : 1
   list.sort(
-    (a, b) => compareRowsForTableSort(a, b, ts.prop) * mul
+      (a, b) => compareRowsForTableSort(a, b, ts.prop) * mul
   )
   return list
 })
@@ -1016,21 +1094,21 @@ const pageData = computed(() => {
 
 /* 过滤条件变化时，重置页码到 1，并更新 total */
 watch(
-  filtered,
-  (val) => {
-    total.value = val.length
-    tableCurrentPage.value = 1
-    cardCurrentPage.value = 1
-  },
-  { immediate: true }
+    filtered,
+    (val) => {
+      total.value = val.length
+      tableCurrentPage.value = 1
+      cardCurrentPage.value = 1
+    },
+    { immediate: true }
 )
 
 watch(
-  () => effectiveSortMode.value,
-  () => {
-    tableCurrentPage.value = 1
-    cardCurrentPage.value = 1
-  }
+    () => effectiveSortMode.value,
+    () => {
+      tableCurrentPage.value = 1
+      cardCurrentPage.value = 1
+    }
 )
 
 function onTablePageSizeChange() {
@@ -1066,7 +1144,132 @@ function inferDatasetNameFromPath(rawPath) {
   return idx >= 0 ? normalized.slice(idx + 1) : normalized
 }
 
+function getRelativePath(file) {
+  return file?.webkitRelativePath || file?.relativePath || file?.name || ''
+}
+
+function inferUploadRootName(files) {
+  const first = files?.[0]
+  const rel = getRelativePath(first).replace(/\\/g, '/')
+  const firstSegment = rel.split('/').filter(Boolean)[0]
+  return firstSegment || ''
+}
+
+function joinDirPath(base, name) {
+  const b = String(base || '').replace(/\\/g, '/')
+  const n = String(name || '').replace(/\\/g, '/')
+  if (!b) return n
+  if (/^[A-Za-z]:\/?$/.test(b)) return `${b.replace(/\/?$/, '/')}${n}`
+  return `${b.replace(/\/+$/, '')}/${n}`
+}
+
+async function loadBrowseDirs(base = '') {
+  dirBrowseLoading.value = true
+  try {
+    const res = await OriginalDatasetService.browseExternal(base || '')
+    if (res?.code === 0) {
+      const data = res.data || {}
+      dirBrowser.value = {
+        base: data.base || '',
+        parent: data.parent || null,
+        dirs: data.dirs || []
+      }
+      if (dirBrowser.value.base) {
+        dirBrowserSelectedPath.value = dirBrowser.value.base
+      }
+    } else {
+      ElMessage.error(res?.msg || '读取目录失败')
+    }
+  } catch (e) {
+    ElMessage.error(`读取目录失败：${e?.message || e}`)
+  } finally {
+    dirBrowseLoading.value = false
+  }
+}
+
+async function openDirectoryBrowser() {
+  dirBrowserVisible.value = true
+  dirBrowserSelectedPath.value = importForm.value.path || ''
+  await loadBrowseDirs(importForm.value.path || '')
+}
+
+function openDirBrowserRow(row) {
+  if (!row?.path) return
+  loadBrowseDirs(row.path)
+}
+
+function selectDirBrowserPath(path) {
+  dirBrowserSelectedPath.value = path || ''
+}
+
+async function confirmSelectDirBrowserPath(path) {
+  const p = String(path || '').trim()
+  if (!p) return
+  try {
+    await ElMessageBox.confirm(
+      `是否选择该目录？\n\n${p}`,
+      '确认选择目录',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    selectDirBrowserPath(p)
+    confirmDirBrowserSelection()
+  } catch (_) {
+    // 用户取消选择
+  }
+}
+
+function confirmDirBrowserSelection() {
+  if (!dirBrowserSelectedPath.value) return
+  importForm.value.path = dirBrowserSelectedPath.value
+  if (!importForm.value.name) {
+    importForm.value.name = inferDatasetNameFromPath(dirBrowserSelectedPath.value)
+  }
+  resetImportStatus()
+  dirBrowserVisible.value = false
+  ElMessage.success('已选择目录路径')
+}
+
+function triggerDirectoryPicker() {
+  if (!directoryInputRef.value) {
+    ElMessage.error('目录选择控件未初始化')
+    return
+  }
+  directoryInputRef.value.value = ''
+  directoryInputRef.value.click()
+}
+
+function clearDirectorySelection() {
+  uploadFiles.value = []
+  uploadRootName.value = ''
+  uploadProgress.value = 0
+  importForm.value.path = ''
+  resetImportStatus()
+  if (directoryInputRef.value) {
+    directoryInputRef.value.value = ''
+  }
+}
+
+function handleDirectoryInputChange(event) {
+  const files = Array.from(event?.target?.files || [])
+  if (!files.length) return
+  uploadFiles.value = files
+  uploadRootName.value = inferUploadRootName(files)
+  uploadProgress.value = 0
+  importForm.value.path = uploadRootName.value ? `本地目录：${uploadRootName.value}` : '本地目录'
+  if (!importForm.value.name) {
+    importForm.value.name = uploadRootName.value || ''
+  }
+  resetImportStatus()
+  ElMessage.success(`已选择目录：${uploadRootName.value || '本地目录'}，共 ${files.length} 个文件`)
+}
+
 async function pickLocalDir() {
+  await openDirectoryBrowser()
+  return
   try {
     const res = await OriginalDatasetService.pickExternalDir()
     if (res?.code === 0 && res?.data?.cancelled) {
@@ -1121,6 +1324,40 @@ async function checkImportPath() {
 async function confirmImport() {
   const path = (importForm.value.path || '').trim()
   const name = (importForm.value.name || '').trim()
+  if (false && uploadFiles.value.length) {
+    if (!name) {
+      ElMessage.warning('请先填写显示名称')
+      return
+    }
+    importing.value = true
+    try {
+      const formData = new FormData()
+      formData.append('name', name)
+      uploadFiles.value.forEach(file => {
+        formData.append('files', file)
+        formData.append('relPaths', getRelativePath(file))
+      })
+      const res = await OriginalDatasetService.importExternalUpload(formData, event => {
+        if (!event?.total) return
+        uploadProgress.value = Math.min(99, Math.round((event.loaded * 100) / event.total))
+      })
+      uploadProgress.value = 100
+      if (res?.code === 0) {
+        ElMessage.success(res?.msg || '导入成功')
+        importDialogVisible.value = false
+        clearDirectorySelection()
+        await loadDatasets()
+        emit('datasetChanged')
+      } else {
+        ElMessage.error(res?.msg || '导入失败')
+      }
+    } catch (e) {
+      ElMessage.error(`导入失败：${e?.message || e}`)
+    } finally {
+      importing.value = false
+    }
+    return
+  }
   if (!path || !name) {
     ElMessage.warning('请先填写路径和显示名称')
     return
@@ -1132,6 +1369,7 @@ async function confirmImport() {
       ElMessage.success(res?.msg || '导入成功')
       importDialogVisible.value = false
       await loadDatasets()
+      emit('datasetChanged')
     } else {
       ElMessage.error(res?.msg || '导入失败')
     }
@@ -1168,7 +1406,7 @@ function objectsUrlFromImageUrl(imgUrl) {
 
 async function ensureAnnoFor(src) {
   if (objectsMeta.value[src]) return
-  if (!src || src.indexOf('/original-dataset/external/image?') >= 0) return
+  if (!src) return
   try {
     const url = objectsUrlFromImageUrl(src)
     const resp = await fetch(url)
@@ -1185,8 +1423,12 @@ async function ensureAnnoFor(src) {
 function pointsAttr(points) {
   // [[x1,y1],[x2,y2],[x3,y3],[x4,y4]] -> "x1,y1 x2,y2 x3,y3 x4,y4"
   return Array.isArray(points)
-    ? points.map(p => p.join(',')).join(' ')
-    : ''
+      ? points.map(p => p.join(',')).join(' ')
+      : ''
+}
+
+function firstPoint(points) {
+  return Array.isArray(points) && Array.isArray(points[0]) ? points[0] : null
 }
 
 async function openPreview(row) {
@@ -1225,7 +1467,7 @@ async function openPreview(row) {
     // 预取每张图片的标注（不阻塞显示）
     setTimeout(() => {
       groups.forEach(g =>
-        g.images.forEach(src => ensureAnnoFor(src))
+          g.images.forEach(src => ensureAnnoFor(src))
       )
     }, 0)
   } catch (e) {
@@ -1280,9 +1522,10 @@ async function handleDeleteDataset(row) {
     if (res?.code === 0) {
       ElMessage.success('删除成功')
       allDatasets.value = allDatasets.value.filter(
-        it => !(it.isExternal && it.name === row.name && it.externalPath === row.externalPath)
+          it => !(it.isExternal && it.name === row.name && it.externalPath === row.externalPath)
       )
       total.value = filtered.value.length
+      emit('datasetChanged')
       return
     }
     ElMessage.error(res?.msg || '删除失败')
@@ -1704,11 +1947,11 @@ defineExpose({
 }
 .imgbox--fallback {
   background: repeating-linear-gradient(
-    45deg,
-    #f3f4f6,
-    #f3f4f6 8px,
-    #e5e7eb 8px,
-    #e5e7eb 16px
+      45deg,
+      #f3f4f6,
+      #f3f4f6 8px,
+      #e5e7eb 8px,
+      #e5e7eb 16px
   );
 }
 .modal-footer {
@@ -1762,6 +2005,15 @@ defineExpose({
   stroke-width: 2;
 }
 
+.anno-label {
+  fill: #fff;
+  stroke: rgba(0, 0, 0, 0.55);
+  stroke-width: 3;
+  paint-order: stroke;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .original-dataset-card-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -1792,10 +2044,10 @@ defineExpose({
   align-self: start;
   cursor: pointer;
   transition:
-    box-shadow 0.25s ease,
-    transform 0.25s ease,
-    border-color 0.25s ease,
-    background-color 0.25s ease;
+      box-shadow 0.25s ease,
+      transform 0.25s ease,
+      border-color 0.25s ease,
+      background-color 0.25s ease;
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
 }
 
@@ -1991,4 +2243,36 @@ defineExpose({
   scrollbar-width: thin;
   scrollbar-color: #b8bcc4 #eef0f3;
 }
+
+.external-directory-input {
+  display: none;
+}
+
+.external-upload-picked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: #606266;
+  font-size: 13px;
+}
+
+.external-upload-progress {
+  margin-bottom: 8px;
+}
+
+.dir-browser-current {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.dir-browser-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
 </style>
+
+

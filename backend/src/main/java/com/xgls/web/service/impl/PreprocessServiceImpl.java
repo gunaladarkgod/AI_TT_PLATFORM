@@ -11,6 +11,7 @@ import com.xgls.web.mapper.*;
 import com.xgls.web.service.PreprocessService;
 import com.xgls.web.service.TaskDataset1Service;
 import com.xgls.web.utils.InstanceDatasetPathUtil;
+import com.xgls.web.utils.WorkspacePathUtil;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -54,22 +55,19 @@ public class PreprocessServiceImpl implements PreprocessService {
             Map<String, Object> augmentParams) throws Exception {
 
         // 1. 确保根目录存在
-        Path rootPath = Paths.get(instanceDataRoot);
+        Path rootPath = WorkspacePathUtil.instanceDatasetRoot().toAbsolutePath().normalize();
         if (!Files.exists(rootPath)) {
             Files.createDirectories(rootPath);
-            System.out.println("【目录】自动创建根目录: " + instanceDataRoot);
+            System.out.println("【目录】自动创建根目录: " + rootPath);
         }
 
         if (sourceInstanceIds == null || sourceInstanceIds.isEmpty()) {
             throw new RuntimeException("源实例数据集ID列表不能为空");
         }
 
-        // 1. 查询脚本（只需查一次）
-        PreprocessScriptInfo enhanceScript = preprocessScriptInfoMapper.selectById(enhanceScriptId);
-        PreprocessScriptInfo augmentScript = preprocessScriptInfoMapper.selectById(augmentScriptId);
-        if (enhanceScript == null || augmentScript == null) {
-            throw new RuntimeException("增强或增广脚本不存在");
-        }
+        // 脚本均为可选；null 或非正数表示不使用该脚本。
+        PreprocessScriptInfo enhanceScript = findOptionalScript(enhanceScriptId, "增强");
+        PreprocessScriptInfo augmentScript = findOptionalScript(augmentScriptId, "增广");
 
         List<InstanceDataset> results = new ArrayList<>();
 
@@ -90,7 +88,7 @@ public class PreprocessServiceImpl implements PreprocessService {
 
             // 2.2 落盘：{instancedata-root}/{任务数据集名}/{实例数据集名}/images|annotations/...
             String outputName = generateOutputName(source.getName());
-            Path instanceRoot = Paths.get(instanceDataRoot.trim().replaceAll("/+$", "")).normalize();
+            Path instanceRoot = WorkspacePathUtil.instanceDatasetRoot().toAbsolutePath().normalize();
             String taskDirSeg = InstanceDatasetPathUtil.safeFinalDatasetDirSegment(source.getFatherName());
             Path taskDir = instanceRoot.resolve(taskDirSeg).normalize();
             Files.createDirectories(taskDir);
@@ -111,61 +109,59 @@ public class PreprocessServiceImpl implements PreprocessService {
             String outputTestImgPathStr = pathWithTrailingSlash(outputTestImgPath);
             String outputTestAnnoPathStr = pathWithTrailingSlash(outputTestAnnoPath);
 
-            // 2.3 构建脚本参数
-            List<String> enhanceArgs = buildScriptArgs(enhanceScript, enhanceParams);
-            List<String> augmentArgs = buildScriptArgs(augmentScript, augmentParams);
+            // 2.3 训练集：按选择执行增强/增广；两个都不选时直接复制。
+            List<String> enhanceArgs = enhanceScript == null
+                    ? Collections.emptyList() : buildScriptArgs(enhanceScript, enhanceParams);
+            List<String> augmentArgs = augmentScript == null
+                    ? Collections.emptyList() : buildScriptArgs(augmentScript, augmentParams);
 
-            // ===========================================
-            // ✅【关键修改】为训练集创建临时中间目录
-            // ===========================================
-            Path tempRoot = taskDir.resolve("temp_preprocess_" + UUID.randomUUID());
-            Path tempEnhancedImgPath = tempRoot.resolve("images");
-            Path tempEnhancedAnnoPath = tempRoot.resolve("annotations");
-
-            Files.createDirectories(tempEnhancedImgPath);
-            Files.createDirectories(tempEnhancedAnnoPath);
-            String tempRootStr = pathWithTrailingSlash(tempRoot);
-            String tempEnhancedImgPathStr = pathWithTrailingSlash(tempEnhancedImgPath);
-            String tempEnhancedAnnoPathStr = pathWithTrailingSlash(tempEnhancedAnnoPath);
-
-            try {
-                // 2.4 对训练集：先增强 → 到临时目录
-                System.out.println("【训练集】增强处理 → 临时目录: " + source.getName());
+            if (enhanceScript != null && augmentScript != null) {
+                Path tempRoot = taskDir.resolve("temp_preprocess_" + UUID.randomUUID());
+                Path tempEnhancedImgPath = tempRoot.resolve("images");
+                Path tempEnhancedAnnoPath = tempRoot.resolve("annotations");
+                Files.createDirectories(tempEnhancedImgPath);
+                Files.createDirectories(tempEnhancedAnnoPath);
+                String tempRootStr = pathWithTrailingSlash(tempRoot);
+                try {
+                    runPython(enhanceScript.getScript_path(),
+                            source.getTrainImagePath(), source.getTrainAnnoPath(),
+                            pathWithTrailingSlash(tempEnhancedImgPath), pathWithTrailingSlash(tempEnhancedAnnoPath),
+                            enhanceArgs.toArray(new String[0]));
+                    runPython(augmentScript.getScript_path(),
+                            pathWithTrailingSlash(tempEnhancedImgPath), pathWithTrailingSlash(tempEnhancedAnnoPath),
+                            outputTrainImgPathStr, outputTrainAnnoPathStr,
+                            augmentArgs.toArray(new String[0]));
+                } finally {
+                    deleteDirectory(tempRootStr);
+                }
+            } else if (enhanceScript != null) {
                 runPython(enhanceScript.getScript_path(),
-                        source.getTrainImagePath(),
-                        source.getTrainAnnoPath(),
-                        tempEnhancedImgPathStr,
-                        tempEnhancedAnnoPathStr,
-                        enhanceArgs.toArray(new String[0])
-                );
-
-                // 2.5 对训练集：再增广 → 从临时目录读，写入最终目录
-                System.out.println("【训练集】增广处理 → 最终目录: " + outputName);
+                        source.getTrainImagePath(), source.getTrainAnnoPath(),
+                        outputTrainImgPathStr, outputTrainAnnoPathStr,
+                        enhanceArgs.toArray(new String[0]));
+            } else if (augmentScript != null) {
                 runPython(augmentScript.getScript_path(),
-                        tempEnhancedImgPathStr,
-                        tempEnhancedAnnoPathStr,
-                        outputTrainImgPathStr,
-                        outputTrainAnnoPathStr,
-                        augmentArgs.toArray(new String[0])
-                );
-
-            } finally {
-                // 2.6 清理临时目录（即使出错也清理）
-                deleteDirectory(tempRootStr);
+                        source.getTrainImagePath(), source.getTrainAnnoPath(),
+                        outputTrainImgPathStr, outputTrainAnnoPathStr,
+                        augmentArgs.toArray(new String[0]));
+            } else {
+                copyDirectory(source.getTrainImagePath(), outputTrainImgPathStr);
+                copyDirectory(source.getTrainAnnoPath(), outputTrainAnnoPathStr);
             }
 
             // ===========================================
-            // ✅ 测试集：仅增强（不增广），输出到 test 目录
+            // 测试集仅执行增强；未选择增强脚本时原样复制（增广不作用于测试集）。
             // ===========================================
             if (source.getTestImagePath() != null && !source.getTestImagePath().isEmpty()) {
-                System.out.println("【测试集】增强处理: " + source.getName());
-                runPython(enhanceScript.getScript_path(),
-                        source.getTestImagePath(),
-                        source.getTestAnnoPath(),
-                        outputTestImgPathStr,
-                        outputTestAnnoPathStr,
-                        enhanceArgs.toArray(new String[0])
-                );
+                if (enhanceScript != null) {
+                    runPython(enhanceScript.getScript_path(),
+                            source.getTestImagePath(), source.getTestAnnoPath(),
+                            outputTestImgPathStr, outputTestAnnoPathStr,
+                            enhanceArgs.toArray(new String[0]));
+                } else {
+                    copyDirectory(source.getTestImagePath(), outputTestImgPathStr);
+                    copyDirectory(source.getTestAnnoPath(), outputTestAnnoPathStr);
+                }
             } else {
                 // 如果没有测试集，创建空目录（保持结构一致）
                 Files.createDirectories(outputTestImgPath);
@@ -183,21 +179,24 @@ public class PreprocessServiceImpl implements PreprocessService {
             result.setClassNum(source.getClassNum());
             result.setClassList(source.getClassList());
             applyTaskTargetSchemaClassList(result);
-            result.setTrainImagePath(outputTrainImgPathStr);
-            result.setTrainAnnoPath(outputTrainAnnoPathStr);
-            result.setTestImagePath(outputTestImgPathStr);
-            result.setTestAnnoPath(outputTestAnnoPathStr);
+            result.setTrainImagePath(pathWithTrailingSlash(instanceRoot, outputTrainImgPath));
+            result.setTrainAnnoPath(pathWithTrailingSlash(instanceRoot, outputTrainAnnoPath));
+            result.setTestImagePath(pathWithTrailingSlash(instanceRoot, outputTestImgPath));
+            result.setTestAnnoPath(pathWithTrailingSlash(instanceRoot, outputTestAnnoPath));
             result.setDataFormat(source.getDataFormat());
             result.setUsername(source.getUsername());
             result.setCreatedTime(LocalDateTime.now());
             result.setUpdatedTime(LocalDateTime.now());
 
-            // 预处理链路
-            result.setConfigList(String.format(
-                    "[{\"order\":1,\"name\":\"%s\"},{\"order\":2,\"name\":\"%s\"}]",
-                    enhanceScript.getName(),
-                    augmentScript.getName()
-            ));
+            // 只记录实际执行的脚本；未使用脚本时保存空链路 []。
+            List<Map<String, Object>> configList = new ArrayList<>();
+            if (enhanceScript != null) {
+                configList.add(scriptConfig(configList.size() + 1, enhanceScript.getName()));
+            }
+            if (augmentScript != null) {
+                configList.add(scriptConfig(configList.size() + 1, augmentScript.getName()));
+            }
+            result.setConfigList(objectMapper.writeValueAsString(configList));
 
             // 实际参数记录
             Map<String, Object> allParams = new HashMap<>();
@@ -210,6 +209,24 @@ public class PreprocessServiceImpl implements PreprocessService {
         }
 
         return results;
+    }
+
+    private PreprocessScriptInfo findOptionalScript(Integer scriptId, String scriptType) {
+        if (scriptId == null || scriptId <= 0) {
+            return null;
+        }
+        PreprocessScriptInfo script = preprocessScriptInfoMapper.selectById(scriptId);
+        if (script == null) {
+            throw new RuntimeException(scriptType + "脚本不存在: ID=" + scriptId);
+        }
+        return script;
+    }
+
+    private Map<String, Object> scriptConfig(int order, String name) {
+        Map<String, Object> config = new LinkedHashMap<>();
+        config.put("order", order);
+        config.put("name", name);
+        return config;
     }
 
     /**
@@ -274,6 +291,11 @@ public class PreprocessServiceImpl implements PreprocessService {
         return s.trim().toLowerCase(Locale.ROOT).replace("_", "").replace("-", "").replace(" ", "");
     }
 
+    /** 数据库保存相对 instance_dataset 根目录的 POSIX 路径，避免绑定某台机器的绝对路径。 */
+    private static String pathWithTrailingSlash(Path root, Path p) {
+        Path rel = root.toAbsolutePath().normalize().relativize(p.toAbsolutePath().normalize());
+        return pathWithTrailingSlash(rel);
+    }
     /** 与历史库中记录风格一致：POSIX 路径且以 / 结尾，便于前端与训练侧展示 */
     private static String pathWithTrailingSlash(Path p) {
         String s = p.normalize().toString().replace("\\", "/");
@@ -368,8 +390,11 @@ public class PreprocessServiceImpl implements PreprocessService {
         }
     }
 
-    // 原 copyDirectory 方法保留（虽然当前未使用，但可备用于未来）
+    // 未选择相应脚本时，原样复制图片或标注目录。
     private void copyDirectory(String sourceDir, String targetDir) throws IOException {
+        if (StrUtil.isBlank(sourceDir)) {
+            return;
+        }
         Path sourcePath = Paths.get(sourceDir);
         Path targetPath = Paths.get(targetDir);
 

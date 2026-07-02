@@ -3,6 +3,7 @@ import router from '@/router'
 import { transformRoutes,buildMenuTree} from '@/utils/routeUtils'
 import {MenuService} from '@/api/api'
 import {apiRequest} from '@/api/axios'
+import { ensureTopNavigationMenus } from '@/config/topNavigation'
 
 function injectDevTaskDatasetMenu(menuList = []) {
   const list = Array.isArray(menuList) ? [...menuList] : []
@@ -133,6 +134,7 @@ export const useMenuStore=defineStore({
         const  data = await apiRequest(MenuService.queryList)
         let withDevMenu = injectDevTaskDatasetMenu(data)
         withDevMenu = injectDevTrainTaskClearMLMenu(withDevMenu)
+        withDevMenu = ensureTopNavigationMenus(withDevMenu)
         this.menuList = withDevMenu
         this.menuRenderList = buildMenuTree(withDevMenu)
       } catch (error) {
@@ -173,5 +175,4 @@ export const useMenuStore=defineStore({
     }
   },
 })
-
 

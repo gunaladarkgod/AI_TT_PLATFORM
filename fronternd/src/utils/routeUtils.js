@@ -3,16 +3,28 @@
 export const transformRoutes = (menuData) => {
     const modules = import.meta.glob('@/views/**/index.vue') // 匹配 views 目录下的组件
     return menuData.sort((a, b) => a.order_num - b.order_num) // 按排序号排序
-      .map(item => ({
-        path: `/${item.url}`,
-        name: item.url,
-        component: modules[`/src/views/${item.url}/index.vue`], // 动态映射组件路径
-        meta: {
-          title: item.name,
-          order: item.order_num,
-          isHidden:item.is_hidden
+      .map(item => {
+        // 顶部配置可直接指定 Vue 文件；后台旧菜单仍按 url/index.vue 自动映射。
+        const componentFile = item.component || `${item.url}/index.vue`
+        const componentKey = componentFile.startsWith('/src/views/')
+          ? componentFile
+          : `/src/views/${componentFile}`
+        const component = modules[componentKey]
+        if (!component) {
+          console.error(`[route] 找不到页面组件：${componentKey}（route=${item.url}）`)
         }
-    }))
+        return {
+          path: `/${item.url}`,
+          name: item.url,
+          component,
+          meta: {
+            title: item.name,
+            order: item.order_num,
+            isHidden: item.is_hidden,
+            componentFile,
+          }
+        }
+      })
 }
 
 

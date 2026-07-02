@@ -9,30 +9,48 @@
             </el-icon>
             <el-text class="text-white font-size-20 text-weigh-500" truncated>AI训练平台</el-text></el-space>
 
-            <el-menu  router  v-if="!menuMode"  class="custom-menu not-select"   :ellipsis="isSys"
+            <el-menu  router  v-if="!menuMode"  class="custom-menu not-select" :ellipsis="false"
               mode="horizontal"
               :default-active="route.path"
             >
+              <el-menu-item
+                v-for="item in topNavigation.primary"
+                :key="item.url"
+                :index="'/' + item.url"
+                class="custom-menu-item"
+                :class="route.path === '/' + item.url ? 'my-active' : ''"
+              >
+                <el-icon><i class="iconfont" :class="'icon-' + item.url" style="font-size: 14px"></i></el-icon>
+                <template #title>{{ item.name }}</template>
+              </el-menu-item>
 
-              <template v-for="item in menuStore.menuRenderList">
-                <template  v-if="!item.children.length>0">
-                  <el-menu-item :index="'/'+item.url" :key="item.id" class="custom-menu-item"  :class="route.path == '/'+item.url ? 'my-active' : ''">
-                    <el-icon><i class="iconfont"  :class="'icon-'+ item.url" style="font-size: 14px"></i></el-icon>
+              <el-sub-menu v-if="topNavigation.overflow.length" index="/__top_nav_more__" class="top-nav-more">
+                <template #title>{{ TOP_NAV_MORE_LABEL }}</template>
+                <template v-for="item in topNavigation.overflow" :key="item.url">
+                  <el-menu-item
+                    v-if="!item.children || item.children.length === 0"
+                    :index="'/' + item.url"
+                    :class="route.path === '/' + item.url ? 'my-active' : ''"
+                  >
+                    <el-icon><i class="iconfont" :class="'icon-' + item.url" style="font-size: 14px"></i></el-icon>
                     <template #title>{{ item.name }}</template>
                   </el-menu-item>
-              
-                </template>
-                <template v-else>
-                  <el-sub-menu :index="'/'+item.url"  :key="item.id">
-                    <template #title><el-icon><i  class="iconfont" :class="'icon-'+ item.url" style="font-size: 14px"></i></el-icon>{{ item.name }}</template>
-                    <el-menu-item v-for="val in item.children" :index="'/'+val.url" :key="val.id"   :class="route.path == '/'+val.url ? 'my-active' : ''">
-                      <el-icon><i class="iconfont"  :class="'icon-'+ val.url"  style="font-size: 14px"></i></el-icon>
-                      <template #title>{{ val.name }}</template>
+                  <el-sub-menu v-else :index="'/__top_nav_more__/' + item.url">
+                    <template #title>
+                      <el-icon><i class="iconfont" :class="'icon-' + item.url" style="font-size: 14px"></i></el-icon>
+                      {{ item.name }}
+                    </template>
+                    <el-menu-item
+                      v-for="child in item.children"
+                      :key="child.url"
+                      :index="'/' + child.url"
+                      :class="route.path === '/' + child.url ? 'my-active' : ''"
+                    >
+                      {{ child.name }}
                     </el-menu-item>
-                    
                   </el-sub-menu>
                 </template>
-              </template>
+              </el-sub-menu>
             </el-menu>
 
 
@@ -165,6 +183,7 @@ import { logoPath } from '../../api/axios'
 
 import {setPrimaryColor} from '../../utils/color'
 import { computed } from "vue";
+import { buildTopNavigation, TOP_NAV_MORE_LABEL } from '@/config/topNavigation'
 const menuStore=useMenuStore()
 const route=useRoute()
 const titleStore = useTitleStore();
@@ -173,6 +192,7 @@ const userStore = useUserStore();
 const isCollapse = ref(false);
 let timer = null
 const menuMode = ref(loginStore.menuMode);//'vertical'  'horizontal'
+const topNavigation = computed(() => buildTopNavigation(menuStore.menuRenderList))
 
 const changeMenuMode = () => {
   menuMode.value = !menuMode.value

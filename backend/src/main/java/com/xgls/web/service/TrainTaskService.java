@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
+import java.time.Duration;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -211,7 +212,17 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         tr.setUserName(task.getUsername());
         tr.setModelType("mmdet");
         tr.setDataset("coco_small"); // 如需真实数据集名称，可在业务链路中补齐
-        tr.setTime(LocalDateTime.now());
+        LocalDateTime finishedAt = LocalDateTime.now();
+        tr.setTime(finishedAt);
+        try {
+            TrainTask currentTask = baseMapper.selectById(task.getId());
+            LocalDateTime startedAt = currentTask == null ? null : currentTask.getStarted_date();
+            if (startedAt != null && !finishedAt.isBefore(startedAt)) {
+                tr.setDurationSeconds(Duration.between(startedAt, finishedAt).getSeconds());
+            }
+        } catch (Exception e) {
+            log.warn("calculate train duration failed, taskId={}, detail={}", task.getId(), e.getMessage());
+        }
         tr.setNetworkName(networkName);
         tr.setMap(mAP);
         tr.setAp50(ap50);
@@ -622,7 +633,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         if (task == null) {
             return runnerResp.summary();
         }
-        if (runnerResp.getRawBody() != null) {
+        if (runnerResp.isOk() && runnerResp.getRawBody() != null) {
             try {
                 cn.hutool.json.JSONObject jo = cn.hutool.json.JSONUtil.parseObj(runnerResp.getRawBody());
                 saveCocoResultFromRunner(task, jo);
