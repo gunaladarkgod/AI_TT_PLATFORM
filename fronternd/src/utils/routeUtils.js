@@ -1,4 +1,4 @@
-
+﻿
 // 将后端数据转换为路由格式
 export const transformRoutes = (menuData) => {
     const modules = import.meta.glob('@/views/**/index.vue') // 匹配 views 目录下的组件
@@ -9,9 +9,10 @@ export const transformRoutes = (menuData) => {
         const componentKey = componentFile.startsWith('/src/views/')
           ? componentFile
           : `/src/views/${componentFile}`
-        const component = modules[componentKey]
+        const oldComponentKey = `/src/views/old_views/${componentFile}`
+        const component = modules[componentKey] || modules[oldComponentKey]
         if (!component) {
-          console.error(`[route] 找不到页面组件：${componentKey}（route=${item.url}）`)
+          console.error(`[route] 找不到页面组件：${componentKey} 或 ${oldComponentKey}（route=${item.url}）`)
         }
         return {
           path: `/${item.url}`,
@@ -44,3 +45,4 @@ export const buildMenuTree=(menuList)=> {
   
     return topMenus;
   }
+

@@ -196,18 +196,20 @@
               stripe 
               size="small"
               @selection-change="handleSelectionChange"
+              @row-click="handleSelectionRowClick"
               v-loading="datasetsLoading"
               ref="selectionTableRef"
               :row-key="row => row.id"
               class="selection-table"
+              style="width: 100%"
             >
-              <el-table-column type="selection" width="55" :reserve-selection="true"></el-table-column>
+              <el-table-column type="selection" width="48" :reserve-selection="true"></el-table-column>
               <el-table-column type="index" label="序号" width="60" />
-              <el-table-column prop="name" label="数据集名称" width="150"></el-table-column>
-              <el-table-column prop="sensorType" label="传感器类型" width="120"></el-table-column>
-              <el-table-column prop="targetType" label="目标类型" width="120"></el-table-column>
+              <el-table-column prop="name" label="数据集名称" min-width="170"></el-table-column>
+              <el-table-column prop="sensorType" label="传感器类型" min-width="120"></el-table-column>
+              <el-table-column prop="targetType" label="目标类型" min-width="120"></el-table-column>
               <el-table-column prop="classNum" label="类别数" width="80"></el-table-column>
-              <el-table-column prop="classList" label="类别名称" width="200">
+              <el-table-column prop="classList" label="类别名称" min-width="300">
                 <template #default="{ row }">
                   <div class="category-tags-container">
                     <el-tag
@@ -224,7 +226,7 @@
               </el-table-column>
               <el-table-column prop="imgNum" label="图片数" width="80"></el-table-column>
               <el-table-column prop="annoNum" label="样本数" width="80"></el-table-column>
-                            <el-table-column prop="username" label="创建用户" width="120"></el-table-column>
+              <el-table-column prop="username" label="创建用户" min-width="120"></el-table-column>
               <el-table-column label="操作" width="132" fixed="right">
                 <template #default="{ row }">
                   <el-dropdown trigger="click" @command="(command) => handleSourceDatasetAction(command, row)">
@@ -1022,6 +1024,15 @@ watch(
 const handleSelectionChange = (selection) => {
   selectedTaskDatasets.value = selection
 }
+
+const handleSelectionRowClick = (row, _column, event) => {
+  const target = event?.target
+  if (target?.closest?.('.el-checkbox, .el-table-column--selection, button, .el-button, .el-dropdown, .el-popper, input, textarea, a')) {
+    return
+  }
+  selectionTableRef.value?.toggleRowSelection?.(row)
+}
+
 const applyFilters = () => {
   if (!selectionData.value || selectionData.value.length === 0) {
     filteredSelectionData.value = []
@@ -1424,6 +1435,7 @@ const openUploadDialog = () => {
 .selection-table-scroll {
   flex: 1 1 0;
   min-height: 0;
+  width: 100%;
   overflow: auto;
 }
 
@@ -1433,6 +1445,11 @@ const openUploadDialog = () => {
 .selection-table {
   width: 100% !important;
   min-width: 100%;
+}
+.selection-table :deep(.el-table__inner-wrapper),
+.selection-table :deep(.el-table__header-wrapper),
+.selection-table :deep(.el-table__body-wrapper) {
+  width: 100%;
 }
 .form-actions {
   display: flex;

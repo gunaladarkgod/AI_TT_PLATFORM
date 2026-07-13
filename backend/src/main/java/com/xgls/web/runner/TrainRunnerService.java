@@ -7,16 +7,23 @@ import cn.hutool.json.JSONUtil;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @Service
@@ -24,6 +31,14 @@ public class TrainRunnerService {
 
     @Value("${sys.runner.train-url:http://127.0.0.1:8009/api/runner/train}")
     private String runnerTrainUrl;
+
+    @Value("${sys.runner.launch-script:/home/omen1/AI_TT_Platform/mmdet_run/mmdet_runner_srv/start_runner.sh}")
+    private String runnerLaunchScript;
+
+    @Value("${sys.runner.auto-start-log:/home/omen1/AI_TT_Platform/mmdet_run/logs/runner-autostart.log}")
+    private String runnerAutoStartLog;
+
+    private final AtomicReference<Process> manualRunnerProcessRef = new AtomicReference<>();
 
     /** 探测 Runner HTTP 服务是否可用（GET /health，与 train-url 同主机端口）。 */
     public Map<String, Object> probeHealth() {
@@ -52,6 +67,89 @@ public class TrainRunnerService {
         return out;
     }
 
+    /** 手动启动 Runner，并返回可展示给前端的诊断信息。 */
+    public synchronized Map<String, Object> startRunnerManually() {
+        Map<String, Object> out = new LinkedHashMap<>();
+        Map<String, Object> before = probeHealth();
+        out.put("beforeHealth", before);
+        if (Boolean.TRUE.equals(before.get("ok"))) {
+            out.put("ok", true);
+            out.put("started", false);
+            out.put("message", "Runner 已经在运行，无需重复启动");
+            return out;
+        }
+
+        Path script = resolveLaunchScript();
+        Path logFile = resolveRunnerLogPath(script);
+        out.put("script", script.toString());
+        out.put("log", logFile.toString());
+        if (!Files.isRegularFile(script)) {
+            out.put("ok", false);
+            out.put("started", false);
+            out.put("message", "Runner 启动脚本不存在");
+            out.put("error", "script not found: " + script);
+            return out;
+        }
+
+        try {
+            Files.createDirectories(logFile.getParent());
+        } catch (Exception e) {
+            out.put("logDirWarning", e.getMessage());
+        }
+
+        try {
+            ProcessBuilder pb = buildRunnerProcessBuilder(script);
+            pb.directory(script.getParent().toFile());
+            pb.redirectErrorStream(true);
+            pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()));
+            pb.environment().putIfAbsent("PYTHONNOUSERSITE", "1");
+            pb.environment().putIfAbsent("PYTHONUTF8", "1");
+            Process p = pb.start();
+            manualRunnerProcessRef.set(p);
+            out.put("started", true);
+            out.put("pid", p.pid());
+
+            long deadline = System.currentTimeMillis() + 25_000L;
+            Map<String, Object> lastHealth = before;
+            while (System.currentTimeMillis() < deadline) {
+                if (!p.isAlive()) {
+                    out.put("ok", false);
+                    out.put("message", "Runner 进程启动后已退出");
+                    out.put("exitCode", p.exitValue());
+                    out.put("logTail", tailLog(logFile, 3000));
+                    return out;
+                }
+                lastHealth = probeHealth();
+                if (Boolean.TRUE.equals(lastHealth.get("ok"))) {
+                    out.put("ok", true);
+                    out.put("message", "Runner 启动成功");
+                    out.put("health", lastHealth);
+                    out.put("logTail", tailLog(logFile, 1200));
+                    return out;
+                }
+                Thread.sleep(500L);
+            }
+
+            out.put("ok", false);
+            out.put("message", "Runner 已启动进程，但健康检查超时未通过");
+            out.put("health", lastHealth);
+            out.put("logTail", tailLog(logFile, 3000));
+            return out;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            out.put("ok", false);
+            out.put("message", "Runner 启动等待被中断");
+            out.put("error", e.getMessage());
+            out.put("logTail", tailLog(logFile, 3000));
+            return out;
+        } catch (Exception e) {
+            out.put("ok", false);
+            out.put("message", "Runner 启动失败");
+            out.put("error", e.getClass().getSimpleName() + ": " + e.getMessage());
+            out.put("logTail", tailLog(logFile, 3000));
+            return out;
+        }
+    }
     /** 由 Runner 使用 MMEngine Config 读取模板、写入参数并生成单一 config.py。 */
     public JSONObject generateConfig(JSONObject payload) {
         return postConfigJson("/api/config/generate", payload, Duration.ofMinutes(3));
@@ -225,6 +323,80 @@ public class TrainRunnerService {
                 + (lastError == null ? runId : lastError.getMessage()), lastError);
     }
 
+    private Path resolveLaunchScript() {
+        Path configured = Path.of(runnerLaunchScript).toAbsolutePath().normalize();
+        if (isWindows() && isStartRunnerSh(configured)) {
+            Path windowsSibling = configured.resolveSibling("start_runner.cmd").toAbsolutePath().normalize();
+            if (Files.isRegularFile(windowsSibling)) return windowsSibling;
+        }
+        if (Files.isRegularFile(configured)) return configured;
+        for (Path candidate : launchScriptFallbacks(configured)) {
+            if (Files.isRegularFile(candidate)) return candidate;
+        }
+        return configured;
+    }
+
+    private Path resolveRunnerLogPath(Path script) {
+        if (!isWindows() || !looksLikeUnixAbsolutePath(runnerAutoStartLog)) {
+            return Path.of(runnerAutoStartLog).toAbsolutePath().normalize();
+        }
+        return script.getParent().resolve("..").resolve("logs").resolve("runner-manual-start.log").toAbsolutePath().normalize();
+    }
+
+    private boolean looksLikeUnixAbsolutePath(String rawPath) {
+        if (rawPath == null) return false;
+        String normalized = rawPath.replace('\\', '/');
+        return normalized.startsWith("/home/") || normalized.startsWith("/opt/") || normalized.startsWith("/var/");
+    }
+
+    private List<Path> launchScriptFallbacks(Path configured) {
+        List<Path> candidates = new ArrayList<>();
+        if (isWindows()) {
+            addSiblingWithName(candidates, configured, "start_runner.cmd");
+            addSiblingWithName(candidates, configured, "start_runner.bat");
+            addSiblingWithName(candidates, configured, "start_runner.ps1");
+            candidates.add(Path.of("mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
+            candidates.add(Path.of("..", "mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
+        } else {
+            addSiblingWithName(candidates, configured, "start_runner.sh");
+            candidates.add(Path.of("mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
+            candidates.add(Path.of("..", "mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
+        }
+        return candidates;
+    }
+
+    private void addSiblingWithName(List<Path> candidates, Path configured, String fileName) {
+        Path parent = configured.getParent();
+        if (parent != null) candidates.add(parent.resolve(fileName).toAbsolutePath().normalize());
+    }
+
+    private ProcessBuilder buildRunnerProcessBuilder(Path script) {
+        String name = script.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (isWindows()) {
+            if (name.endsWith(".cmd") || name.endsWith(".bat")) return new ProcessBuilder("cmd.exe", "/c", script.toString());
+            if (name.endsWith(".ps1")) return new ProcessBuilder("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script.toString());
+        }
+        return new ProcessBuilder("bash", script.toString());
+    }
+
+    private boolean isStartRunnerSh(Path script) {
+        Path fileName = script.getFileName();
+        return fileName != null && "start_runner.sh".equalsIgnoreCase(fileName.toString());
+    }
+
+    private boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+    }
+
+    private String tailLog(Path logFile, int maxChars) {
+        try {
+            if (!Files.isRegularFile(logFile)) return "";
+            String text = Files.readString(logFile, StandardCharsets.UTF_8);
+            return text.length() > maxChars ? text.substring(text.length() - maxChars) : text;
+        } catch (IOException e) {
+            return "读取 Runner 日志失败: " + e.getMessage();
+        }
+    }
     private URI runnerHealthUri() {
         URI train = URI.create(runnerTrainUrl);
         int port = train.getPort();
@@ -307,3 +479,5 @@ public class TrainRunnerService {
         return result;
     }
 }
+
+

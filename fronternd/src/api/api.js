@@ -1,4 +1,4 @@
-import { request, uploadRequest } from './axios'
+﻿import { request, uploadRequest } from './axios'
 
 /**登录接口 */
 export class AuthService {
@@ -178,6 +178,9 @@ export class TrainTaskService {
     }
     static async runnerHealth(params) {
         return request('/api/runner/health', params || {}, 'post');
+    }
+    static async startRunner(params) {
+        return request('/api/runner/start', params || {}, 'post');
     }
     static async latestTrainLog(params) {
         return request('/trainTask/runner/log/latest', params, 'post');
@@ -692,3 +695,4 @@ export class ResultQueryService {
         return request('/trainResult/del', { id }, 'post');
     }
 }
+

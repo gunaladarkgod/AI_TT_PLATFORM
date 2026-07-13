@@ -44,6 +44,11 @@ export const TOP_NAV_LAYOUT = Object.freeze([
     route: 'resultQuery',
     component: 'resultQuery/index.vue',
   },
+  {
+    label: '数据集管理（dev）',
+    route: 'datasetManageUnified',
+    component: 'datasetManageUnified/index.vue',
+  },
 ])
 
 export const TOP_NAV_MORE_LABEL = '...'

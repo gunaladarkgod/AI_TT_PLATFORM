@@ -1,57 +1,149 @@
-﻿<!--
-  与 taskDatasetManageDev/index.vue 中「任务管理」区块（含 section-block、标题、描述、工具栏、卡片/表格）一致。
-  统合页内嵌时去掉创建/映射/侧栏；映射相关操作跳转完整 dev 页。
--->
-<template>
-  <div class="unified-task-panel" :class="{ 'unified-task-panel--embed': embedMode }">
-    <div class="content" :class="{ 'content--embed': embedMode }">
-      <el-card class="original-dataset-panel" :class="{ 'original-dataset-panel--embed': embedMode }" shadow="never">
-        <div class="original-dataset-panel__main original-dataset-panel__main--embed">
-          <div class="original-dataset-toolbar-row flex-between">
-            <div class="flex-start gap-8">
-              <el-button size="small" @click="clearTaskTableFilters">清除列筛选</el-button>
-              <el-button size="small" @click="clearTaskTableSort">清除列排序</el-button>
-              <el-select
-                v-if="viewAsTable"
-                v-model="colFilterStatusPair"
-                multiple
-                clearable
-                collapse-tags
-                collapse-tags-tooltip
-                placeholder="导出/映射状态"
-                size="small"
-                class="task-toolbar-status-filter"
-                @change="onTaskStatusToolbarFilterChange"
-              >
-                <el-option
-                  v-for="o in taskStatusPairFilterOptions"
-                  :key="o.value"
-                  :label="o.text"
-                  :value="o.value"
+﻿<template>
+  <div class="page-shell" :class="{ 'page-shell--embed-tasklist': embedTaskList }">
+    <div class="doc-layout" :class="{ 'doc-layout--embed-tasklist': embedTaskList }">
+      <aside v-if="!embedTaskList" class="doc-left">
+        <div class="doc-left-placeholder"></div>
+      </aside>
+
+      <main class="doc-main">
+        <section v-if="!embedTaskList" id="page-top" class="doc-section page-hero">
+          <div class="page-title">任务数据集管理（dev）</div>
+          <div class="page-subtitle">定义目标类别、选择测试数据集，并维护类别映射规则。</div>
+        </section>
+
+        <section v-if="!embedTaskList" id="create-task" class="doc-section section-block">
+          <div class="section-heading">
+            <h2 class="section-title">
+              创建任务
+              <a class="section-link" href="#create-task" @click.prevent="scrollToAnchor('#create-task')">#</a>
+            </h2>
+            <p class="section-desc">定义任务基础信息、目标类别和测试数据集组合。</p>
+          </div>
+          <div class="section-body">
+            <el-form label-width="120px" class="task-form">
+              <el-form-item label="任务名称">
+                <el-input v-model="createForm.name" placeholder="例如：Task_Mixed_Port_Safety" clearable />
+              </el-form-item>
+              <el-form-item label="任务描述">
+                <el-input
+                  v-model="createForm.desc"
+                  type="textarea"
+                  :rows="3"
+                  placeholder="描述该任务的评测目标..."
                 />
-              </el-select>
-            </div>
-            <div class="flex-start gap-8 original-dataset-toolbar-row__right">
-              <el-input
-                v-model="taskToolbarSearch"
-                size="small"
-                clearable
-                placeholder="Type to search"
-                class="original-dataset-toolbar-search"
-              />
-              <el-button type="primary" size="small" @click="createTaskDialogVisible = true">
-                创建任务
-              </el-button>
+              </el-form-item>
+              <el-form-item label="目标类别列表">
+                <div class="target-schema-editor">
+                  <el-tag
+                    v-for="tag in createForm.targetSchema"
+                    :key="tag"
+                    closable
+                    class="schema-editor-tag"
+                    @close="removeTargetTag(tag)"
+                  >
+                    {{ tag }}
+                  </el-tag>
+                  <el-input
+                    v-if="targetInputVisible"
+                    ref="targetInputRef"
+                    v-model="targetInputValue"
+                    class="tag-input"
+                    size="small"
+                    @keyup.enter="confirmAddTargetTag"
+                    @blur="confirmAddTargetTag"
+                  />
+                  <el-button v-else size="small" @click="showTargetInput">
+                    + 添加类别
+                  </el-button>
+                </div>
+              </el-form-item>
+              <el-form-item label="测试数据集">
+                <el-select
+                  v-model="createForm.testDatasets"
+                  multiple
+                  filterable
+                  clearable
+                  placeholder="选择一个或多个用于测试的数据集"
+                  style="width: 100%"
+                >
+                  <el-option
+                    v-for="opt in datasetOptions"
+                    :key="opt.name"
+                    :label="opt.name"
+                    :value="opt.name"
+                  >
+                    <div class="dataset-option">
+                      <span>{{ opt.name }}</span>
+                      <span class="dataset-option-meta">{{ opt.source }}</span>
+                    </div>
+                  </el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item>
+                <el-alert
+                  title="注意：创建后请在下方“任务映射”里继续配置具体类别映射。"
+                  type="warning"
+                  :closable="false"
+                  show-icon
+                />
+              </el-form-item>
+              <el-form-item class="action-form-item">
+                <el-button type="primary" :loading="createLoading" @click="createTask">
+                  创建任务基础结构
+                </el-button>
+              </el-form-item>
+            </el-form>
+          </div>
+        </section>
+
+        <section
+          id="task-list"
+          class="doc-section"
+          :class="embedTaskList ? 'task-list-section--embed' : 'section-block'"
+        >
+          <div v-if="!embedTaskList" class="section-heading">
+            <h2 class="section-title">
+              任务管理
+              <a class="section-link" href="#task-list" @click.prevent="scrollToAnchor('#task-list')">#</a>
+            </h2>
+            <div class="section-desc-row">
+              <p class="section-desc section-desc--inline">查看已有任务，并执行编辑或删除操作。</p>
+              <div class="section-task-toolbar" @click.stop>
+                <el-select v-model="taskSortMode" size="small" style="width: 170px">
+                  <el-option label="最近修改优先" value="updated" />
+                  <el-option label="按名称排序" value="name" />
+                </el-select>
+                <el-switch
+                  v-model="taskViewAsTable"
+                  inline-prompt
+                  active-text="列表"
+                  inactive-text="卡片"
+                />
+              </div>
             </div>
           </div>
-
-          <el-empty v-if="!tasks.length" description="暂无任务，请先创建" />
-          <div
-            v-else-if="!viewAsTable"
-            class="task-card-grid original-dataset-panel__scroll"
-          >
-            <div
-                v-for="task in tasksPageData"
+          <div v-else class="section-heading section-heading--embed-toolbar">
+            <div class="section-desc-row">
+              <p class="section-desc section-desc--inline">查看已有任务，并执行编辑或删除操作。</p>
+              <div class="section-task-toolbar" @click.stop>
+                <el-select v-model="taskSortMode" size="small" style="width: 170px">
+                  <el-option label="最近修改优先" value="updated" />
+                  <el-option label="按名称排序" value="name" />
+                </el-select>
+                <el-switch
+                  v-model="taskViewAsTable"
+                  inline-prompt
+                  active-text="列表"
+                  inactive-text="卡片"
+                />
+              </div>
+            </div>
+          </div>
+          <div class="section-body">
+            <el-empty v-if="!tasks.length" description="暂无任务，请先创建" />
+            <div v-else-if="!taskViewAsTable" class="task-card-grid">
+              <div
+                v-for="task in tasksSorted"
                 :key="task.name"
                 class="task-card"
                 @click="handleTaskCardClick(task, $event)"
@@ -87,7 +179,7 @@
                               {{ formatTaskDateTime(task.updated_time) }}
                             </div>
                             <div v-else>任务定义更新：暂无记录</div>
-                            <div class="task-export-dot-tooltip-hint">请点击工具栏或卡片上的「导出/更新」同步到 instance_dataset_mid。</div>
+                            <div class="task-export-dot-tooltip-hint">请点击「导出/更新」同步到 instance_dataset_mid。</div>
                           </div>
                           <div v-else class="task-export-tooltip">
                             <div v-if="String(task.last_export_time || '').trim()">
@@ -131,10 +223,10 @@
                       >
                         <span class="card-header-action-wrap">
                           <el-button
-                            :type="exportButtonType(task)"
+                            type="primary"
                             size="small"
                             :loading="exportLoadingTaskName === task.name"
-                            :disabled="task.mapping_status_code !== 'ok' || task.status_code === 'ready'"
+                            :disabled="task.mapping_status_code !== 'ok'"
                             @click.stop="exportTask(task)"
                           >
                             {{ exportActionText(task) }}
@@ -148,7 +240,7 @@
                     >
                         <span class="card-header-action-wrap">
                           <el-button type="warning" plain size="small" @click.stop="clearTask(task)">
-                            清除导出数据集
+                            清除
                           </el-button>
                         </span>
                       </el-tooltip>
@@ -166,7 +258,7 @@
                     </div>
                     <span v-else>-</span>
                   </el-descriptions-item>
-                  <el-descriptions-item label="原始数据集" :span="taskCardDescrColumn">
+                  <el-descriptions-item label="关联数据集" :span="taskCardDescrColumn">
                     <div class="info-tags info-tags--card-plain" v-if="task.test_datasets?.length">
                       <el-tag
                         v-for="ds in task.test_datasets"
@@ -204,9 +296,6 @@
                 <div class="task-card-footer" @click.stop>
                   <div class="task-card-footer-left">
                     <el-button plain @click="jumpToTaskMappingEditor(task)">查看和编辑映射关系</el-button>
-                    <el-button plain :disabled="!hasExportedDataset(task)" @click="openTaskPath(task)">
-                      打开路径
-                    </el-button>
                   </div>
                   <div class="task-card-footer-right">
                     <el-button type="primary" plain @click="editTask(task)">编辑</el-button>
@@ -224,44 +313,20 @@
               </div>
             </div>
 
-            <div
-              v-else
-              class="table-div table-div--embed-scroll original-dataset-panel__scroll"
-            >
             <el-table
-              ref="taskListTableRef"
-              :data="tasksPageData"
+              v-else
+              :data="tasksSorted"
               row-key="name"
+              border
               stripe
               size="small"
-              class="task-list-table my-table"
-              table-layout="fixed"
-              style="width: 100%"
-              :height="'100%'"
-              scrollbar-always-on
-              v-el-height-adaptive-table="{ bottomOffset: 120, isUse: false }"
-              @sort-change="onTaskTableSortChange"
-              @filter-change="onTaskTableFilterChange"
+              class="task-list-table"
               @row-click="handleTaskTableRowClick"
             >
-              <el-table-column label="序号" width="48" align="center" fixed="left">
-                <template #default="scope">
-                  <el-text size="small">
-                    {{ (tableCurrentPage - 1) * tablePageSize + scope.$index + 1 }}
-                  </el-text>
-                </template>
-              </el-table-column>
-              <el-table-column
-                label="任务名称"
-                prop="name"
-                column-key="name"
-                min-width="120"
-                fixed="left"
-                sortable="custom"
-              >
+              <el-table-column label="任务名称" min-width="168" fixed="left">
                 <template #default="{ row }">
-                  <div class="table-task-name-cell">
-                    <span class="table-task-name" :title="row.name">{{ row.name }}</span>
+                  <span class="table-task-name-cell">
+                    <span class="table-task-name">{{ row.name }}</span>
                     <el-tooltip placement="top" :show-after="200">
                       <template #content>
                         <div
@@ -317,31 +382,15 @@
                         />
                       </span>
                     </el-tooltip>
-                  </div>
+                  </span>
                 </template>
               </el-table-column>
-              <el-table-column
-                label="任务描述"
-                prop="desc"
-                column-key="desc"
-                min-width="140"
-                sortable="custom"
-                show-overflow-tooltip
-              >
+              <el-table-column label="任务描述" min-width="140" show-overflow-tooltip>
                 <template #default="{ row }">
                   {{ row.desc || '-' }}
                 </template>
               </el-table-column>
-              <el-table-column
-                label="目标类别"
-                prop="targetSchema"
-                column-key="targetSchema"
-                min-width="200"
-                sortable="custom"
-                :filters="taskTargetClassFilterOptions"
-                :filter-method="tableColumnFilterPassAll"
-                filter-placement="bottom-end"
-              >
+              <el-table-column label="目标类别" min-width="200">
                 <template #default="{ row }">
                   <div class="info-tags info-tags--table-varied" v-if="row.target_schema?.length">
                     <el-tag
@@ -356,16 +405,7 @@
                   <span v-else>-</span>
                 </template>
               </el-table-column>
-              <el-table-column
-                label="原始数据集"
-                prop="testDatasets"
-                column-key="testDatasets"
-                min-width="180"
-                sortable="custom"
-                :filters="taskTestDatasetFilterOptions"
-                :filter-method="tableColumnFilterPassAll"
-                filter-placement="bottom-end"
-              >
+              <el-table-column label="关联数据集" min-width="180">
                 <template #default="{ row }">
                   <div class="info-tags info-tags--table-varied" v-if="row.test_datasets?.length">
                     <el-tag
@@ -380,31 +420,33 @@
                   <span v-else>-</span>
                 </template>
               </el-table-column>
-              <el-table-column
-                label="最近修改"
-                prop="updated_time"
-                column-key="updated_time"
-                width="150"
-                align="center"
-                header-align="center"
-                sortable="custom"
-              >
+              <el-table-column label="数据集状态" min-width="200">
                 <template #default="{ row }">
-                  <el-text size="small">{{ formatTaskDateTime(row.updated_time) || '-' }}</el-text>
+                  <div class="task-status-badges">
+                    <el-tooltip :content="exportStatusTooltip(row.status_code)" placement="top">
+                      <el-tag :type="statusTagType(row.status_code)" size="small">
+                        {{ row.status_text || '未导出' }}
+                      </el-tag>
+                    </el-tooltip>
+                    <el-tooltip :content="mappingStatusTooltip(row)" placement="top" :show-after="150">
+                      <el-tag
+                        size="small"
+                        :type="mappingTagType(row.mapping_status_code)"
+                        :class="[
+                          'mapping-status-tag',
+                          { 'mapping-status-tag--error': row.mapping_status_code !== 'ok' }
+                        ]"
+                        @click.stop="handleMappingTagClick(row)"
+                      >
+                        {{ row.mapping_status_text || '映射错误' }}
+                      </el-tag>
+                    </el-tooltip>
+                  </div>
                 </template>
               </el-table-column>
-              <el-table-column
-                label="操作"
-                :width="String(ACTION_COL_PX)"
-                :min-width="String(ACTION_COL_PX)"
-                :resizable="false"
-                align="center"
-                header-align="center"
-                fixed="right"
-                class-name="task-col-actions"
-              >
+              <el-table-column label="操作" width="168" fixed="right" align="right">
                 <template #default="{ row }">
-                  <div class="task-table-actions task-table-actions--table" @click.stop>
+                  <div class="task-table-actions" @click.stop>
                     <el-dropdown
                       trigger="click"
                       @command="cmd => handleTaskTableMoreCommand(cmd, row)"
@@ -421,18 +463,12 @@
                         <el-dropdown-menu>
                           <el-dropdown-item
                             command="export"
-                            :disabled="row.mapping_status_code !== 'ok' || row.status_code === 'ready'"
+                            :disabled="row.mapping_status_code !== 'ok'"
                           >
                             {{ exportActionText(row) }}
                           </el-dropdown-item>
-                          <el-dropdown-item command="openPath" :disabled="!hasExportedDataset(row)">
-                            打开路径
-                          </el-dropdown-item>
                           <el-dropdown-item command="clear" divided>
-                            清除导出数据集
-                          </el-dropdown-item>
-                          <el-dropdown-item command="preview">
-                            查看示例
+                            清除导出
                           </el-dropdown-item>
                           <el-dropdown-item command="mapping">
                             查看和编辑映射
@@ -456,277 +492,188 @@
                 </template>
               </el-table-column>
             </el-table>
-            </div>
-        </div>
-        <template #footer>
-          <div class="original-dataset-panel__footer">
-            <el-pagination
-              v-if="viewAsTable"
-              background
-              size="small"
-              v-model:current-page="tableCurrentPage"
-              v-model:page-size="tablePageSize"
-              :page-sizes="[10, 20, 50, 100]"
-              layout="total, sizes, prev, pager, next, jumper"
-              :total="taskListTotal"
-              @size-change="onTablePageSizeChange"
-            />
-            <el-pagination
-              v-else
-              background
-              size="small"
-              v-model:current-page="cardCurrentPage"
-              v-model:page-size="cardPageSize"
-              :page-sizes="[6, 12, 18, 24]"
-              layout="total, sizes, prev, pager, next, jumper"
-              :total="taskListTotal"
-              @size-change="onCardPageSizeChange"
-            />
           </div>
-        </template>
-      </el-card>
-    </div>
+        </section>
 
-    <el-dialog
-      v-model="createTaskDialogVisible"
-      title="创建任务"
-      width="640px"
-      destroy-on-close
-      :close-on-click-modal="false"
-      @open="onCreateTaskDialogOpen"
-    >
-      <el-form label-width="120px" class="task-form">
-        <el-form-item label="任务名称">
-          <el-input v-model="createForm.name" placeholder="例如：Task_Mixed_Port_Safety" clearable />
-        </el-form-item>
-        <el-form-item label="任务描述">
-          <el-input
-            v-model="createForm.desc"
-            type="textarea"
-            :rows="3"
-            placeholder="描述该任务的评测目标..."
-          />
-        </el-form-item>
-        <el-form-item label="目标类别列表">
-          <div class="target-schema-editor">
-            <el-tag
-              v-for="tag in createForm.targetSchema"
-              :key="`create-${tag}`"
-              closable
-              class="schema-editor-tag"
-              @close="removeTargetTag(tag)"
-            >
-              {{ tag }}
-            </el-tag>
-            <el-input
-              v-if="targetInputVisible"
-              ref="targetInputRef"
-              v-model="targetInputValue"
-              class="tag-input"
-              size="small"
-              @keyup.enter="confirmAddTargetTag"
-              @blur="confirmAddTargetTag"
-            />
-            <el-button v-else size="small" @click="showTargetInput">
-              + 添加类别
-            </el-button>
+        <section
+          v-if="!embedTaskList"
+          id="mapping-editor"
+          class="doc-section section-block mapping-editor-anchor"
+        >
+          <div class="section-heading">
+            <h2 class="section-title">
+              任务映射
+              <a class="section-link" href="#mapping-editor" @click.prevent="scrollToAnchor('#mapping-editor')">#</a>
+            </h2>
+            <p class="section-desc">将各数据集原始类别映射到当前任务的目标类别。</p>
           </div>
-        </el-form-item>
-        <el-form-item label="原始数据集">
-          <el-select
-            v-model="createForm.testDatasets"
-            multiple
-            filterable
-            clearable
-            placeholder="选择一个或多个原始数据集"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="opt in datasetOptions"
-              :key="opt.name"
-              :label="opt.name"
-              :value="opt.name"
-            >
-              <div class="dataset-option">
-                <span>{{ opt.name }}</span>
-                <span class="dataset-option-meta">{{ opt.source }}</span>
+          <div class="section-body">
+            <el-empty v-if="!selectedTask && !tasks.length" description="暂无任务可供映射配置" />
+            <template v-else>
+              <div class="mapping-summary">
+                <div class="mapping-summary-row">
+                  <div class="mapping-summary-label">选择任务</div>
+                  <div class="mapping-summary-value">
+                    <el-select
+                      v-model="selectedTaskName"
+                      placeholder="请选择要配置映射的任务"
+                      style="width: 100%; max-width: 640px"
+                      clearable
+                    >
+                      <el-option
+                        v-for="task in tasksSorted"
+                        :key="task.name"
+                        :label="task.name"
+                        :value="task.name"
+                      />
+                    </el-select>
+                  </div>
+                </div>
+
+                <div class="mapping-summary-row" v-if="selectedTask">
+                  <div class="mapping-summary-label">当前目标类别</div>
+                  <div class="mapping-summary-value">
+                    <el-tag
+                      v-for="cls in selectedTask.target_schema || []"
+                      :key="cls"
+                      :class="[
+                        'schema-tag',
+                        { 'schema-tag-problem': isTargetIssue(cls) },
+                        { 'schema-tag-active': activeTargetTag === cls }
+                      ]"
+                      @click="handleTargetTagClick(cls)"
+                    >
+                      {{ cls }}：{{ targetMappedSampleCountInEditor(cls) }}
+                    </el-tag>
+                  </div>
+                </div>
+                <div class="mapping-summary-row" v-if="selectedTask">
+                  <div class="mapping-summary-label">图例</div>
+                  <div class="mapping-summary-value target-legend">
+                    <span class="legend-item">
+                      <span class="legend-dot legend-dot-active"></span>
+                      蓝色：当前筛选
+                    </span>
+                    <span class="legend-item">
+                      <span class="legend-dot legend-dot-problem"></span>
+                      浅红：未覆盖
+                    </span>
+                  </div>
+                </div>
               </div>
-            </el-option>
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-alert
-            title="注意：创建后请在「任务映射」弹窗中继续配置具体类别映射。"
-            type="warning"
-            :closable="false"
-            show-icon
-          />
-        </el-form-item>
-        <el-form-item class="action-form-item">
-          <el-button @click="createTaskDialogVisible = false">取消</el-button>
-          <el-button type="primary" :loading="createLoading" @click="onCreateTaskSubmit">创建任务基础结构</el-button>
-        </el-form-item>
-      </el-form>
-    </el-dialog>
 
-    <el-dialog
-      v-model="mappingEditorDialogVisible"
-      title="任务映射"
-      width="min(1100px, 96vw)"
-      align-center
-      class="task-mapping-editor-dialog"
-      :close-on-click-modal="false"
-      @closed="onMappingDialogClosed"
-    >
-      <p class="mapping-dialog-desc">将各数据集原始类别映射到当前任务的目标类别。</p>
-      <el-empty v-if="!tasks.length" description="暂无任务，请先创建" />
-      <template v-else>
-        <div class="mapping-summary">
-          <div class="mapping-summary-row">
-            <div class="mapping-summary-label">选择任务</div>
-            <div class="mapping-summary-value">
-              <el-select
-                v-model="selectedTaskName"
-                placeholder="请选择要配置映射的任务"
-                style="width: 100%; max-width: 640px"
-                clearable
-                filterable
-              >
-                <el-option
-                  v-for="task in tasksBaseSorted"
-                  :key="task.name"
-                  :label="task.name"
-                  :value="task.name"
+              <el-empty v-if="!selectedTask" description="请选择一个任务进行映射配置" />
+              <template v-else>
+                <el-alert
+                  v-if="missingDatasets.length"
+                  type="warning"
+                  :closable="false"
+                  show-icon
+                  class="missing-alert"
+                  :title="`以下数据集当前未在可用列表中找到：${missingDatasets.join('、')}`"
                 />
-              </el-select>
-            </div>
+
+                <div class="auto-map-bar">
+                  <el-button type="primary" plain @click="applyAutoMapping">
+                    自动映射
+                  </el-button>
+                  <el-checkbox v-model="autoMapCaseSensitive">区分大小写</el-checkbox>
+                  <el-checkbox v-model="autoMapStrict">严格匹配</el-checkbox>
+                  <el-checkbox v-model="autoMapOverwrite">覆盖已有映射</el-checkbox>
+                  <span class="auto-map-hint">
+                    按原始标签与目标类别名称匹配。关闭「严格匹配」时支持分段一致（如 large_ship → ship）或名称互相包含。
+                  </span>
+                </div>
+
+                <div v-for="datasetName in selectedTask.test_datasets || []" :key="datasetName" class="dataset-panel">
+                  <div class="dataset-panel-title">数据集源：{{ datasetName }}</div>
+
+                  <el-alert
+                    v-if="!datasetClassMap[datasetName] || !datasetClassMap[datasetName].length"
+                    title="无法提取该数据集类别，请确认数据集信息完整且 class_list 可解析。"
+                    type="warning"
+                    :closable="false"
+                    show-icon
+                  />
+
+                  <div v-else class="dataset-panel-body dataset-config-block">
+                    <div class="dataset-config-row">
+                      <div class="dataset-config-label">选择使用标签</div>
+                      <div class="dataset-config-value">
+                        <el-select
+                          v-model="datasetSelectedClasses[datasetName]"
+                          multiple
+                          filterable
+                          collapse-tags-tooltip
+                          placeholder="请选择该数据集需要参与映射的标签"
+                          style="width: 100%"
+                        >
+                          <el-option
+                            v-for="cls in datasetClassMap[datasetName]"
+                            :key="`${datasetName}-selected-${cls}`"
+                            :label="cls"
+                            :value="cls"
+                          />
+                        </el-select>
+                      </div>
+                    </div>
+
+                    <div v-if="!(datasetSelectedClasses[datasetName] || []).length" class="mapping-empty">
+                      请先为“{{ datasetName }}”选择需要使用的标签，再进行映射配置。
+                    </div>
+
+                    <div v-else class="mapping-grid">
+                      <div
+                        v-for="cls in datasetSelectedClasses[datasetName]"
+                        :key="`${datasetName}-${cls}`"
+                        :class="[
+                          'mapping-item',
+                          { 'mapping-item-missing': isIssuePair(datasetName, cls) },
+                          { 'mapping-item-active-target': isActiveTargetMapping(datasetName, cls) }
+                        ]"
+                      >
+                        <div class="mapping-from">原：{{ cls }}</div>
+                        <el-select
+                          v-model="mappingEditor[datasetName][cls]"
+                          placeholder="请选择目标类别"
+                          class="mapping-select"
+                        >
+                          <el-option label="(忽略/不使用)" value="" />
+                          <el-option
+                            v-for="target in selectedTask.target_schema || []"
+                            :key="`${datasetName}-${cls}-${target}`"
+                            :label="target"
+                            :value="target"
+                          />
+                        </el-select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="save-bar">
+                  <el-button type="primary" :loading="saveLoading" @click="saveMappingRules">
+                    更新任务映射规则
+                  </el-button>
+                </div>
+              </template>
+            </template>
           </div>
-          <div v-if="selectedTask" class="mapping-summary-row">
-            <div class="mapping-summary-label">当前目标类别</div>
-            <div class="mapping-summary-value">
-              <el-tag
-                v-for="cls in selectedTask.target_schema || []"
-                :key="cls"
-                :class="[
-                  'schema-tag',
-                  { 'schema-tag-problem': isTargetIssue(cls) },
-                  { 'schema-tag-active': activeTargetTag === cls }
-                ]"
-                @click="handleTargetTagClick(cls)"
-              >
-                {{ cls }}：{{ targetMappedSampleCountInEditor(cls) }}
-              </el-tag>
-            </div>
-          </div>
-          <div v-if="selectedTask" class="mapping-summary-row">
-            <div class="mapping-summary-label">图例</div>
-            <div class="mapping-summary-value target-legend">
-              <span class="legend-item">
-                <span class="legend-dot legend-dot-active"></span>
-                蓝色：当前筛选
-              </span>
-              <span class="legend-item">
-                <span class="legend-dot legend-dot-problem"></span>
-                浅红：未覆盖
-              </span>
-            </div>
-          </div>
+        </section>
+      </main>
+
+      <aside v-if="!embedTaskList" class="doc-right">
+        <div class="anchor-wrapper">
+          <div class="anchor-title">Contents</div>
+          <el-anchor :offset="90" class="page-anchor" @click="handleAnchorClick">
+            <el-anchor-link href="#create-task" title="创建任务" />
+            <el-anchor-link href="#task-list" title="任务管理" />
+            <el-anchor-link href="#mapping-editor" title="任务映射" />
+          </el-anchor>
         </div>
-        <el-empty v-if="!selectedTask" description="请选择一个任务进行映射配置" />
-        <template v-else>
-          <el-alert
-            v-if="missingDatasets.length"
-            type="warning"
-            :closable="false"
-            show-icon
-            class="missing-alert"
-            :title="`以下数据集当前未在可用列表中找到：${missingDatasets.join('、')}`"
-          />
-          <div class="auto-map-bar">
-            <el-button type="primary" plain @click="applyAutoMapping">自动映射</el-button>
-            <el-checkbox v-model="autoMapCaseSensitive">区分大小写</el-checkbox>
-            <el-checkbox v-model="autoMapStrict">严格匹配</el-checkbox>
-            <el-checkbox v-model="autoMapOverwrite">覆盖已有映射</el-checkbox>
-            <span class="auto-map-hint">
-              按原始标签与目标类别名称匹配。关闭「严格匹配」时支持分段一致（如 large_ship → ship）或名称互相包含。
-            </span>
-          </div>
-          <div
-            v-for="datasetName in selectedTask.test_datasets || []"
-            :key="datasetName"
-            class="dataset-panel"
-          >
-            <div class="dataset-panel-title">数据集源：{{ datasetName }}</div>
-            <el-alert
-              v-if="!datasetClassMap[datasetName] || !datasetClassMap[datasetName].length"
-              title="无法提取该数据集类别，请确认数据集信息完整且 class_list 可解析。"
-              type="warning"
-              :closable="false"
-              show-icon
-            />
-            <div v-else class="dataset-panel-body dataset-config-block">
-              <div class="dataset-config-row">
-                <div class="dataset-config-label">选择使用标签</div>
-                <div class="dataset-config-value">
-                  <el-select
-                    v-model="datasetSelectedClasses[datasetName]"
-                    multiple
-                    filterable
-                    collapse-tags-tooltip
-                    placeholder="请选择该数据集需要参与映射的标签"
-                    style="width: 100%"
-                  >
-                    <el-option
-                      v-for="cls in datasetClassMap[datasetName]"
-                      :key="`${datasetName}-selected-${cls}`"
-                      :label="cls"
-                      :value="cls"
-                    />
-                  </el-select>
-                </div>
-              </div>
-              <div
-                v-if="!(datasetSelectedClasses[datasetName] || []).length"
-                class="mapping-empty"
-              >
-                请先为“{{ datasetName }}”选择需要使用的标签，再进行映射配置。
-              </div>
-              <div v-else class="mapping-grid">
-                <div
-                  v-for="cls in datasetSelectedClasses[datasetName]"
-                  :key="`${datasetName}-${cls}`"
-                  :class="[
-                    'mapping-item',
-                    { 'mapping-item-missing': isIssuePair(datasetName, cls) },
-                    { 'mapping-item-active-target': isActiveTargetMapping(datasetName, cls) }
-                  ]"
-                >
-                  <div class="mapping-from">原：{{ cls }}</div>
-                  <el-select
-                    v-model="mappingEditor[datasetName][cls]"
-                    placeholder="请选择目标类别"
-                    class="mapping-select"
-                  >
-                    <el-option label="(忽略/不使用)" value="" />
-                    <el-option
-                      v-for="target in selectedTask.target_schema || []"
-                      :key="`${datasetName}-${cls}-${target}`"
-                      :label="target"
-                      :value="target"
-                    />
-                  </el-select>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="save-bar">
-            <el-button type="primary" :loading="saveLoading" @click="saveMappingRules">
-              更新任务映射规则
-            </el-button>
-          </div>
-        </template>
-      </template>
-    </el-dialog>
+      </aside>
+    </div>
+    <el-backtop v-if="!embedTaskList" :right="36" :bottom="40" />
 
     <el-dialog
       v-model="editDialogVisible"
@@ -746,30 +693,6 @@
             :rows="3"
             placeholder="描述该任务的评测目标..."
           />
-        </el-form-item>
-        <el-form-item v-if="editDialogTask" label="状态">
-          <div class="edit-dialog-status-tags">
-            <el-tooltip :content="exportStatusTooltip(editDialogTask.status_code)" placement="top">
-              <el-tag :type="statusTagType(editDialogTask.status_code)" size="small">
-                {{ editDialogTask.status_text || '未导出' }}
-              </el-tag>
-            </el-tooltip>
-            <el-tooltip :content="mappingStatusTooltip(editDialogTask)" placement="top">
-              <el-tag
-                :type="mappingTagType(editDialogTask.mapping_status_code)"
-                size="small"
-                :class="{ 'mapping-status-tag--error': editDialogTask.mapping_status_code !== 'ok' }"
-              >
-                {{ editDialogTask.mapping_status_text || '映射错误' }}
-              </el-tag>
-            </el-tooltip>
-          </div>
-          <div
-            v-if="String(editDialogTask.last_export_time || '').trim()"
-            class="edit-dialog-status-export-time"
-          >
-            最近导出：{{ formatTaskDateTime(editDialogTask.last_export_time) }}
-          </div>
         </el-form-item>
         <el-form-item label="目标类别列表">
           <div class="target-schema-editor">
@@ -796,13 +719,13 @@
             </el-button>
           </div>
         </el-form-item>
-        <el-form-item label="原始数据集">
+        <el-form-item label="测试数据集">
           <el-select
             v-model="editForm.testDatasets"
             multiple
             filterable
             clearable
-            placeholder="选择一个或多个原始数据集"
+            placeholder="选择一个或多个用于测试的数据集"
             style="width: 100%"
           >
             <el-option
@@ -842,42 +765,33 @@
         </div>
       </template>
     </el-dialog>
-    <DatasetPreviewDialog
-      v-model="previewDialogVisible"
-      :title="previewTaskRow ? `查看示例 - ${previewTaskRow.name}` : '查看示例'"
-      empty-description="暂无可展示的已映射图片"
-      :load-preview="loadTaskPreview"
-    />
 
   </div>
 </template>
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { OriginalDatasetService, TaskDatasetDevService } from '@/api/api'
-import { baseHost } from '@/api/axios'
-import DatasetPreviewDialog from '@/components/dataset/DatasetPreviewDialog.vue'
 
 const props = defineProps({
-  /** 与统合父页同步（列表/卡片） */
-  taskViewAsTable: { type: Boolean, default: true },
-  embedMode: { type: Boolean, default: false },
-  datasetRefreshKey: { type: Number, default: 0 },
-  taskRefreshKey: { type: Number, default: 0 }
+  /** 嵌入「数据集管理（dev）」时仅渲染「任务管理」区块，无侧栏锚点与创建/映射 */
+  embedMode: { type: String, default: '' }
 })
 
-const emit = defineEmits(['midDatasetChanged'])
+const embedTaskList = computed(() => props.embedMode === 'tasklist')
 
-const viewAsTable = computed(() => props.taskViewAsTable)
-const embedMode = computed(() => props.embedMode)
-
-/** 任务表「操作」列宽（仅「操作」列 fixed=right） */
-const ACTION_COL_PX = 200
+const route = useRoute()
+const router = useRouter()
 
 const datasetOptions = ref([])
 const tasks = ref([])
+/** updated=按修改时间降序，name=按名称 */
+const taskSortMode = ref('updated')
+/** false=卡片，true=表格 */
+const taskViewAsTable = ref(false)
 const selectedTaskName = ref('')
 const mappingEditor = ref({})
 const datasetSelectedClasses = ref({})
@@ -895,16 +809,7 @@ const autoMapCaseSensitive = ref(false)
 const autoMapStrict = ref(true)
 const autoMapOverwrite = ref(false)
 const editDialogVisible = ref(false)
-const createTaskDialogVisible = ref(false)
-const mappingEditorDialogVisible = ref(false)
 const exportLoadingTaskName = ref('')
-const previewDialogVisible = ref(false)
-const previewTaskRow = ref(null)
-const previewGroups = ref([])
-const previewLoading = ref(false)
-const groupRefreshing = ref({})
-const objectsMeta = ref({})
-const previewDiagnostics = ref([])
 const activeTargetTag = ref('')
 const issueHighlightTaskName = ref('')
 const issueHighlightPairMap = ref({})
@@ -938,14 +843,6 @@ const editForm = ref({
   updatedTime: ''
 })
 
-/** 编辑弹窗打开时，从任务列表取当前任务以展示导出/映射状态（随 tasks 刷新） */
-const editDialogTask = computed(() => {
-  if (!editDialogVisible.value) return null
-  const name = String(editForm.value.originalName || '').trim()
-  if (!name) return null
-  return tasks.value.find(t => t.name === name) || null
-})
-
 function sortTasksForDisplay(arr, mode) {
   const copy = Array.isArray(arr) ? [...arr] : []
   if (mode === 'name') {
@@ -961,234 +858,14 @@ function sortTasksForDisplay(arr, mode) {
   return copy
 }
 
-/** 默认按最近修改时间（与原先「最近修改优先」一致）；表头再叠自定义排序 */
-const tasksBaseSorted = computed(() => sortTasksForDisplay(tasks.value, 'updated'))
-
-/** 表头列筛选（在基序列表上生效，与原始数据集一致） */
-const colFilterTestDataset = ref([])
-const colFilterTargetClass = ref([])
-const colFilterStatusPair = ref([])
-/** 表头自定义排序 */
-const tableColumnSort = ref(null)
-
-const taskTestDatasetFilterOptions = computed(() => {
-  const set = new Set()
-  for (const t of tasks.value) {
-    for (const ds of t.test_datasets || []) set.add(ds)
-  }
-  return [...set].sort((a, b) => String(a).localeCompare(String(b), 'zh-CN')).map((ds) => ({ text: ds, value: ds }))
-})
-
-const taskTargetClassFilterOptions = computed(() => {
-  const set = new Set()
-  for (const t of tasks.value) {
-    for (const c of t.target_schema || []) set.add(c)
-  }
-  return [...set].sort((a, b) => String(a).localeCompare(String(b), 'zh-CN')).map((c) => ({ text: c, value: c }))
-})
-
-const taskStatusPairFilterOptions = computed(() => {
-  const map = new Map()
-  for (const t of tasks.value) {
-    const v = `${t.status_code ?? ''}\t${t.mapping_status_code ?? ''}`
-    if (map.has(v)) continue
-    const text = `${t.status_text || '未导出'} / ${t.mapping_status_text || '映射'}`
-    map.set(v, { text, value: v })
-  }
-  return [...map.values()]
-})
-
-function tableColumnFilterPassAll() {
-  return true
-}
-
-function onTaskTableFilterChange(filters) {
-  const f = filters || {}
-  if (f.testDatasets !== undefined) colFilterTestDataset.value = f.testDatasets
-  if (f.targetSchema !== undefined) colFilterTargetClass.value = f.targetSchema
-  if (f.statusPair !== undefined) colFilterStatusPair.value = f.statusPair
-  tableCurrentPage.value = 1
-  cardCurrentPage.value = 1
-}
-
-function onTaskStatusToolbarFilterChange() {
-  tableCurrentPage.value = 1
-  cardCurrentPage.value = 1
-}
-
-function compareTaskRowsForSort(a, b, prop) {
-  if (prop === 'name') return String(a?.name || '').localeCompare(String(b?.name || ''), 'zh-CN')
-  if (prop === 'desc') return String(a?.desc || '').localeCompare(String(b?.desc || ''), 'zh-CN')
-  if (prop === 'updated_time') {
-    const ta = Date.parse(String(a?.updated_time || '').trim()) || 0
-    const tb = Date.parse(String(b?.updated_time || '').trim()) || 0
-    return ta - tb
-  }
-  if (prop === 'targetSchema') {
-    const sa = (a?.target_schema || []).join(',')
-    const sb = (b?.target_schema || []).join(',')
-    return String(sa).localeCompare(String(sb), 'zh-CN')
-  }
-  if (prop === 'testDatasets') {
-    const sa = (a?.test_datasets || []).join(',')
-    const sb = (b?.test_datasets || []).join(',')
-    return String(sa).localeCompare(String(sb), 'zh-CN')
-  }
-  if (prop === 'statusPair') {
-    const c1 = String(a?.status_code ?? '')
-    const c2 = String(b?.status_code ?? '')
-    if (c1 !== c2) return c1.localeCompare(c2)
-    return String(a?.mapping_status_code ?? '').localeCompare(String(b?.mapping_status_code ?? ''), 'zh-CN')
-  }
-  if (prop === 'updated_time') {
-    const ta = Date.parse(String(a?.updated_time || '').trim()) || 0
-    const tb = Date.parse(String(b?.updated_time || '').trim()) || 0
-    return ta - tb
-  }
-  return 0
-}
-
-function onTaskTableSortChange({ prop, order }) {
-  if (!order) {
-    tableColumnSort.value = null
-  } else {
-    tableColumnSort.value = { prop, order }
-  }
-  tableCurrentPage.value = 1
-  cardCurrentPage.value = 1
-}
-
-const tasksAfterColFilters = computed(() => {
-  return tasksBaseSorted.value.filter((row) => {
-    const tds = row.test_datasets || []
-    const okDs =
-      !colFilterTestDataset.value.length || tds.some((ds) => colFilterTestDataset.value.includes(ds))
-    const ts = row.target_schema || []
-    const okT =
-      !colFilterTargetClass.value.length || ts.some((c) => colFilterTargetClass.value.includes(c))
-    const pair = `${row.status_code ?? ''}\t${row.mapping_status_code ?? ''}`
-    const okP = !colFilterStatusPair.value.length || colFilterStatusPair.value.includes(pair)
-    return okDs && okT && okP
-  })
-})
-
-const taskToolbarSearch = ref('')
-const tableCurrentPage = ref(1)
-const tablePageSize = ref(10)
-const cardCurrentPage = ref(1)
-const cardPageSize = ref(6)
-const taskListTableRef = ref(null)
-
-const tasksAfterSearch = computed(() => {
-  const list = tasksAfterColFilters.value
-  const q = (taskToolbarSearch.value || '').trim().toLowerCase()
-  if (!q) return list
-  return list.filter((task) => {
-    const n = (task.name || '').toLowerCase()
-    const d = (task.desc || '').toLowerCase()
-    if (n.includes(q) || d.includes(q)) return true
-    const st = (task.status_text || '').toLowerCase()
-    const mt = (task.mapping_status_text || '').toLowerCase()
-    if (st.includes(q) || mt.includes(q)) return true
-    const schema = (task.target_schema || []).join(' ').toLowerCase()
-    const tds = (task.test_datasets || []).join(' ').toLowerCase()
-    return schema.includes(q) || tds.includes(q)
-  })
-})
-
-const tasksOrderedForDisplay = computed(() => {
-  const list = [...tasksAfterSearch.value]
-  const ts = tableColumnSort.value
-  if (!ts?.prop || !ts?.order) return list
-  const mul = ts.order === 'descending' ? -1 : 1
-  list.sort((a, b) => compareTaskRowsForSort(a, b, ts.prop) * mul)
-  return list
-})
-
-const taskListTotal = computed(() => tasksOrderedForDisplay.value.length)
-
-const tasksPageData = computed(() => {
-  const list = tasksOrderedForDisplay.value
-  if (viewAsTable.value) {
-    const start = (tableCurrentPage.value - 1) * tablePageSize.value
-    return list.slice(start, start + tablePageSize.value)
-  }
-  const start = (cardCurrentPage.value - 1) * cardPageSize.value
-  return list.slice(start, start + cardPageSize.value)
-})
-
-function scheduleTaskListTableLayout() {
-  if (!viewAsTable.value) return
-  nextTick(() => {
-    taskListTableRef.value?.doLayout?.()
-  })
-}
-
-watch(
-  () => [tasksPageData.value, viewAsTable.value, tablePageSize.value, tableCurrentPage.value],
-  () => scheduleTaskListTableLayout(),
-  { flush: 'post' }
-)
-
-watch(
-  [taskToolbarSearch, () => props.taskViewAsTable, tasksBaseSorted, tasksAfterColFilters],
-  () => {
-    tableCurrentPage.value = 1
-    cardCurrentPage.value = 1
-  }
-)
-
-watch(
-  () => props.datasetRefreshKey,
-  async () => {
-    try {
-      await loadDatasets()
-    } catch (e) {
-      ElMessage.warning(`原始数据集列表刷新失败：${e?.message || e}`)
-    }
-  }
-)
-watch(
-  () => props.taskRefreshKey,
-  async () => {
-    try {
-      await loadTasks()
-    } catch (e) {
-      ElMessage.warning(`任务状态刷新失败：${e?.message || e}`)
-    }
-  }
-)
-function onTablePageSizeChange() {
-  tableCurrentPage.value = 1
-}
-
-function onCardPageSizeChange() {
-  cardCurrentPage.value = 1
-}
-
-function clearTaskTableFilters() {
-  taskToolbarSearch.value = ''
-  colFilterTestDataset.value = []
-  colFilterTargetClass.value = []
-  colFilterStatusPair.value = []
-  tableCurrentPage.value = 1
-  cardCurrentPage.value = 1
-  nextTick(() => taskListTableRef.value?.clearFilter?.())
-}
-
-function clearTaskTableSort() {
-  tableColumnSort.value = null
-  tableCurrentPage.value = 1
-  cardCurrentPage.value = 1
-  nextTick(() => taskListTableRef.value?.clearSort?.())
-}
+const tasksSorted = computed(() => sortTasksForDisplay(tasks.value, taskSortMode.value))
 
 function ensureSelectedTaskNameAfterListUpdate() {
   if (selectedTaskName.value && !tasks.value.some((item) => item.name === selectedTaskName.value)) {
     selectedTaskName.value = ''
   }
   if (!selectedTaskName.value && tasks.value.length) {
-    const ordered = sortTasksForDisplay(tasks.value, 'updated')
+    const ordered = sortTasksForDisplay(tasks.value, taskSortMode.value)
     selectedTaskName.value = ordered[0]?.name || ''
   }
 }
@@ -1546,32 +1223,21 @@ function removeEditTargetTag(tag) {
   editForm.value.targetSchema = editForm.value.targetSchema.filter(item => item !== tag)
 }
 
-function onCreateTaskDialogOpen() {
-  createForm.value = {
-    name: '',
-    desc: '',
-    targetSchema: ['Large_Vehicle', 'Person', 'Ship'],
-    testDatasets: []
-  }
-  targetInputVisible.value = false
-  targetInputValue.value = ''
-}
-
 async function createTask() {
   const name = String(createForm.value.name || '').trim()
   const targetSchema = (createForm.value.targetSchema || []).map(item => String(item || '').trim()).filter(Boolean)
 
   if (!name) {
     ElMessage.error('请输入任务名称')
-    return false
+    return
   }
   if (!targetSchema.length) {
     ElMessage.error('请填写至少一个目标类别')
-    return false
+    return
   }
   if (!createForm.value.testDatasets.length) {
-    ElMessage.error('请至少选择一个原始数据集')
-    return false
+    ElMessage.error('请至少选择一个数据集作为测试源')
+    return
   }
 
   createLoading.value = true
@@ -1584,7 +1250,7 @@ async function createTask() {
     })
     if (res?.code !== 0) {
       ElMessage.error(res?.msg || '创建失败')
-      return false
+      return
     }
     ElMessage.success('任务创建成功')
     tasks.value = Array.isArray(res?.data) ? res.data : []
@@ -1595,24 +1261,11 @@ async function createTask() {
       targetSchema: ['Large_Vehicle', 'Person', 'Ship'],
       testDatasets: []
     }
-    return true
   } catch (e) {
     ElMessage.error(`创建失败：${e?.message || e}`)
-    return false
   } finally {
     createLoading.value = false
   }
-}
-
-async function onCreateTaskSubmit() {
-  const ok = await createTask()
-  if (!ok) return
-  createTaskDialogVisible.value = false
-  mappingEditorDialogVisible.value = true
-}
-
-function onMappingDialogClosed() {
-  clearIssueHighlight()
 }
 
 async function deleteTask(task) {
@@ -1649,9 +1302,6 @@ async function deleteTask(task) {
       alsoDeleteLocal ? '已删除任务记录，并已清理本地导出数据' : '已删除任务记录（本地导出目录未删除）'
     )
     tasks.value = Array.isArray(res?.data) ? res.data : []
-    if (alsoDeleteLocal) {
-      emit('midDatasetChanged')
-    }
     if (selectedTaskName.value === task.name) {
       selectedTaskName.value = ''
     }
@@ -1665,10 +1315,10 @@ async function clearTask(task) {
   try {
     await ElMessageBox.confirm(
       `确定清除任务「${task.name}」的本地已导出中间数据吗？\n将删除中间表 father_name 对应记录及 instance_dataset_mid 下相关目录；任务定义会保留，列表中的卡片不会消失。`,
-      '清除导出数据集',
+      '清除确认',
       {
         type: 'warning',
-        confirmButtonText: '确认清除导出数据集',
+        confirmButtonText: '确认清除',
         cancelButtonText: '取消'
       }
     )
@@ -1687,9 +1337,8 @@ async function clearTask(task) {
       }
       return
     }
-    ElMessage.success('已清除导出数据集，任务记录仍保留，可重新导出')
+    ElMessage.success('已清除本地导出数据，任务记录仍保留')
     tasks.value = Array.isArray(res?.data) ? res.data : []
-    emit('midDatasetChanged')
   } catch (e) {
     ElMessage.error(`清除失败：${e?.message || e}`)
   }
@@ -1733,8 +1382,6 @@ function formatTaskDateTime(raw) {
 function handleTaskTableRowClick(row, _column, event) {
   if (!row?.name || !event?.target) return
   if (event.target.closest('button, .el-button, .el-tag, .task-export-dot-wrap, a, .el-dropdown')) return
-  if (event.target.closest('.el-table__column-filter-trigger')) return
-  if (event.target.closest('.el-popper')) return
   editTask(row)
 }
 
@@ -1746,12 +1393,6 @@ function handleTaskTableMoreCommand(cmd, row) {
       break
     case 'clear':
       clearTask(row)
-      break
-    case 'openPath':
-      openTaskPath(row)
-      break
-    case 'preview':
-      openTaskPreview(row)
       break
     case 'mapping':
       jumpToTaskMappingEditor(row)
@@ -1768,18 +1409,26 @@ function jumpToMappingFromEditDialog() {
   const name = editForm.value.originalName || editForm.value.name
   if (!name) return
   editDialogVisible.value = false
+  if (embedTaskList.value) {
+    nextTick(() => {
+      router.push({ path: '/taskDatasetManageDev', query: { task: name }, hash: '#mapping-editor' })
+    })
+    return
+  }
   nextTick(() => {
-    clearIssueHighlight()
     selectedTaskName.value = name
-    mappingEditorDialogVisible.value = true
+    scrollToAnchor('#mapping-editor')
   })
 }
 
 function jumpToTaskMappingEditor(task) {
   if (!task?.name) return
-  clearIssueHighlight()
+  if (embedTaskList.value) {
+    router.push({ path: '/taskDatasetManageDev', query: { task: task.name }, hash: '#mapping-editor' })
+    return
+  }
   selectedTaskName.value = task.name
-  mappingEditorDialogVisible.value = true
+  scrollToAnchor('#mapping-editor')
 }
 
 function statusTagType(statusCode) {
@@ -1814,24 +1463,12 @@ function exportActionText(task) {
   const code = task?.status_code
   const hasExportTime = String(task?.last_export_time || '').trim().length > 0
   if (!hasExportTime || !code || code === 'never_exported') return '导出'
-  if (code === 'ready') return '已最新'
   return '更新'
-}
-
-function exportButtonType(task) {
-  return task?.status_code === 'ready' ? 'success' : 'warning'
-}
-
-function hasExportedDataset(task) {
-  return task?.has_exported_dataset === true && String(task?.export_path || '').trim().length > 0
 }
 
 function exportButtonTooltip(task) {
   if (task?.mapping_status_code !== 'ok') {
     return mappingStatusTooltip(task)
-  }
-  if (task?.status_code === 'ready') {
-    return `已最新：本地中间实例数据集与当前任务及映射一致。${task?.export_path ? ` 路径：${task.export_path}` : ''}`
   }
   const isFirst =
     !String(task?.last_export_time || '').trim() ||
@@ -1853,7 +1490,6 @@ function exportStatusTooltip(statusCode) {
   return '未导出：当前任务尚未导出到 instance_dataset_mid。'
 }
 
-/** 标题旁小圆点：红=映射未通过；黄=映射通过但中间层未导出或与任务已不同步；绿=已导出且一致 */
 function taskTitleDotState(task) {
   if (!task || task.mapping_status_code !== 'ok') return 'error'
   if (task.status_code === 'ready') return 'synced'
@@ -1868,7 +1504,7 @@ function mappingStatusTooltip(task) {
   const fromBackend = String(task?.mapping_status_detail || '').trim()
   if (fromBackend) return fromBackend
   const analyzed = analyzeTaskMappingIssues(task, (datasetName, cls) => task?.mapping_rules?.[datasetName]?.[cls] || '')
-  return analyzed.detail || '请先完成每个原始数据集类别到目标类别的映射。'
+  return analyzed.detail || '请先完成每个测试数据集类别到目标类别的映射。'
 }
 
 function analyzeTaskMappingIssues(task, mappingResolver) {
@@ -1962,12 +1598,29 @@ function handleTargetTagClick(tag) {
   activeTargetTag.value = activeTargetTag.value === tag ? '' : tag
 }
 
-function jumpToTaskMappingIssues(task) {
+async function jumpToTaskMappingIssues(task) {
   if (!task?.name) return
-  const analyzed = analyzeTaskMappingIssues(task, (datasetName, cls) => task?.mapping_rules?.[datasetName]?.[cls] || '')
+  if (embedTaskList.value) {
+    router.push({
+      path: '/taskDatasetManageDev',
+      query: { task: task.name, focusIssues: '1' },
+      hash: '#mapping-editor'
+    })
+    return
+  }
+  const issueSummary = analyzeTaskMappingIssues(task, (datasetName, cls) => task?.mapping_rules?.[datasetName]?.[cls] || '')
   selectedTaskName.value = task.name
-  applyIssueHighlight(task.name, analyzed)
-  mappingEditorDialogVisible.value = true
+  await nextTick()
+
+  const selectedPatch = { ...(datasetSelectedClasses.value || {}) }
+  for (const one of issueSummary.invalidPairs) {
+    const current = new Set(selectedPatch[one.datasetName] || [])
+    current.add(one.cls)
+    selectedPatch[one.datasetName] = Array.from(current)
+  }
+  datasetSelectedClasses.value = selectedPatch
+  applyIssueHighlight(task.name, issueSummary)
+  scrollToAnchor('#mapping-editor')
 }
 
 function handleMappingTagClick(task) {
@@ -1987,7 +1640,6 @@ async function exportTask(task) {
     }
     ElMessage.success('已导出到中间实例数据集（instance_dataset_mid）')
     tasks.value = Array.isArray(res?.data) ? res.data : []
-    emit('midDatasetChanged')
     if (selectedTaskName.value === task.name) {
       clearIssueHighlight()
     }
@@ -1998,235 +1650,22 @@ async function exportTask(task) {
   }
 }
 
-async function openTaskPath(task) {
-  if (!task?.name || !hasExportedDataset(task)) {
-    ElMessage.warning('该任务还没有已导出的本地中间实例数据集')
-    return
-  }
-  try {
-    const res = await TaskDatasetDevService.openTaskPath({ name: task.name })
-    if (res?.code !== 0) {
-      ElMessage.error(res?.msg || '打开路径失败')
-      return
-    }
-    ElMessage.success(`已打开：${res?.data?.path || task.export_path}`)
-  } catch (e) {
-    ElMessage.error(`打开路径失败：${e?.message || e}`)
-  }
-}
-
-function parsePreviewResponse(raw) {
-  if (typeof raw === 'string') {
-    try {
-      return JSON.parse(raw)
-    } catch (_) {
-      return { code: -1, msg: '预览接口返回了非 JSON 字符串', raw }
-    }
-  }
-  return raw || {}
-}
-
-function unwrapPreviewData(raw) {
-  const obj = parsePreviewResponse(raw)
-  if (typeof obj?.data === 'string') {
-    try {
-      obj.data = JSON.parse(obj.data)
-    } catch (_) {
-      return { response: obj, data: { items: [] } }
-    }
-  }
-  return { response: obj, data: obj?.data || obj || {} }
-}
-function previewImageUrl(path, refreshKey = Date.now()) {
-  if (!path) return ''
-  const raw = String(path)
-  const sep = raw.includes('?') ? '&' : '?'
-  if (/^https?:\/\//i.test(raw)) return `${raw}${sep}_=${refreshKey}`
-  const clean = raw.startsWith('/') ? raw : `/${raw}`
-  const origin = `${window.location.protocol}//${baseHost}`
-  return `${origin}${clean}${sep}_=${refreshKey}`
-}
-
-function objectsUrlFromImageUrl(imgUrl) {
-  return String(imgUrl || '').replace('/image?', '/objects?')
-}
-
-function setPreviewTrace(key, status, label, message) {
-  const next = previewDiagnostics.value.filter(item => item.key !== key)
-  next.push({ key, status, label, message })
-  previewDiagnostics.value = next
-}
-
-function normalizeTaskPreviewGroups(items, refreshKey = Date.now()) {
-  return (Array.isArray(items) ? items : []).map(item => {
-    const rawImages = Array.isArray(item?.images)
-      ? item.images
-      : Array.isArray(item?.urls)
-        ? item.urls
-        : []
-    const images = rawImages
-      .map(image => typeof image === 'string' ? image : (image?.url || image?.src || ''))
-      .map(url => previewImageUrl(url, refreshKey))
-      .filter(Boolean)
-    return {
-      name: item?.label || item?.className || item?.name || '未命名类别',
-      count: Number(item?.count || images.length || 0),
-      images
-    }
-  }).filter(group => group.images.length)
-}
-
-function summarizePreviewItems(items) {
-  if (!Array.isArray(items)) return '后端 data.items 不是数组'
-  if (!items.length) return '后端 data.items 是空数组'
-  return items.map((item, index) => {
-    const images = Array.isArray(item?.images) ? item.images : []
-    const first = images[0]
-    const keys = first && typeof first === 'object' ? Object.keys(first).join(',') : typeof first
-    return `#${index + 1} ${item?.label || item?.name || '未命名'}: images=${images.length}, firstKeys=${keys || '-'}`
-  }).join('；')
-}
-function seedObjectsFromTaskPreview(items, refreshKey = Date.now()) {
-  const cache = {}
-  ;(Array.isArray(items) ? items : []).forEach(item => {
-    const images = Array.isArray(item?.images) ? item.images : []
-    images.forEach(image => {
-      if (!image || typeof image === 'string') return
-      const src = previewImageUrl(image.url || image.src || '', refreshKey)
-      if (!src) return
-      if (image.width || image.height || Array.isArray(image.objects)) {
-        cache[src] = {
-          width: Number(image.width || 0),
-          height: Number(image.height || 0),
-          objects: Array.isArray(image.objects) ? image.objects : []
-        }
-      }
-    })
+function scrollToAnchor(href) {
+  if (!href || typeof href !== 'string') return
+  const target = document.querySelector(href)
+  if (!target) return
+  const top = target.getBoundingClientRect().top + window.scrollY - 84
+  window.scrollTo({
+    top: Math.max(top, 0),
+    behavior: 'smooth'
   })
-  objectsMeta.value = cache
 }
 
-function onTaskPreviewImageError(event, src) {
-  const target = event?.target
-  if (target) {
-    target.style.display = 'none'
-    target.parentElement?.classList.add('imgbox--fallback')
-  }
-  setPreviewTrace(`image:${src}`, 'error', '图片加载', `图片流加载失败：${src}`)
+function handleAnchorClick(e, href) {
+  e?.preventDefault?.()
+  scrollToAnchor(href)
 }
 
-async function ensureTaskPreviewObjects(src) {
-  if (!src || objectsMeta.value[src]) return
-  try {
-    const url = objectsUrlFromImageUrl(src)
-    const resp = await fetch(url, { cache: 'no-store' })
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-    const res = await resp.json()
-    if (res?.code !== undefined && res.code !== 0) throw new Error(res.msg || '标注接口返回失败')
-    const data = res?.data || res
-    if (data && (data.width || data.height || Array.isArray(data.objects))) {
-      objectsMeta.value = {
-        ...objectsMeta.value,
-        [src]: {
-          width: Number(data.width || 0),
-          height: Number(data.height || 0),
-          objects: Array.isArray(data.objects) ? data.objects : []
-        }
-      }
-      setPreviewTrace('objects', 'ok', '标注接口', '图片标注读取成功')
-    } else {
-      setPreviewTrace('objects', 'warn', '标注接口', '标注接口返回为空，图片可展示但没有框')
-    }
-  } catch (e) {
-    console.error('读取任务示例标注失败', e)
-    setPreviewTrace('objects', 'error', '标注接口', `读取标注失败：${e?.message || e}`)
-  }
-}
-
-function normalizePreviewPoint(point) {
-  if (Array.isArray(point)) return [Number(point[0] || 0), Number(point[1] || 0)]
-  if (typeof point === 'string') {
-    const parts = point.trim().split(/[\s,]+/).map(Number)
-    if (parts.length >= 2 && parts.every(Number.isFinite)) return [parts[0], parts[1]]
-  }
-  return null
-}
-
-function pointsAttr(points) {
-  if (!Array.isArray(points)) return ''
-  return points
-    .map(normalizePreviewPoint)
-    .filter(Boolean)
-    .map(point => point.join(','))
-    .join(' ')
-}
-
-function firstPoint(points) {
-  if (!Array.isArray(points)) return null
-  return normalizePreviewPoint(points[0])
-}
-
-function addPathDiagnostics(debug) {
-  if (!debug) return
-  setPreviewTrace(
-    'path-root',
-    debug.task_root_exists === false ? 'error' : 'ok',
-    '任务数据集目录',
-    `${debug.task_root || '-'}${debug.task_root_exists === false ? ' 不存在' : ''}`
-  )
-  setPreviewTrace(
-    'path-images',
-    debug.images_dir_exists === false ? 'error' : 'ok',
-    '图片目录',
-    `${debug.images_dir || '-'}${debug.images_dir_exists === false ? ' 不存在' : ''}`
-  )
-  setPreviewTrace(
-    'path-anno',
-    debug.annotation_file_exists === false ? 'error' : 'ok',
-    'COCO标注',
-    `${debug.annotation_file || '-'}${debug.annotation_file_exists === false ? ' 不存在' : ''}`
-  )
-  if (debug.coco_image_count !== undefined) {
-    setPreviewTrace('coco-count', 'ok', 'COCO内容', `图片 ${debug.coco_image_count}，标注 ${debug.coco_annotation_count || 0}，类别 ${debug.coco_category_count || 0}`)
-  }
-}
-
-function loadTaskPreview({ perLabel = 3 } = {}) {
-  if (!previewTaskRow.value?.name) {
-    throw new Error('缺少任务名称，无法加载示例')
-  }
-  return TaskDatasetDevService.previewTask(previewTaskRow.value.name, perLabel)
-}
-async function openTaskPreview(task) {
-  previewTaskRow.value = task || null
-  previewDialogVisible.value = true
-}
-
-async function refreshPreviewGroup(groupName) {
-  const taskName = previewTaskRow.value?.name
-  if (!taskName || !groupName) return
-  groupRefreshing.value = { ...groupRefreshing.value, [groupName]: true }
-  try {
-    const raw = await TaskDatasetDevService.previewTask(taskName, 3)
-    const { response: res, data } = unwrapPreviewData(raw)
-    addPathDiagnostics(data?.debug)
-    if (res?.code !== undefined && res.code !== 0) throw new Error(res?.msg || '刷新示例失败')
-    const refreshKey = Date.now()
-    const groups = normalizeTaskPreviewGroups(data?.items, refreshKey)
-    seedObjectsFromTaskPreview(data?.items, refreshKey)
-    const refreshed = groups.find(item => item.name === groupName)
-    if (refreshed) {
-      previewGroups.value = previewGroups.value.map(item => item.name === groupName ? refreshed : item)
-      setTimeout(() => refreshed.images.forEach(src => ensureTaskPreviewObjects(src)), 0)
-    }
-  } catch (e) {
-    console.error('刷新任务示例失败', e)
-    setPreviewTrace('refresh', 'error', '换一换', e?.message || '刷新示例失败')
-    ElMessage.error(e?.message || '刷新示例失败')
-  } finally {
-    groupRefreshing.value = { ...groupRefreshing.value, [groupName]: false }
-  }
-}
 async function submitEditTask() {
   const originalName = String(editForm.value.originalName || '').trim()
   const name = String(editForm.value.name || '').trim()
@@ -2245,7 +1684,7 @@ async function submitEditTask() {
     return
   }
   if (!(editForm.value.testDatasets || []).length) {
-    ElMessage.error('请至少选择一个原始数据集')
+    ElMessage.error('请至少选择一个数据集作为测试源')
     return
   }
 
@@ -2331,16 +1770,9 @@ async function saveMappingRules() {
   }
 }
 
-function onTaskListSectionResize() {
-  updateTaskCardDescrColumn()
-  nextTick(() => {
-    taskListTableRef.value?.doLayout?.()
-  })
-}
-
 onMounted(async () => {
-  onTaskListSectionResize()
-  window.addEventListener('resize', onTaskListSectionResize, { passive: true })
+  updateTaskCardDescrColumn()
+  window.addEventListener('resize', updateTaskCardDescrColumn, { passive: true })
 
   const [datasetRes, taskRes] = await Promise.allSettled([loadDatasets(), loadTasks()])
   if (taskRes.status === 'rejected') {
@@ -2349,160 +1781,24 @@ onMounted(async () => {
   if (datasetRes.status === 'rejected') {
     ElMessage.warning(`数据集列表加载失败：${datasetRes.reason?.message || datasetRes.reason}`)
   }
-  scheduleTaskListTableLayout()
+
+  if (!embedTaskList.value && route.query.task) {
+    const name = String(route.query.task)
+    selectedTaskName.value = name
+    await nextTick()
+    if (route.query.focusIssues === '1') {
+      const t = tasks.value.find(x => x.name === name)
+      if (t) await jumpToTaskMappingIssues(t)
+    }
+  }
 })
 
 onUnmounted(() => {
-  window.removeEventListener('resize', onTaskListSectionResize)
+  window.removeEventListener('resize', updateTaskCardDescrColumn)
 })
 </script>
 
 <style scoped>
-.task-preview-content {
-  min-height: 180px;
-  max-height: 72vh;
-  overflow-y: auto;
-  padding-right: 6px;
-}
-
-.preview-trace {
-  display: grid;
-  gap: 6px;
-  margin-bottom: 12px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--el-fill-color-lighter);
-  border: 1px solid var(--el-border-color-lighter);
-}
-
-.preview-trace__item {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.preview-trace__label {
-  flex: 0 0 90px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-}
-
-.preview-trace__message {
-  min-width: 0;
-  color: var(--el-text-color-regular);
-  word-break: break-all;
-}
-
-.preview-trace__item--ok .preview-trace__label {
-  color: var(--el-color-success);
-}
-
-.preview-trace__item--warn .preview-trace__label {
-  color: var(--el-color-warning);
-}
-
-.preview-trace__item--error .preview-trace__label {
-  color: var(--el-color-danger);
-}
-
-.task-preview-cat-list {
-  display: grid;
-  gap: 4px;
-}
-.task-preview-category {
-  padding: 14px 0 18px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
-}
-
-.task-preview-category:last-child {
-  border-bottom: 0;
-}
-
-.task-preview-category__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
-}
-
-.task-preview-category__count {
-  margin-left: 10px;
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-}
-
-.task-preview-images {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.task-preview-image-box,
-.task-preview-image {
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 6px;
-  background: var(--el-fill-color-light);
-  overflow: hidden;
-  position: relative;
-}
-
-.task-preview-photo {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: contain;
-  background: #fff;
-}
-
-.task-preview-anno-svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-  pointer-events: none;
-}
-
-.preview-anno-poly {
-  fill: rgba(64, 158, 255, 0.14);
-  stroke: #409eff;
-  stroke-width: 2;
-}
-
-.preview-anno-label {
-  fill: #fff;
-  stroke: rgba(0, 0, 0, 0.55);
-  stroke-width: 3;
-  paint-order: stroke;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.task-preview-image {
-  display: block;
-}
-
-.task-preview-image__error {
-  display: flex;
-  width: 100%;
-  height: 100%;
-  align-items: center;
-  justify-content: center;
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-}
-
-@media (max-width: 720px) {
-  .task-preview-images {
-    grid-template-columns: 1fr;
-  }
-}
-
 .doc-layout {
   display: flex;
   gap: 24px;
@@ -2596,44 +1892,12 @@ onUnmounted(() => {
   color: #303133;
 }
 
-/* 独立“任务管理”页：给原内嵌面板补齐页面外壳和高度，避免表格区域塌陷 */
-.unified-task-panel:not(.unified-task-panel--embed) {
-  padding: 10px;
-  background: #f5f7fa;
-  min-height: calc(100vh - 50px);
-  box-sizing: border-box;
-}
-
-.unified-task-panel:not(.unified-task-panel--embed) .content {
-  height: calc(100vh - 70px);
-  min-height: 560px;
-  display: flex;
-  flex-direction: column;
-}
-
-.unified-task-panel:not(.unified-task-panel--embed) .original-dataset-panel {
-  flex: 1 1 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.unified-task-panel:not(.unified-task-panel--embed) .original-dataset-panel :deep(.el-card__body) {
-  flex: 1 1 0;
-  min-height: 0;
+.section-block {
+  background: #fff;
+  border: 1px solid #e6e8ee;
+  border-radius: 12px;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.unified-task-panel:not(.unified-task-panel--embed) .original-dataset-panel__main--embed {
-  flex: 1 1 0;
-  min-height: 0;
-}
-/* 外层大卡片在统合页 #sec-task.section-block 上；本组件仅内层 el-card */
-.unified-task-panel {
-  min-width: 0;
-  max-width: 100%;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
 }
 
 .section-heading {
@@ -2878,40 +2142,19 @@ onUnmounted(() => {
   line-height: 1.55;
 }
 
+.table-task-name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .table-task-name {
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 200px;
-}
-
-.task-toolbar-status-filter {
-  min-width: 200px;
-  max-width: 300px;
-}
-
-.table-task-name-cell {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  width: 100%;
-}
-
-.table-task-name-cell .table-task-name {
-  max-width: min(100%, 320px);
-  flex: 1;
-  min-width: 0;
-}
-
-/* 仅「操作」列 fixed=right，样式作用在右侧固定层该列上。 */
-.task-list-table :deep(.el-table__fixed-right th.task-col-actions .cell),
-.task-list-table :deep(.el-table__fixed-right td.task-col-actions .cell) {
-  text-align: center;
-  box-sizing: border-box;
-  padding-left: 8px;
-  padding-right: 8px;
 }
 
 .task-list-table {
@@ -2934,29 +2177,11 @@ onUnmounted(() => {
   gap: 8px;
 }
 
-.task-table-actions.task-table-actions--table {
-  justify-content: center;
-  width: 100%;
-}
-
 
 .edit-meta-readonly {
   color: #606266;
   font-size: 14px;
   line-height: 1.6;
-}
-
-.edit-dialog-status-tags {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.edit-dialog-status-export-time {
-  margin-top: 8px;
-  color: #909399;
-  font-size: 13px;
 }
 
 .task-status-badges .mapping-status-tag--error.el-tag--danger {
@@ -3050,18 +2275,6 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.task-mapping-editor-dialog :deep(.el-dialog__body) {
-  max-height: calc(100vh - 140px);
-  overflow-y: auto;
-  padding-top: 8px;
-}
-
-.mapping-dialog-desc {
-  margin: 0 0 12px;
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
 }
 
 .mapping-summary {
@@ -3340,7 +2553,7 @@ onUnmounted(() => {
   color: #409eff;
 }
 
-.unified-task-panel :deep(.el-button--primary) {
+.section-block :deep(.el-button--primary) {
   --el-button-bg-color: #409eff;
   --el-button-border-color: #409eff;
   --el-button-hover-bg-color: #66b1ff;
@@ -3364,7 +2577,7 @@ onUnmounted(() => {
   gap: 12px;
 }
 
-.unified-task-panel :deep(.el-button--primary.is-plain) {
+.section-block :deep(.el-button--primary.is-plain) {
   --el-button-text-color: #409eff;
   --el-button-border-color: #b3d8ff;
   --el-button-bg-color: #ecf5ff;
@@ -3374,7 +2587,7 @@ onUnmounted(() => {
 }
 
 /* 仅统一「主色」类标签；勿覆盖 success/warning/danger/info，否则数据集状态等语义色会全部变蓝 */
-.unified-task-panel
+.section-block
   :deep(
     .el-tag:not(.el-tag--success):not(.el-tag--warning):not(.el-tag--danger):not(.el-tag--info)
   ) {
@@ -3384,7 +2597,7 @@ onUnmounted(() => {
 }
 
 /* 卡片内目标类别 / 关联数据集：白底（需压过上一段主色标签规则） */
-.unified-task-panel .task-card .info-tags--card-plain :deep(.el-tag) {
+.section-block .task-card .info-tags--card-plain :deep(.el-tag) {
   --el-tag-bg-color: #ffffff !important;
   --el-tag-border-color: #e4e7ed !important;
   --el-tag-text-color: #303133 !important;
@@ -3393,26 +2606,26 @@ onUnmounted(() => {
   color: #303133 !important;
 }
 
-.unified-task-panel :deep(.el-alert--warning) {
+.section-block :deep(.el-alert--warning) {
   --el-alert-bg-color: #fdfdfd;
   --el-alert-border-color: #ebeef5;
   --el-alert-title-color: #606266;
 }
 
-.unified-task-panel :deep(.el-input__wrapper),
-.unified-task-panel :deep(.el-select__wrapper),
-.unified-task-panel :deep(.el-textarea__inner) {
+.section-block :deep(.el-input__wrapper),
+.section-block :deep(.el-select__wrapper),
+.section-block :deep(.el-textarea__inner) {
   box-shadow: 0 0 0 1px #dcdfe6 inset;
   background: #ffffff;
 }
 
-.unified-task-panel :deep(.el-input__wrapper:hover),
-.unified-task-panel :deep(.el-select__wrapper:hover) {
+.section-block :deep(.el-input__wrapper:hover),
+.section-block :deep(.el-select__wrapper:hover) {
   box-shadow: 0 0 0 1px #a0cfff inset;
 }
 
-.unified-task-panel :deep(.el-input__wrapper.is-focus),
-.unified-task-panel :deep(.el-select__wrapper.is-focused) {
+.section-block :deep(.el-input__wrapper.is-focus),
+.section-block :deep(.el-select__wrapper.is-focused) {
   box-shadow: 0 0 0 1px #409eff inset;
 }
 
@@ -3473,128 +2686,5 @@ onUnmounted(() => {
     justify-content: flex-end;
   }
 }
-
-/* 与 originalDatasetManage 内嵌 el-card 同构：工具行 + 可滚动主体 + footer 分页 */
-.content.content--embed {
-  padding: 0;
-  background: transparent;
-}
-
-.original-dataset-toolbar-row {
-  margin-bottom: 8px;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-}
-
-.original-dataset-toolbar-row__right {
-  flex-shrink: 0;
-  align-items: center;
-}
-
-.original-dataset-toolbar-search {
-  width: 220px;
-}
-
-.flex-between {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 12px;
-  flex-wrap: wrap;
-}
-
-.flex-start {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  flex-wrap: wrap;
-}
-
-.gap-8 {
-  gap: 8px;
-}
-
-.original-dataset-panel {
-  border: 1px solid #ebeef5;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.original-dataset-panel :deep(.el-card__body) {
-  padding: 6px 16px 0;
-}
-
-.original-dataset-panel :deep(.el-card__footer) {
-  padding: 12px 16px;
-  border-top: 1px solid #ebeef5;
-  background: #fafafa;
-}
-
-/* 与 originalDatasetManage 的 .original-dataset-panel__footer 一致，避免分页控件贴边、挤作一团 */
-.original-dataset-panel__footer {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px 16px;
-  row-gap: 10px;
-  width: 100%;
-  min-height: 40px;
-  box-sizing: border-box;
-  padding: 2px 0 4px;
-}
-
-.original-dataset-panel.original-dataset-panel--embed {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  border: none;
-  border-radius: 0;
-}
-
-.original-dataset-panel.original-dataset-panel--embed :deep(.el-card__body) {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  padding: 4px 0 0;
-}
-
-.original-dataset-panel.original-dataset-panel--embed :deep(.el-card__footer) {
-  flex-shrink: 0;
-  /* 与 content--embed 下「原始数据集」一致：不重复铺灰底，由统合区 section 已提供左右留白 */
-  padding: 12px 0 0;
-  background: transparent;
-}
-
-.original-dataset-panel__main--embed {
-  flex: 1 1 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.original-dataset-panel__main--embed > .original-dataset-toolbar-row {
-  flex-shrink: 0;
-}
-
-.original-dataset-panel__scroll {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow: auto;
-}
-
-.table-div--embed-scroll {
-  width: 100%;
-  min-height: 0;
-  flex: 1 1 0;
-}
 </style>
-
-
-
 

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <el-container>
     <el-header class="flex-between header-layout">
       <div class="flex-between not-select">
@@ -79,7 +79,7 @@
         </el-space>
       </div>
     </el-header>
-    <el-container>
+    <el-container class="body-layout">
       <el-aside class="not-select" width="auto" v-if="menuMode" style="min-width: 150px;">
         <!-- <el-menu router :collapse="isCollapse" :collapse-transition="false" mode="vertical">
           <template v-for="item in menuStore.menuList">
@@ -202,7 +202,7 @@ const changeMenuMode = () => {
 }
 
 const showPageTitleBar = computed(
-  () => !['taskDatasetManageDev', 'datasetManageUnified'].includes(String(route.name || ''))
+  () => !['taskDatabaseManage', 'taskDatasetManageDev', 'datasetManageUnified'].includes(String(route.name || ''))
 )
 
 
@@ -442,6 +442,11 @@ onBeforeUnmount(() => {
 }
 
 .header-layout {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2000;
   /* background: #074080; */
   /* 0b3768 */
   background: var(--el-color-primary);
@@ -453,6 +458,11 @@ onBeforeUnmount(() => {
 .avatar-user {
   background: url("/imgs/user.png");
   margin-right: 10px;
+}
+
+.body-layout {
+  padding-top: 50px;
+  min-height: 100vh;
 }
 
 .page-content {
@@ -548,3 +558,5 @@ onBeforeUnmount(() => {
   color: gray
 }
 </style>
+
+

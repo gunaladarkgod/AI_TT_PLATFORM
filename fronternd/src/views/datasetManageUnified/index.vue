@@ -1,8 +1,16 @@
-<template>
+﻿<template>
   <div class="page-shell">
     <div class="doc-layout">
       <aside class="doc-left">
-        <div class="doc-left-placeholder"></div>
+        <div class="anchor-wrapper">
+          <div class="anchor-title">Contents</div>
+          <el-anchor :offset="64" class="page-anchor" @click="handleAnchorClick">
+            <el-anchor-link href="#sec-original" title="原始数据集" />
+            <el-anchor-link href="#sec-task" title="任务管理" />
+            <el-anchor-link href="#sec-preprocess" title="实例数据集预处理" />
+            <el-anchor-link href="#sec-instance" title="实例数据集" />
+          </el-anchor>
+        </div>
       </aside>
 
       <main class="doc-main">
@@ -71,6 +79,7 @@
               v-model:task-view-as-table="taskViewAsTable"
               :dataset-refresh-key="datasetRefreshKey"
               :task-refresh-key="taskRefreshKey"
+              :embed-mode="true"
               @mid-dataset-changed="handleMidDatasetChanged"
             />
           </div>
@@ -128,17 +137,6 @@
         </section>
       </main>
 
-      <aside class="doc-right">
-        <div class="anchor-wrapper">
-          <div class="anchor-title">Contents</div>
-          <el-anchor :offset="90" class="page-anchor" @click="handleAnchorClick">
-            <el-anchor-link href="#sec-original" title="原始数据集" />
-            <el-anchor-link href="#sec-task" title="任务管理" />
-            <el-anchor-link href="#sec-preprocess" title="实例数据集预处理" />
-            <el-anchor-link href="#sec-instance" title="实例数据集" />
-          </el-anchor>
-        </div>
-      </aside>
     </div>
     <el-backtop :right="36" :bottom="40" />
   </div>
@@ -148,7 +146,7 @@
 import { ref, onMounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import OriginalDatasetManage from '@/views/originalDatasetManage/index.vue'
-import TaskManagementUnifiedPanel from '@/views/datasetManageUnified/TaskManagementUnifiedPanel.vue'
+import TaskManagementUnifiedPanel from '@/views/taskDatabaseManage/index.vue'
 import PreprocessPage from '@/views/preprocess/index.vue'
 import InstanceDatabasePage from '@/views/intanceDatabase/index.vue'
 
@@ -172,7 +170,7 @@ function scrollToAnchor(href) {
   if (!href || typeof href !== 'string') return
   const target = document.querySelector(href)
   if (!target) return
-  const top = target.getBoundingClientRect().top + window.scrollY - 84
+  const top = target.getBoundingClientRect().top + window.scrollY - 64
   window.scrollTo({
     top: Math.max(top, 0),
     behavior: 'smooth'
@@ -211,34 +209,29 @@ watch(
   gap: 24px;
   align-items: flex-start;
   background: #ffffff;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 28px 0 24px;
 }
 
 .doc-left {
-  width: 220px;
-  min-width: 220px;
-}
-
-.doc-left-placeholder {
-  min-height: calc(100vh - 120px);
+  width: 210px;
+  min-width: 210px;
+  align-self: stretch;
 }
 
 .doc-main {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: 1240px;
-}
-
-.doc-right {
-  width: 220px;
-  min-width: 220px;
+  max-width: none;
+  width: calc(100% - 234px);
 }
 
 .anchor-wrapper {
-  position: fixed;
-  top: 88px;
-  right: 10px;
-  width: 200px;
-  padding-top: 8px;
+  position: sticky;
+  top: 58px;
+  width: 100%;
+  padding: 0px 0 0px;
   background: transparent;
   z-index: 10;
 }
@@ -513,3 +506,8 @@ watch(
   line-height: 1.75;
 }
 </style>
+
+
+
+
+

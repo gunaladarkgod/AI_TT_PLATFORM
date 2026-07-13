@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia'
+﻿import { defineStore } from 'pinia'
 import router from '@/router'
 import { transformRoutes,buildMenuTree} from '@/utils/routeUtils'
 import {MenuService} from '@/api/api'
@@ -34,6 +34,22 @@ function injectDevTaskDatasetMenu(menuList = []) {
       parent_id: 0
     })
   }
+  return list
+}
+function injectOldTaskDatabaseMenu(menuList = []) {
+  const list = Array.isArray(menuList) ? [...menuList] : []
+  if (list.some(item => item && item.url === 'taskDatabaseManageOld')) return list
+  const taskMenu = list.find(item => item && (item.url === 'taskDatabaseManage' || item.url === 'taskDatasetbaseManage'))
+  const orderNum = taskMenu ? Number(taskMenu.order_num || 0) + 0.06 : 106
+  list.push({
+    id: 99994,
+    url: 'taskDatabaseManageOld',
+    name: '任务管理（old）',
+    component: 'old_views/taskDatabaseManageOld/index.vue',
+    order_num: orderNum,
+    is_hidden: 0,
+    parent_id: 0
+  })
   return list
 }
 
@@ -133,6 +149,7 @@ export const useMenuStore=defineStore({
         // 从接口获取菜单数据
         const  data = await apiRequest(MenuService.queryList)
         let withDevMenu = injectDevTaskDatasetMenu(data)
+        withDevMenu = injectOldTaskDatabaseMenu(withDevMenu)
         withDevMenu = injectDevTrainTaskClearMLMenu(withDevMenu)
         withDevMenu = ensureTopNavigationMenus(withDevMenu)
         this.menuList = withDevMenu
@@ -175,4 +192,5 @@ export const useMenuStore=defineStore({
     }
   },
 })
+
 

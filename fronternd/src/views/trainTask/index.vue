@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="content-div">
     <div class="search-div flex-between">
       <div class="flex-start">
@@ -222,6 +222,7 @@
         <div class="runner-status-row">
           <el-text size="small" class="runner-status-text">{{ runnerHealthDetail }}</el-text>
           <el-button type="primary" link size="small" @click="refreshRunnerHealth">刷新</el-button>
+          <el-button type="success" link size="small" :loading="runnerStartLoading" @click="startRunner">启动</el-button>
         </div>
       </el-alert>
     </div>
@@ -2374,6 +2375,7 @@ const showExt = ref(false)
 
 const runnerHealthOk = ref(null)
 const runnerHealthDetail = ref('正在检测 Runner 服务…')
+const runnerStartLoading = ref(false)
 let runnerHealthTimer = null
 const runnerBaseUrl = `${window.location.protocol}//${window.location.hostname}:8009`
 
@@ -2402,6 +2404,55 @@ const refreshRunnerHealth = async () => {
   }
 }
 
+const runnerStartDetailText = (data) => {
+  if (!data) return '后端没有返回启动详情'
+  const parts = []
+  if (data.message) parts.push(data.message)
+  if (data.error) parts.push(`错误：${data.error}`)
+  if (data.script) parts.push(`脚本：${data.script}`)
+  if (data.log) parts.push(`日志：${data.log}`)
+  if (data.pid) parts.push(`PID：${data.pid}`)
+  if (data.exitCode != null) parts.push(`退出码：${data.exitCode}`)
+  const health = data.health || data.beforeHealth
+  if (health?.error) parts.push(`健康检查：${health.error}`)
+  if (health?.httpStatus != null) parts.push(`健康检查 HTTP：${health.httpStatus}`)
+  if (health?.bodyPreview) parts.push(`健康检查返回：${health.bodyPreview}`)
+  if (data.logTail) parts.push(`日志尾部：\n${data.logTail}`)
+  return parts.join('\n') || JSON.stringify(data, null, 2)
+}
+
+const startRunner = async () => {
+  if (runnerStartLoading.value) return
+  runnerStartLoading.value = true
+  runnerHealthDetail.value = '正在启动 Runner，请稍候…'
+  try {
+    const res = await TrainTaskService.startRunner({})
+    if (res.code !== 0) {
+      runnerHealthOk.value = false
+      runnerHealthDetail.value = res.msg || 'Runner 启动接口返回失败'
+      await ElMessageBox.alert(runnerHealthDetail.value, 'Runner 启动失败', { type: 'error' })
+      return
+    }
+    const data = res.data || {}
+    const detail = runnerStartDetailText(data)
+    runnerHealthOk.value = !!data.ok
+    runnerHealthDetail.value = data.ok
+      ? `Runner 可用。${data.message || ''}${data.pid ? ` PID ${data.pid}` : ''}`
+      : detail
+    if (data.ok) {
+      ElMessage.success(data.message || 'Runner 启动成功')
+      await refreshRunnerHealth()
+    } else {
+      await ElMessageBox.alert(detail, 'Runner 启动失败', { type: 'error', dangerouslyUseHTMLString: false })
+    }
+  } catch (e) {
+    runnerHealthOk.value = false
+    runnerHealthDetail.value = 'Runner 启动请求失败：' + (e?.message || String(e))
+    await ElMessageBox.alert(runnerHealthDetail.value, 'Runner 启动失败', { type: 'error' })
+  } finally {
+    runnerStartLoading.value = false
+  }
+}
 const handleCurrentChange = () => {
   let time_range = searchCreateRange.value
   let start_time = null
@@ -5332,3 +5383,5 @@ const labelsHandleClose = (val) => {
 }
 
 </style>
+
+

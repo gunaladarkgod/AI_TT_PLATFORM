@@ -40,6 +40,7 @@
               v-loading="instanceLoading"
               @sort-change="onInstanceTableSortChange"
               @filter-change="onInstanceTableFilterChange"
+              @row-click="handleTaskRowClick"
               :row-class-name="getTreeRowClassName"
               v-el-height-adaptive-table="{ bottomOffset: 70, isUse: !embedMode }"
             >
@@ -70,7 +71,10 @@
               <el-table-column label="操作" align="center" width="120" fixed="right">
                 <template #default="{ row }">
                   <el-dropdown v-if="row.__rowType === 'child'" trigger="click" @command="cmd => handleInstanceRowCommand(cmd, row)">
-                    <el-button link type="primary" size="small" @click.stop>操作</el-button>
+                    <el-button type="primary" plain size="small" @click.stop>
+                      操作
+                      <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                    </el-button>
                     <template #dropdown>
                       <el-dropdown-menu>
                         <el-dropdown-item command="preview">查看示例</el-dropdown-item>
@@ -193,7 +197,7 @@
       }"
     >
       <div v-if="!embedUnifiedToolbar" class="task-title-row split-layout__toolbar">
-        <h4 class="panel-title">任务数据集（请点选）</h4>
+<!--        <h4 class="panel-title">任务数据集（请点选）</h4>-->
         <div class="task-title-toolbar">
           <el-switch
             v-model="effectiveTaskViewAsTable"
@@ -218,6 +222,7 @@
               v-loading="instanceLoading"
               @sort-change="onInstanceTableSortChange"
               @filter-change="onInstanceTableFilterChange"
+              @row-click="handleTaskRowClick"
               :row-class-name="getTreeRowClassName"
               v-el-height-adaptive-table="{ bottomOffset: 70, isUse: !embedMode }"
             >
@@ -248,7 +253,10 @@
               <el-table-column label="操作" align="center" width="120" fixed="right">
                 <template #default="{ row }">
                   <el-dropdown v-if="row.__rowType === 'child'" trigger="click" @command="cmd => handleInstanceRowCommand(cmd, row)">
-                    <el-button link type="primary" size="small" @click.stop>操作</el-button>
+                    <el-button type="primary" plain size="small" @click.stop>
+                      操作
+                      <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                    </el-button>
                     <template #dropdown>
                       <el-dropdown-menu>
                         <el-dropdown-item command="preview">查看示例</el-dropdown-item>
@@ -549,6 +557,7 @@ import { TaskDatasetService, InstanceDatasetService, SourceInstanceDatasetServic
 import { useRouter } from 'vue-router'
 import { baseHost, request } from '@/api/axios'
 import DatasetPreviewDialog from '@/components/dataset/DatasetPreviewDialog.vue'
+import { ArrowDown } from '@element-plus/icons-vue'
 
 const router = useRouter()
 
@@ -1177,13 +1186,20 @@ const fetchInstanceList = async (fatherName) => {
 }
 
 const handleTaskRowClick = (row, _column, event) => {
-  if (row?.__rowType === 'child') return
   if (event?.target) {
     if (event.target.closest('.el-table__column-filter-trigger')) return
+    if (event.target.closest('.el-table__expand-icon')) return
     if (event.target.closest('.el-popper')) return
-    if (event.target.closest('button, .el-button')) return
+    if (event.target.closest('button, .el-button, .el-dropdown, a, input, textarea')) return
+  }
+  if (row?.__rowType === 'child') {
+    openInstancePreview(row)
+    return
   }
   handleTaskSelect(row)
+  nextTick(() => {
+    instanceTaskTableRef.value?.toggleRowExpansion?.(row)
+  })
 }
 
 const handleTaskSelect = (row) => {
@@ -1891,5 +1907,4 @@ onMounted(() => {
   background-color: #fff;
 }
 </style>
-
 
