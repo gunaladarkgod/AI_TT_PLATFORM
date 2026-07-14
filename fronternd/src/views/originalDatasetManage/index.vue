@@ -455,10 +455,10 @@
     <el-dialog
         v-model="importDialogVisible"
         title="导入外来数据集"
-        width="560px"
+        :width="batchImportItems.length ? '900px' : '560px'"
         :close-on-click-modal="false"
     >
-      <el-form label-width="110px">
+      <el-form v-if="!batchImportItems.length" label-width="110px">
         <el-form-item label="数据集路径">
           <el-input
               v-model="importForm.path"
@@ -469,6 +469,19 @@
             </template>
           </el-input>
         </el-form-item>
+        <el-form-item v-if="importForm.annotationDirCandidates.length" label="标注目录">
+          <el-select v-model="importForm.annotationDir" style="width: 100%" @change="resetImportStatus">
+            <el-option
+                v-for="dir in importForm.annotationDirCandidates"
+                :key="dir"
+                :label="dir"
+                :value="dir"
+            />
+          </el-select>
+          <div v-if="importForm.annotationDirCandidates.length > 1" class="form-tip">
+            检测到多个可能的标注目录，请选择本次导入使用的目录。
+          </div>
+        </el-form-item>
         <el-form-item label="显示名称">
           <el-input
               v-model="importForm.name"
@@ -477,6 +490,51 @@
           />
         </el-form-item>
       </el-form>
+
+      <el-alert
+          v-else
+          type="info"
+          show-icon
+          :closable="false"
+          title="批量模式会并发校验所选目录，并串行写入导入记录；无效目录不会导入。"
+          style="margin-bottom: 12px;"
+      />
+
+      <el-table
+          v-if="batchImportItems.length"
+          :data="batchImportItems"
+          size="small"
+          border
+          max-height="300"
+          style="margin-bottom: 12px;"
+      >
+        <el-table-column prop="path" label="批量导入路径" min-width="250" show-overflow-tooltip />
+        <el-table-column label="显示名称" min-width="150">
+          <template #default="{ row }">
+            <el-input v-model="row.name" size="small" @input="row.valid = false; row.message = '名称已修改，请重新校验'" />
+          </template>
+        </el-table-column>
+        <el-table-column label="标注目录" min-width="135">
+          <template #default="{ row }">
+            <el-select
+                v-if="row.annotationDirCandidates?.length"
+                v-model="row.annotationDir"
+                size="small"
+                @change="row.valid = false; row.checked = false; row.message = '标注目录已修改，请重新校验'"
+            >
+              <el-option v-for="dir in row.annotationDirCandidates" :key="dir" :label="dir" :value="dir" />
+            </el-select>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" min-width="180">
+          <template #default="{ row }">
+            <el-text :type="row.valid ? 'success' : (row.checked ? 'danger' : 'info')">
+              {{ row.message || '待校验' }}
+            </el-text>
+          </template>
+        </el-table-column>
+      </el-table>
 
       <div v-if="importStatus.msg" :style="{ color: importStatus.ok ? '#67c23a' : '#f56c6c', marginBottom: '8px' }">
         {{ importStatus.msg }}
@@ -517,6 +575,7 @@
         </el-button>
       </div>
       <el-table
+          ref="dirBrowserTableRef"
           v-loading="dirBrowseLoading"
           :data="dirBrowserRows"
           height="360"
@@ -524,7 +583,9 @@
           border
           empty-text="当前目录下没有子目录"
           @row-dblclick="openDirBrowserRow"
+          @selection-change="onDirBrowserSelectionChange"
       >
+        <el-table-column type="selection" width="48" />
         <el-table-column prop="name" label="目录名" min-width="260" show-overflow-tooltip />
         <el-table-column prop="path" label="路径" min-width="320" show-overflow-tooltip />
         <el-table-column label="操作" width="150" fixed="right">
@@ -536,8 +597,11 @@
       </el-table>
       <template #footer>
         <el-button @click="dirBrowserVisible = false">取消</el-button>
+        <el-button type="success" :disabled="!dirBrowserMultiSelection.length" @click="confirmBatchDirBrowserSelection">
+          批量选择（{{ dirBrowserMultiSelection.length }}）
+        </el-button>
         <el-button type="primary" :disabled="!dirBrowserSelectedPath" @click="confirmSelectDirBrowserPath(dirBrowserSelectedPath)">
-          确定
+          单选确定
         </el-button>
       </template>
     </el-dialog>
@@ -857,6 +921,9 @@ const uploadRootName = ref('')
 const uploadProgress = ref(0)
 const dirBrowserVisible = ref(false)
 const dirBrowseLoading = ref(false)
+const dirBrowserTableRef = ref(null)
+const dirBrowserMultiSelection = ref([])
+const batchImportItems = ref([])
 const dirBrowser = ref({
   base: '',
   parent: null,
@@ -865,7 +932,9 @@ const dirBrowser = ref({
 const dirBrowserSelectedPath = ref('')
 const importForm = ref({
   path: '',
-  name: ''
+  name: '',
+  annotationDir: '',
+  annotationDirCandidates: []
 })
 const importStatus = ref({
   ok: false,
@@ -1131,7 +1200,8 @@ function resetImportStatus() {
 
 function openImportDialog() {
   importDialogVisible.value = true
-  importForm.value = { path: '', name: '' }
+  importForm.value = { path: '', name: '', annotationDir: '', annotationDirCandidates: [] }
+  batchImportItems.value = []
   resetImportStatus()
 }
 
@@ -1165,6 +1235,7 @@ function joinDirPath(base, name) {
 
 async function loadBrowseDirs(base = '') {
   dirBrowseLoading.value = true
+  dirBrowserMultiSelection.value = []
   try {
     const res = await OriginalDatasetService.browseExternal(base || '')
     if (res?.code === 0) {
@@ -1185,6 +1256,28 @@ async function loadBrowseDirs(base = '') {
   } finally {
     dirBrowseLoading.value = false
   }
+}
+
+function onDirBrowserSelectionChange(rows) {
+  dirBrowserMultiSelection.value = Array.isArray(rows) ? rows : []
+}
+
+function confirmBatchDirBrowserSelection() {
+  const paths = [...new Set(dirBrowserMultiSelection.value.map(row => String(row?.path || '').trim()).filter(Boolean))]
+  if (!paths.length) return
+  batchImportItems.value = paths.map(path => ({
+    path,
+    name: inferDatasetNameFromPath(path),
+    checked: false,
+    valid: false,
+    annotationDir: '',
+    annotationDirCandidates: [],
+    message: ''
+  }))
+  importForm.value = { path: '', name: '', annotationDir: '', annotationDirCandidates: [] }
+  resetImportStatus()
+  dirBrowserVisible.value = false
+  ElMessage.success(`已选择 ${paths.length} 个目录，请批量校验`)
 }
 
 async function openDirectoryBrowser() {
@@ -1225,6 +1318,8 @@ async function confirmSelectDirBrowserPath(path) {
 function confirmDirBrowserSelection() {
   if (!dirBrowserSelectedPath.value) return
   importForm.value.path = dirBrowserSelectedPath.value
+  importForm.value.annotationDir = ''
+  importForm.value.annotationDirCandidates = []
   if (!importForm.value.name) {
     importForm.value.name = inferDatasetNameFromPath(dirBrowserSelectedPath.value)
   }
@@ -1291,6 +1386,10 @@ async function pickLocalDir() {
 }
 
 async function checkImportPath() {
+  if (batchImportItems.value.length) {
+    await checkBatchImportPaths()
+    return
+  }
   const p = (importForm.value.path || '').trim()
   if (!p) {
     importStatus.value = { ok: false, msg: '请先填写数据集路径', imgNum: 0, annoNum: 0, classNum: 0 }
@@ -1298,7 +1397,10 @@ async function checkImportPath() {
   }
   importChecking.value = true
   try {
-    const res = await OriginalDatasetService.validateExternal({ path: p })
+    const res = await OriginalDatasetService.validateExternal({
+      path: p,
+      annotationDir: importForm.value.annotationDir || ''
+    })
     if (res?.code === 0) {
       const d = res.data || {}
       importStatus.value = {
@@ -1311,6 +1413,11 @@ async function checkImportPath() {
       if (!importForm.value.name) {
         importForm.value.name = d.suggestName || ''
       }
+      importForm.value.annotationDirCandidates = d.annotationDirCandidates || []
+      importForm.value.annotationDir = d.annotationDir || importForm.value.annotationDir || ''
+      if (importForm.value.annotationDirCandidates.length > 1) {
+        importStatus.value.msg = `路径有效；检测到多个标注目录，当前使用 ${importForm.value.annotationDir}`
+      }
     } else {
       importStatus.value = { ok: false, msg: res?.msg || '路径校验失败', imgNum: 0, annoNum: 0, classNum: 0 }
     }
@@ -1321,7 +1428,52 @@ async function checkImportPath() {
   }
 }
 
+async function checkBatchImportPaths() {
+  importChecking.value = true
+  try {
+    await Promise.all(batchImportItems.value.map(async item => {
+      item.checked = false
+      item.valid = false
+      item.message = '校验中...'
+      try {
+        const res = await OriginalDatasetService.validateExternal({
+          path: item.path,
+          annotationDir: item.annotationDir || ''
+        })
+        item.checked = true
+        if (res?.code === 0) {
+          const d = res.data || {}
+          item.valid = true
+          item.name = item.name || d.suggestName || inferDatasetNameFromPath(item.path)
+          item.annotationDirCandidates = d.annotationDirCandidates || []
+          item.annotationDir = d.annotationDir || item.annotationDir || ''
+          item.message = `有效（${item.annotationDir}）：图片 ${d.imgNum ?? 0}，标注框 ${d.annoNum ?? 0}，类别 ${d.classNum ?? 0}`
+        } else {
+          item.message = res?.msg || '路径校验失败'
+        }
+      } catch (e) {
+        item.checked = true
+        item.message = `校验失败：${e?.message || e}`
+      }
+    }))
+    const validCount = batchImportItems.value.filter(item => item.valid).length
+    importStatus.value = {
+      ok: validCount > 0,
+      msg: `批量校验完成：${validCount} 个有效，${batchImportItems.value.length - validCount} 个无效`,
+      imgNum: 0,
+      annoNum: 0,
+      classNum: 0
+    }
+  } finally {
+    importChecking.value = false
+  }
+}
+
 async function confirmImport() {
+  if (batchImportItems.value.length) {
+    await confirmBatchImport()
+    return
+  }
   const path = (importForm.value.path || '').trim()
   const name = (importForm.value.name || '').trim()
   if (false && uploadFiles.value.length) {
@@ -1364,7 +1516,11 @@ async function confirmImport() {
   }
   importing.value = true
   try {
-    const res = await OriginalDatasetService.importExternal({ name, path })
+    const res = await OriginalDatasetService.importExternal({
+      name,
+      path,
+      annotationDir: importForm.value.annotationDir || ''
+    })
     if (res?.code === 0) {
       ElMessage.success(res?.msg || '导入成功')
       importDialogVisible.value = false
@@ -1375,6 +1531,62 @@ async function confirmImport() {
     }
   } catch (e) {
     ElMessage.error(`导入失败：${e?.message || e}`)
+  } finally {
+    importing.value = false
+  }
+}
+
+async function confirmBatchImport() {
+  if (batchImportItems.value.some(item => !item.checked)) {
+    await checkBatchImportPaths()
+  }
+  const validItems = batchImportItems.value.filter(item => item.valid)
+  if (!validItems.length) {
+    ElMessage.warning('没有校验通过的目录可导入')
+    return
+  }
+  const emptyName = validItems.find(item => !String(item.name || '').trim())
+  if (emptyName) {
+    emptyName.message = '显示名称不能为空'
+    emptyName.valid = false
+    ElMessage.warning('请补充所有有效数据集的显示名称')
+    return
+  }
+
+  importing.value = true
+  let successCount = 0
+  try {
+    // 注册表接口采用整表读写，必须串行导入，避免并发写入互相覆盖。
+    for (const item of validItems) {
+      try {
+        item.message = '导入中...'
+        const res = await OriginalDatasetService.importExternal({
+          name: String(item.name).trim(),
+          path: item.path,
+          annotationDir: item.annotationDir || ''
+        })
+        if (res?.code === 0) {
+          successCount += 1
+          item.valid = false
+          item.message = '导入成功'
+        } else {
+          item.message = res?.msg || '导入失败'
+        }
+      } catch (e) {
+        item.message = `导入失败：${e?.message || e}`
+      }
+    }
+    if (successCount) {
+      await loadDatasets()
+      emit('datasetChanged')
+    }
+    const failedCount = validItems.length - successCount
+    if (!failedCount) {
+      ElMessage.success(`批量导入成功，共 ${successCount} 个数据集`)
+      importDialogVisible.value = false
+    } else {
+      ElMessage.warning(`已导入 ${successCount} 个，失败 ${failedCount} 个，请查看状态`)
+    }
   } finally {
     importing.value = false
   }
@@ -2274,5 +2486,3 @@ defineExpose({
   margin-bottom: 10px;
 }
 </style>
-
-

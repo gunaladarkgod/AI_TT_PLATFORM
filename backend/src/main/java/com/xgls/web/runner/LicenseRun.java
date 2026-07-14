@@ -7,6 +7,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import com.xgls.web.license.LicenseUtil;
+import com.xgls.web.utils.WorkspacePathUtil;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -22,7 +23,9 @@ public class LicenseRun implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) throws Exception {
         if (enable) {
-            if (LicenseUtil.checkLiscense(licensePath)) {
+            String resolvedLicense = WorkspacePathUtil.resolveConfiguredPath(
+                    licensePath, "config/license.lic").toString();
+            if (LicenseUtil.checkLiscense(resolvedLicense)) {
                 log.info("{}", "^_^~~~~~~License verification succeeded. Starting application...");
             } else {
                 log.error("{}", "-_-!~~~~~~~~~License verification failed...");

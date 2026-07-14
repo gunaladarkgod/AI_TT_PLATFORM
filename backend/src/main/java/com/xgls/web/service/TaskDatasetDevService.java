@@ -28,6 +28,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.FileVisitResult;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.net.URLEncoder;
@@ -37,7 +38,7 @@ import java.util.*;
 @Service
 public class TaskDatasetDevService {
 
-    @Value("${sys.original-dataset-root:/home/omen1/AI_TT_Platform/data/original_dataset}")
+    @Value("${sys.original-dataset-root:data/original_dataset}")
     private String originalDatasetRoot;
     private final TaskDataset1Service taskDatasetService;
     private final OriginalDataset1Service originalDatasetService;
@@ -1085,17 +1086,17 @@ public class TaskDatasetDevService {
     private List<DatasetSource> resolveDatasetSources(List<String> datasetNames) {
         List<DatasetSource> out = new ArrayList<>();
         if (datasetNames == null || datasetNames.isEmpty()) return out;
-        Map<String, String> externalMap = readExternalRegistryMap();
+        Map<String, ExternalRegistrySource> externalMap = readExternalRegistryMap();
         List<OriginalDataset> allOriginals = originalDatasetService.getAllOriginalDatasets();
 
         for (String name : datasetNames) {
             String n = trim(name);
             if (StrUtil.isBlank(n)) continue;
-            String ext = externalMap.get(n);
-            if (StrUtil.isNotBlank(ext)) {
-                Path root = normalizeDatasetRoot(Paths.get(ext));
+            ExternalRegistrySource ext = externalMap.get(n);
+            if (ext != null && StrUtil.isNotBlank(ext.path)) {
+                Path root = normalizeDatasetRoot(Paths.get(ext.path));
                 if (root != null) {
-                    out.add(new DatasetSource(n, root));
+                    out.add(new DatasetSource(n, root, ext.annotationDir));
                     continue;
                 }
             }
@@ -1110,10 +1111,11 @@ public class TaskDatasetDevService {
         return out;
     }
 
-    private Map<String, String> readExternalRegistryMap() {
-        Map<String, String> out = new LinkedHashMap<>();
+    private Map<String, ExternalRegistrySource> readExternalRegistryMap() {
+        Map<String, ExternalRegistrySource> out = new LinkedHashMap<>();
         try {
-            Path file = Paths.get(originalDatasetRoot).normalize().resolve("external_dataset_registry.json");
+            Path file = WorkspacePathUtil.resolveConfiguredPath(originalDatasetRoot, "data/original_dataset")
+                    .resolve("external_dataset_registry.json");
             if (!Files.exists(file)) return out;
             String txt = Files.readString(file, StandardCharsets.UTF_8);
             if (StrUtil.isBlank(txt)) return out;
@@ -1125,7 +1127,7 @@ public class TaskDatasetDevService {
                 String name = trim(jo.get("name"));
                 String path = trim(jo.get("path"));
                 if (StrUtil.isNotBlank(name) && StrUtil.isNotBlank(path)) {
-                    out.put(name, path);
+                    out.put(name, new ExternalRegistrySource(path, trim(jo.get("annotationDir"))));
                 }
             }
         } catch (Exception ignored) {
@@ -1182,10 +1184,10 @@ public class TaskDatasetDevService {
         Files.createDirectories(outImages);
         Files.createDirectories(outAnnotations);
 
-        CocoExportAccumulator acc = new CocoExportAccumulator(target, outImages, mappedTargetCounts);
+        CocoExportAccumulator acc = new CocoExportAccumulator(target, outImages, outAnnotations, mappedTargetCounts);
         int exportedSourceCount = 0;
         for (DatasetSource source : sources) {
-            ResolvedExportPaths paths = resolveExportPaths(source.root);
+            ResolvedExportPaths paths = resolveExportPaths(source.root, source.annotationDir);
             if (paths == null) continue;
             JSONObject oneMap = mappingRules != null ? mappingRules.getJSONObject(source.datasetName) : null;
             Map<String, String> labelMap = new LinkedHashMap<>();
@@ -1207,6 +1209,7 @@ public class TaskDatasetDevService {
             }
         }
         if (acc.imageCount() > 0) {
+            validatePairedMidExport(outImages, outAnnotations);
             Path cocoFile = outAnnotations.resolve("instances.json");
             Files.writeString(cocoFile, JSONUtil.toJsonPrettyStr(acc.toCoco()), StandardCharsets.UTF_8);
 
@@ -1233,6 +1236,26 @@ public class TaskDatasetDevService {
             deleteDirectoryRecursively(outRoot);
         }
         return exportedSourceCount;
+    }
+
+    private void validatePairedMidExport(Path imagesDir, Path annotationsDir) throws IOException {
+        List<Path> images = new ArrayList<>();
+        try (var walk = Files.walk(imagesDir)) {
+            walk.filter(Files::isRegularFile).forEach(images::add);
+        }
+        if (images.isEmpty()) throw new IllegalStateException("标签映射后没有可导出的图片");
+        List<String> missing = new ArrayList<>();
+        for (Path image : images) {
+            String fileName = image.getFileName().toString();
+            int dot = fileName.lastIndexOf('.');
+            String stem = dot > 0 ? fileName.substring(0, dot) : fileName;
+            Path annotation = annotationsDir.resolve(stem + ".txt");
+            if (!Files.isRegularFile(annotation) || Files.size(annotation) == 0L) missing.add(fileName);
+        }
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException("中间实例数据集导出不完整，图片缺少映射后的同名标注: "
+                    + String.join(", ", missing.subList(0, Math.min(10, missing.size()))));
+        }
     }
 
     private void exportSplitToCoco(String datasetName, String split, Path imageDir, Path annoDir,
@@ -1578,9 +1601,16 @@ public class TaskDatasetDevService {
     }
 
     private ResolvedExportPaths resolveExportPaths(Path datasetRoot) {
+        return resolveExportPaths(datasetRoot, null);
+    }
+
+    private ResolvedExportPaths resolveExportPaths(Path datasetRoot, String selectedAnnotationDir) {
         if (datasetRoot == null || !Files.isDirectory(datasetRoot)) return null;
         Path images = datasetRoot.resolve("images");
-        Path annos = datasetRoot.resolve("annotations");
+        String annName = StrUtil.blankToDefault(selectedAnnotationDir, "annotations");
+        if (annName.contains("/") || annName.contains("\\") || annName.contains("..")) return null;
+        Path annos = datasetRoot.resolve(annName).normalize();
+        if (annos.getParent() == null || !annos.getParent().equals(datasetRoot)) return null;
         Path trainImages = datasetRoot.resolve("train").resolve("images");
         Path trainAnnos = datasetRoot.resolve("train").resolve("anno");
         Path testImages = datasetRoot.resolve("test").resolve("images");
@@ -1824,13 +1854,17 @@ public class TaskDatasetDevService {
         private final JSONArray categories = new JSONArray();
         private final Map<String, Integer> categoryIds = new LinkedHashMap<>();
         private final Map<Path, Long> sourceImageIds = new HashMap<>();
+        private final Map<Long, String> outputImageNames = new HashMap<>();
         private final Path outputImages;
+        private final Path outputAnnotations;
         private final Map<String, Long> targetCounts;
         private long nextImageId = 1;
         private long nextAnnotationId = 1;
 
-        CocoExportAccumulator(List<String> targets, Path outputImages, Map<String, Long> targetCounts) {
+        CocoExportAccumulator(List<String> targets, Path outputImages, Path outputAnnotations,
+                              Map<String, Long> targetCounts) {
             this.outputImages = outputImages;
+            this.outputAnnotations = outputAnnotations;
             this.targetCounts = targetCounts;
             for (String target : targets) {
                 if (StrUtil.isBlank(target) || categoryIds.containsKey(target)) continue;
@@ -1876,6 +1910,7 @@ public class TaskDatasetDevService {
             image.set("height", height);
             images.add(image);
             sourceImageIds.put(key, id);
+            outputImageNames.put(id, outputName);
             return id;
         }
 
@@ -1895,6 +1930,7 @@ public class TaskDatasetDevService {
                         * Math.max(0D, height == null ? 0D : height));
             }
             annotations.add(out);
+            appendDotaAnnotation(imageId, target, polygonFromCoco(out));
             targetCounts.computeIfPresent(target, (ignored, count) -> count + 1);
         }
 
@@ -1914,7 +1950,50 @@ public class TaskDatasetDevService {
                 out.set("segmentation", new JSONArray());
             }
             annotations.add(out);
+            appendDotaAnnotation(imageId, source.target, polygonFromMapped(source));
             targetCounts.computeIfPresent(source.target, (ignored, count) -> count + 1);
+        }
+
+        private List<Double> polygonFromCoco(JSONObject annotation) {
+            JSONArray segmentation = annotation.getJSONArray("segmentation");
+            if (segmentation != null && !segmentation.isEmpty()) {
+                Object first = segmentation.get(0);
+                if (first instanceof JSONArray arr && arr.size() >= 8) {
+                    List<Double> points = new ArrayList<>();
+                    for (int i = 0; i < 8; i++) points.add(arr.getDouble(i));
+                    return points;
+                }
+            }
+            JSONArray bbox = annotation.getJSONArray("bbox");
+            if (bbox == null || bbox.size() < 4) return Collections.emptyList();
+            double x = bbox.getDouble(0, 0D), y = bbox.getDouble(1, 0D);
+            double w = bbox.getDouble(2, 0D), h = bbox.getDouble(3, 0D);
+            return List.of(x, y, x + w, y, x + w, y + h, x, y + h);
+        }
+
+        private List<Double> polygonFromMapped(MappedAnnotation source) {
+            if (source.polygon != null && source.polygon.size() >= 8) return source.polygon.subList(0, 8);
+            return List.of(source.x, source.y, source.x + source.width, source.y,
+                    source.x + source.width, source.y + source.height, source.x, source.y + source.height);
+        }
+
+        private void appendDotaAnnotation(long imageId, String target, List<Double> polygon) {
+            String imageName = outputImageNames.get(imageId);
+            if (StrUtil.isBlank(imageName) || polygon == null || polygon.size() < 8) return;
+            int dot = imageName.lastIndexOf('.');
+            String stem = dot > 0 ? imageName.substring(0, dot) : imageName;
+            StringBuilder line = new StringBuilder();
+            for (int i = 0; i < 8; i++) {
+                if (i > 0) line.append(' ');
+                line.append(polygon.get(i));
+            }
+            line.append(' ').append(target).append(" 0\n");
+            try {
+                Files.writeString(outputAnnotations.resolve(stem + ".txt"), line.toString(), StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            } catch (IOException e) {
+                throw new IllegalStateException("写入映射标注失败: " + imageName, e);
+            }
         }
 
         JSONObject toCoco() {
@@ -1936,10 +2015,26 @@ public class TaskDatasetDevService {
     private static class DatasetSource {
         final String datasetName;
         final Path root;
+        final String annotationDir;
 
         DatasetSource(String datasetName, Path root) {
+            this(datasetName, root, null);
+        }
+
+        DatasetSource(String datasetName, Path root, String annotationDir) {
             this.datasetName = datasetName;
             this.root = root;
+            this.annotationDir = annotationDir;
+        }
+    }
+
+    private static class ExternalRegistrySource {
+        final String path;
+        final String annotationDir;
+
+        ExternalRegistrySource(String path, String annotationDir) {
+            this.path = path;
+            this.annotationDir = annotationDir;
         }
     }
 
@@ -1994,4 +2089,3 @@ public class TaskDatasetDevService {
         return obj == null ? "" : StrUtil.trimToEmpty(String.valueOf(obj));
     }
 }
-

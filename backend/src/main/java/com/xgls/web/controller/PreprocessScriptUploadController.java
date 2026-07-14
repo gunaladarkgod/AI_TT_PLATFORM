@@ -3,6 +3,7 @@ package com.xgls.web.controller;
 import com.xgls.web.common.preprocess_Result;
 import com.xgls.web.entity.PreprocessScriptInfo;
 import com.xgls.web.service.PreprocessScriptInfoService;
+import com.xgls.web.utils.WorkspacePathUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
@@ -19,7 +20,7 @@ import java.util.UUID;
 @RequestMapping("/preprocess")
 public class PreprocessScriptUploadController {
 
-    @Value("${sys.instancecfg.script-storage-dir:/home/omen1/AI_TT_Platform/data/preprocess_scripts/}")
+    @Value("${sys.instancecfg.script-storage-dir:data/preprocess_scripts/}")
     private String scriptStorageDir;
 
     @Autowired
@@ -54,7 +55,8 @@ public class PreprocessScriptUploadController {
         }
 
         String safeFileName = UUID.randomUUID() + ".py";
-        Path userScriptDir = Paths.get(scriptStorageDir, username);
+        Path userScriptDir = WorkspacePathUtil.resolveConfiguredPath(scriptStorageDir, "data/preprocess_scripts")
+                .resolve(username).normalize();
         Path scriptPath = userScriptDir.resolve(safeFileName);
 
         try {

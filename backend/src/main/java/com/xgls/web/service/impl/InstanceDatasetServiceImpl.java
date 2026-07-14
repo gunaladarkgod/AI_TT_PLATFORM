@@ -36,7 +36,7 @@ public class InstanceDatasetServiceImpl extends ServiceImpl<InstanceDatasetMappe
     @Autowired
     private InstanceDatasetMapper instanceDatasetMapper;
 
-    @Value("${sys.instancecfg.instancedata-root:/home/omen1/AI_TT_Platform/data/instance_dataset/}")
+    @Value("${sys.instancecfg.instancedata-root:data/instance_dataset/}")
     private String instanceDataRoot;
 
         private String instanceRootString() {
@@ -139,7 +139,11 @@ public class InstanceDatasetServiceImpl extends ServiceImpl<InstanceDatasetMappe
                 }
                 int testImgN = InstanceDatasetTrainTestRandomSplitUtil.countImages(Path.of(p.testImgPath()));
                 if (testImgN < 1) {
-                    reasons.add("测试集无图片，请先在「实例数据集」中完成训测划分或向 images/test 补充图片");
+                    reasons.add("测试集无图片，请重新执行预处理并设置训测划分比例");
+                }
+                int testAnnoN = InstanceDatasetTrainTestRandomSplitUtil.countAnnoLabelFiles(Path.of(p.testAnnoPath()));
+                if (testAnnoN < 1) {
+                    reasons.add("测试集无标注，请重新执行预处理并检查图片与标注是否同名配对");
                 }
             }
             row.setReasons(reasons);

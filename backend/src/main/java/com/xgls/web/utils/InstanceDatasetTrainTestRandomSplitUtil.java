@@ -35,7 +35,7 @@ public final class InstanceDatasetTrainTestRandomSplitUtil {
         if (trainRatio < 0.01 || trainRatio > 0.99) {
             throw new IllegalArgumentException("训测比（训练集占比）须在 0.01～0.99 之间");
         }
-        if (dataset == null || dataset.getId() == null) {
+        if (dataset == null) {
             throw new IllegalArgumentException("缺少实例数据集");
         }
         var pathsOpt = InstanceDatasetPathUtil.tryResolveTargetEnsuringTestDirs(dataset, instanceDataRoot);
@@ -63,25 +63,17 @@ public final class InstanceDatasetTrainTestRandomSplitUtil {
                     .forEach(allImages::add);
         }
         int n = allImages.size();
-        if (n < 1) {
-            throw new IllegalStateException("训练图像目录中未找到可划分的图片");
+        if (n < 2) {
+            throw new IllegalStateException("至少需要 2 张图片才能生成同时含数据的训练集和测试集");
+        }
+        for (Path image : allImages) {
+            Path rel = trainImg.relativize(image);
+            if (findAnno(trainAnno, rel) == null) {
+                throw new IllegalStateException("图片缺少同名标注，无法生成 MMDet 数据集: " + rel);
+            }
         }
         int trainKeep = (int) Math.round(n * trainRatio);
-        if (trainKeep < 0) {
-            trainKeep = 0;
-        }
-        if (trainKeep > n) {
-            trainKeep = n;
-        }
-        if (trainKeep == n) {
-            return new SplitResult(n, 0);
-        }
-        if (trainKeep == 0) {
-            for (Path img : allImages) {
-                movePair(trainImg, testImg, trainAnno, testAnno, img);
-            }
-            return new SplitResult(0, n);
-        }
+        trainKeep = Math.max(1, Math.min(n - 1, trainKeep));
         List<Path> shuffled = new ArrayList<>(allImages);
         Collections.shuffle(shuffled, ThreadLocalRandom.current());
         List<Path> toTest = shuffled.subList(trainKeep, n);
@@ -125,6 +117,16 @@ public final class InstanceDatasetTrainTestRandomSplitUtil {
     }
 
     private static void findAndMoveAnno(Path trainAnnoRoot, Path testAnnoRoot, Path relImg) throws IOException {
+        Path src = findAnno(trainAnnoRoot, relImg);
+        if (src != null) {
+            Path rel = trainAnnoRoot.relativize(src);
+            Path dest = testAnnoRoot.resolve(rel);
+            Files.createDirectories(dest.getParent());
+            Files.move(src, dest, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private static Path findAnno(Path trainAnnoRoot, Path relImg) {
         String fileName = relImg.getFileName().toString();
         int dot = fileName.lastIndexOf('.');
         String stem = dot > 0 ? fileName.substring(0, dot) : fileName;
@@ -132,13 +134,10 @@ public final class InstanceDatasetTrainTestRandomSplitUtil {
         for (String ext : ANNO_EXT) {
             Path src = trainAnnoRoot.resolve(parentRel).resolve(stem + ext).normalize();
             if (Files.isRegularFile(src)) {
-                Path rel = trainAnnoRoot.relativize(src);
-                Path dest = testAnnoRoot.resolve(rel);
-                Files.createDirectories(dest.getParent());
-                Files.move(src, dest, StandardCopyOption.REPLACE_EXISTING);
-                return;
+                return src;
             }
         }
+        return null;
     }
 
     private static boolean isImageName(String n) {

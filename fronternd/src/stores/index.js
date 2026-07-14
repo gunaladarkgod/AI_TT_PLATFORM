@@ -53,25 +53,6 @@ function injectOldTaskDatabaseMenu(menuList = []) {
   return list
 }
 
-/** 在顶级菜单「模型训练」旁插入「模型训练（dev）」（ClearML 监控等）。 */
-function injectDevTrainTaskClearMLMenu(menuList = []) {
-  const list = Array.isArray(menuList) ? [...menuList] : []
-  if (list.some(item => item && item.url === 'trainTaskClearML')) {
-    return list
-  }
-  const trainMenu = list.find(item => item && item.url === 'trainTask')
-  const orderNum = trainMenu ? Number(trainMenu.order_num || 0) + 0.05 : 205
-  list.push({
-    id: 99993,
-    url: 'trainTaskClearML',
-    name: '模型训练（dev）',
-    order_num: orderNum,
-    is_hidden: 0,
-    parent_id: 0
-  })
-  return list
-}
-
 export const useLoginStore = defineStore({
   id: 'login',
   state: () => ({
@@ -150,7 +131,6 @@ export const useMenuStore=defineStore({
         const  data = await apiRequest(MenuService.queryList)
         let withDevMenu = injectDevTaskDatasetMenu(data)
         withDevMenu = injectOldTaskDatabaseMenu(withDevMenu)
-        withDevMenu = injectDevTrainTaskClearMLMenu(withDevMenu)
         withDevMenu = ensureTopNavigationMenus(withDevMenu)
         this.menuList = withDevMenu
         this.menuRenderList = buildMenuTree(withDevMenu)
@@ -192,5 +172,4 @@ export const useMenuStore=defineStore({
     }
   },
 })
-
 

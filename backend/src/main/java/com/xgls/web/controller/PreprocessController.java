@@ -27,7 +27,8 @@ public class PreprocessController {
                     request.getEnhanceScriptId(),
                     request.getEnhanceParams(),
                     request.getAugmentScriptId(),
-                    request.getAugmentParams()
+                    request.getAugmentParams(),
+                    request.getTrainRatio()
             );
             return preprocess_Result.success(results);
         } catch (Exception e) {
@@ -43,6 +44,7 @@ public class PreprocessController {
         private Map<String, Object> enhanceParams;
         private Integer augmentScriptId;
         private Map<String, Object> augmentParams;
+        private Double trainRatio;
 
         // Getters & Setters
         public List<Long> getSourceInstanceIds() {
@@ -84,5 +86,8 @@ public class PreprocessController {
         public void setAugmentParams(Map<String, Object> augmentParams) {
             this.augmentParams = augmentParams;
         }
+
+        public Double getTrainRatio() { return trainRatio; }
+        public void setTrainRatio(Double trainRatio) { this.trainRatio = trainRatio; }
     }
 }

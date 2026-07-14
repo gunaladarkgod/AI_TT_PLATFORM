@@ -133,7 +133,7 @@
         <el-table-column prop="img_num" label="图片数" align="center" v-if="showExt" />
         <el-table-column prop="cls_num" label="标签数" align="center" v-if="showExt" />
         <el-table-column prop="obj_num" label="标注数" align="center" v-if="showExt" />
-        <el-table-column label="操作" align="center" width="270" fixed="right">
+        <el-table-column label="操作" align="center" width="350" fixed="right">
 
 
           <!-- 操作按钮 -->
@@ -150,6 +150,9 @@
                 <el-button @click="viewLatestTrainLog(row)" link size="small"
                   :loading="latestLogLoadingId === row.id" v-show="isSys || curUser == row.username">
                   <el-tag size="small" class="iconfont icon-chakan fontSpan">查看日志</el-tag></el-button>
+                <el-button @click="viewTaskConfig(row)" link size="small"
+                  :loading="configLoadingId === row.id" v-show="isSys || curUser == row.username">
+                  <el-tag size="small" type="info" class="iconfont icon-chakan fontSpan">查看配置</el-tag></el-button>
 
                 
                 <template v-if="isSys || curUser == row.username">
@@ -222,6 +225,7 @@
         <div class="runner-status-row">
           <el-text size="small" class="runner-status-text">{{ runnerHealthDetail }}</el-text>
           <el-button type="primary" link size="small" @click="refreshRunnerHealth">刷新</el-button>
+          <el-button type="warning" link size="small" :loading="runnerDependencyLoading" @click="checkRunnerDependencies">检测依赖</el-button>
           <el-button type="success" link size="small" :loading="runnerStartLoading" @click="startRunner">启动</el-button>
         </div>
       </el-alert>
@@ -261,6 +265,14 @@
               </el-select>
             </div>
           </div>
+          <div class="task-overview-item task-python-item">
+            <div class="task-overview-label required-label">训练 Python</div>
+            <div class="task-overview-content">
+              <el-input v-model="trainingPythonPath" :disabled="isSee" placeholder="请选择训练环境的 python 可执行文件">
+                <template #append><el-button :disabled="isSee" @click="pickTrainingPython">选择</el-button></template>
+              </el-input>
+            </div>
+          </div>
         </div>
         <div class="task-overview-item task-create-remark-item">
           <div class="task-overview-label">备注</div>
@@ -293,6 +305,14 @@
                 <el-option v-for="item in templateList" :key="item" :value="item" :label="item" />
                 <el-option v-if="isFixedRunnerSelected" value="fixed" label="fixed" />
               </el-select>
+            </div>
+          </div>
+          <div class="task-overview-item task-python-item">
+            <div class="task-overview-label required-label">训练 Python</div>
+            <div class="task-overview-content">
+              <el-input v-model="trainingPythonPath" :disabled="isSee" placeholder="请选择训练环境的 python 可执行文件">
+                <template #append><el-button :disabled="isSee" @click="pickTrainingPython">选择</el-button></template>
+              </el-input>
             </div>
           </div>
         </div>
@@ -1286,13 +1306,9 @@
         <el-alert v-if="isMMDetSelected" class="single-config-tip" type="info" :closable="false" show-icon
           title="所有参数均从一个完整模板读取，保存后只生成 modelcfg/{任务名称}/config.py" />
         <el-alert v-else class="single-config-tip" type="info" :closable="false" show-icon
-          title="自定义任务使用 Runner fixed 模式：不初始化 ClearML，按下方 Python、执行目录和命令行直接运行。" />
+          title="自定义任务使用 Runner fixed 模式，按上方选择的训练 Python、执行目录和命令行直接运行。" />
         <div v-if="isFixedRunnerSelected" class="mmdet-file-block">
           <span class="mmdet-file-title">fixed runner · 运行参数</span>
-          <el-form-item label="Python路径：" required>
-            <el-input v-model="fixedRunnerParameter.python_path" :disabled="isSee"
-              placeholder="例如：C:\\Users\\...\\.conda\\envs\\openmmlab\\python.exe" />
-          </el-form-item>
           <el-form-item label="执行目录：" required>
             <el-input v-model="fixedRunnerParameter.exec_dir" :disabled="isSee"
               placeholder="支持相对项目根目录，例如：mmdet_run/mmdetection-3.0.0" />
@@ -1859,7 +1875,17 @@
 
   <el-dialog v-model="txtVisible" width="75%" top="3vh" :title="txtTitle" draggable :close-on-click-modal="true"
     :destroy-on-close="true">
-    <pre class="preBox">{{ cur_text }}</pre>
+    <div class="text-viewer-wrap">
+      <pre ref="textViewerRef" class="preBox">{{ cur_text }}</pre>
+      <div v-if="textViewerMode === 'log'" class="log-scroll-actions">
+        <el-tooltip content="回到日志顶部" placement="left">
+          <el-button circle size="small" aria-label="回到日志顶部" @click="scrollLogToTop">↑</el-button>
+        </el-tooltip>
+        <el-tooltip content="跳到日志底部" placement="left">
+          <el-button circle size="small" aria-label="跳到日志底部" @click="scrollLogToBottom">↓</el-button>
+        </el-tooltip>
+      </div>
+    </div>
     <template #footer>
       <span class="dialog-footer">
         <el-button @click="txtVisible = false">关闭</el-button>
@@ -2404,6 +2430,7 @@ const showExt = ref(false)
 const runnerHealthOk = ref(null)
 const runnerHealthDetail = ref('正在检测 Runner 服务…')
 const runnerStartLoading = ref(false)
+const runnerDependencyLoading = ref(false)
 let runnerHealthTimer = null
 const runnerBaseUrl = `${window.location.protocol}//${window.location.hostname}:8009`
 
@@ -2479,6 +2506,50 @@ const startRunner = async () => {
     await ElMessageBox.alert(runnerHealthDetail.value, 'Runner 启动失败', { type: 'error' })
   } finally {
     runnerStartLoading.value = false
+  }
+}
+
+const dependencyDetailText = (data) => {
+  const d = data?.after || data || {}
+  const parts = [d.message]
+  if (d.python) parts.push(`Python：${d.python}`)
+  if (d.requirements) parts.push(`依赖文件：${d.requirements}`)
+  if (d.detail) parts.push(d.detail)
+  if (data?.installLog && !data?.ok) parts.push(`安装日志：\n${data.installLog}`)
+  return parts.filter(Boolean).join('\n')
+}
+
+const checkRunnerDependencies = async () => {
+  if (runnerDependencyLoading.value) return
+  runnerDependencyLoading.value = true
+  try {
+    const res = await TrainTaskService.checkRunnerDependencies()
+    const data = res.data || {}
+    if (res.code === 0 && data.ok) {
+      ElMessageBox.alert(dependencyDetailText(data), 'Runner 依赖正常', { type: 'success' })
+      return
+    }
+    await ElMessageBox.confirm(
+      `${dependencyDetailText(data)}\n\n是否立即根据 requirements.txt 自动安装？`,
+      'Runner 依赖缺失',
+      { confirmButtonText: '安装', cancelButtonText: '取消', type: 'warning' }
+    )
+    runnerHealthDetail.value = '正在安装 Runner 依赖，请稍候…'
+    const installRes = await TrainTaskService.installRunnerDependencies()
+    const installed = installRes.data || {}
+    if (installRes.code === 0 && installed.ok) {
+      ElMessage.success('Runner 依赖安装完成')
+      await ElMessageBox.alert(dependencyDetailText(installed), '安装成功', { type: 'success' })
+      await refreshRunnerHealth()
+    } else {
+      await ElMessageBox.alert(dependencyDetailText(installed) || installRes.msg || '安装失败', '安装失败', { type: 'error' })
+    }
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') {
+      ElMessage.error('依赖检测失败：' + (e?.message || String(e)))
+    }
+  } finally {
+    runnerDependencyLoading.value = false
   }
 }
 const handleCurrentChange = () => {
@@ -2640,6 +2711,8 @@ const showAddModal = () => {
   addForm.ext_params = ""
   addForm.ext_file_update = false
   addForm.ext_file = null
+  trainingPythonPath.value = ''
+  loadDefaultTrainingPython()
 
   applyMmdetCnnQuickDefaults()
   mmdetParameter.selected_dataset = null
@@ -2688,6 +2761,8 @@ const showAddModal = () => {
 /**编辑模式 */
 const showEditModal = (row) => {
   editTaskMeta.value = { ...row }
+  trainingPythonPath.value = ''
+  loadDefaultTrainingPython()
   isSee.value = row.run_name   //设置是否编辑
   //算法模版初始化
   templateAlgorithm.value = null
@@ -3603,6 +3678,18 @@ const txtVisible = ref(false);
 const cur_text = ref('')
 const txtTitle = ref('查看')
 const latestLogLoadingId = ref(null)
+const configLoadingId = ref(null)
+const textViewerRef = ref(null)
+const textViewerMode = ref('file')
+
+const scrollLogToTop = () => {
+  textViewerRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+const scrollLogToBottom = () => {
+  const el = textViewerRef.value
+  if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+}
 
 const viewLatestTrainLog = async (row) => {
   latestLogLoadingId.value = row.id
@@ -3613,6 +3700,7 @@ const viewLatestTrainLog = async (row) => {
       return
     }
     const log = res.data
+    textViewerMode.value = 'log'
     txtTitle.value = `最新训练日志 - ${row.name}`
     cur_text.value = [
       `日志文件：${log.log_path || '-'}`,
@@ -3628,6 +3716,75 @@ const viewLatestTrainLog = async (row) => {
     latestLogLoadingId.value = null
   }
 }
+
+const viewTaskConfig = async (row) => {
+  configLoadingId.value = row.id
+  try {
+    const res = await TrainTaskService.readConfig({ id: row.id, includeText: true })
+    if (res.code !== 0 || !res.data) {
+      let trace = res.data || null
+      let staticReadError = null
+      // 兼容前端已更新但 Java 后端仍是旧进程的部署状态：配置统一位于新版
+      // root-upload/modelcfg/{任务名称}/config.py，可直接走静态资源读取。
+      try {
+        const configUrl = `/modelcfg/${encodeURIComponent(String(row.name || '').trim())}/config.py`
+        const text = await FileService.getFile(configUrl)
+        if (typeof text === 'string' && text.trim()) {
+          textViewerMode.value = 'config'
+          txtTitle.value = `训练配置 - ${row.name}`
+          cur_text.value = [
+            `配置文件：mmdet_run/myfiles/modelcfg/${row.name}/config.py`,
+            '',
+            text
+          ].join('\n')
+          txtVisible.value = true
+          return
+        }
+      } catch (e) {
+        staticReadError = e?.msg || e?.message || String(e)
+      }
+      let traceRequestError = null
+      if (!trace) {
+        try {
+          const traceRes = await TrainTaskService.traceConfig({ id: row.id })
+          if (traceRes?.code === 0) trace = traceRes.data
+        } catch (e) {
+          traceRequestError = e?.msg || e?.message || JSON.stringify(e || {})
+        }
+      }
+      textViewerMode.value = 'config'
+      txtTitle.value = `配置读取诊断 - ${row.name}`
+      cur_text.value = [
+        res.msg || '该任务还没有生成配置文件',
+        '',
+        '以下信息可用于定位后端实际查找位置：',
+        JSON.stringify(trace || {
+          taskId: row.id,
+          taskName: row.name,
+          staticConfigPath: `mmdet_run/myfiles/modelcfg/${row.name}/config.py`,
+          staticReadError,
+          traceRequestError,
+          conclusion: '配置文件存在时仍出现此结果，说明当前 Java 后端/静态资源服务未指向本工作区或尚未重启。'
+        }, null, 2)
+      ].join('\n')
+      txtVisible.value = true
+      return
+    }
+    const config = res.data
+    textViewerMode.value = 'config'
+    txtTitle.value = `训练配置 - ${row.name}`
+    cur_text.value = [
+      `配置文件：${config.config_path || '-'}`,
+      '',
+      config.text || '(配置文件为空)'
+    ].join('\n')
+    txtVisible.value = true
+  } catch (e) {
+    ElMessage.error('读取训练配置失败')
+  } finally {
+    configLoadingId.value = null
+  }
+}
 const viewFile = (row) => {
   let url = basePath_YOLO + row.type + "_" + row.id + row.path
   if (row.type === 'weights') {
@@ -3638,6 +3795,7 @@ const viewFile = (row) => {
 }
 const readTxt = (url) => {
   if (!url) return;
+  textViewerMode.value = 'file'
   txtTitle.value = '查看文件'
   FileService.getFile(url)
     .then((res) => {
@@ -4034,6 +4192,33 @@ const fixedRunnerParameter = reactive({
   command_line: 'tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}',
   work_root: 'artifacts/mmdet_runs',
 })
+const trainingPythonPath = ref('')
+
+const loadDefaultTrainingPython = async () => {
+  if (String(trainingPythonPath.value || '').trim()) return
+  try {
+    const res = await TrainTaskService.defaultTrainingPython()
+    if (!String(trainingPythonPath.value || '').trim() && res.code === 0 && res.data?.path) {
+      trainingPythonPath.value = String(res.data.path)
+    }
+  } catch (_) {
+    // 未探测到时保留为空，用户仍可通过“选择”按钮指定。
+  }
+}
+
+const pickTrainingPython = async () => {
+  try {
+    const res = await TrainTaskService.pickTrainingPython()
+    if (res.code === 0 && res.data?.path) {
+      trainingPythonPath.value = String(res.data.path)
+      ElMessage.success('已选择训练 Python 解释器')
+    } else if (res.msg) {
+      ElMessage.warning(res.msg)
+    }
+  } catch (e) {
+    ElMessage.error('选择解释器失败：' + (e?.message || String(e)))
+  }
+}
 
 /**新建弹窗用：带时间戳的任务名 */
 const formatQuickTaskName = () => {
@@ -4278,6 +4463,8 @@ const availableBackboneNetworks = computed(() => {
 const applyStoredMmdetParams = (p) => {
   restoringMmdetParams.value = true
   addForm.temp = p.mmdetType || addForm.temp || 'CNN'
+  trainingPythonPath.value = p.training_python_path || p.fixed_python_path || ''
+  loadDefaultTrainingPython()
   if (p.runner_mode === 'fixed') {
     addForm.temp = 'fixed'
     if (p.fixed_python_path !== undefined && p.fixed_python_path !== null) fixedRunnerParameter.python_path = p.fixed_python_path
@@ -4314,9 +4501,13 @@ const saveMMdetRecord = () =>{
     ElMessage.warning('请选择模型类别')
     return;
   }
+  if (!String(trainingPythonPath.value || '').trim()) {
+    ElMessage.warning('请选择正式训练使用的 Python 解释器')
+    return
+  }
 
   if (isFixedRunnerSelected.value) {
-    if (!fixedRunnerParameter.python_path || !fixedRunnerParameter.exec_dir ||
+    if (!fixedRunnerParameter.exec_dir ||
       !fixedRunnerParameter.command_line || !fixedRunnerParameter.work_root) {
       ElMessage.warning('请填写 fixed 模式的 Python路径、执行目录、命令行和输出根目录')
       return
@@ -4328,7 +4519,8 @@ const saveMMdetRecord = () =>{
       taskType: addForm.type,
       mmdetType: '自定义',
       runner_mode: 'fixed',
-      fixed_python_path: fixedRunnerParameter.python_path,
+      training_python_path: String(trainingPythonPath.value).trim(),
+      fixed_python_path: String(trainingPythonPath.value).trim(),
       fixed_exec_dir: fixedRunnerParameter.exec_dir,
       fixed_command_line: fixedRunnerParameter.command_line,
       fixed_work_root: fixedRunnerParameter.work_root,
@@ -4408,6 +4600,8 @@ const saveMMdetRecord = () =>{
     taskType: addForm.type,
 // 算法模板
     mmdetType:addForm.temp,
+    runner_mode: 'original',
+    training_python_path: String(trainingPythonPath.value).trim(),
 
     dataset:mmdetParameter.selected_dataset,
     mmdet_network:mmdetParameter.selected_template,
@@ -5540,6 +5734,31 @@ const labelsHandleClose = (val) => {
   margin-left: 15px;
 }
 
+.text-viewer-wrap {
+  position: relative;
+}
+
+.text-viewer-wrap .preBox {
+  margin: 0;
+  padding-right: 52px;
+  scroll-behavior: smooth;
+}
+
+.log-scroll-actions {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.log-scroll-actions .el-button {
+  margin-left: 0;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
+  font-size: 18px;
+  font-weight: 700;
+}
+
 </style>
-
-

@@ -11,6 +11,7 @@ import com.xgls.web.mapper.*;
 import com.xgls.web.service.PreprocessService;
 import com.xgls.web.service.TaskDataset1Service;
 import com.xgls.web.utils.InstanceDatasetPathUtil;
+import com.xgls.web.utils.InstanceDatasetTrainTestRandomSplitUtil;
 import com.xgls.web.utils.WorkspacePathUtil;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.file.*;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.io.File;
@@ -28,7 +30,7 @@ import java.util.Comparator;
 
 @Service
 public class PreprocessServiceImpl implements PreprocessService {
-    @Value("${sys.instancecfg.instancedata-root:/home/omen1/AI_TT_Platform/data/instance_dataset/}")
+    @Value("${sys.instancecfg.instancedata-root:data/instance_dataset/}")
     private String instanceDataRoot;
 
     @Value("${sys.instancecfg.python-path:/home/omen1/miniconda3/envs/platform/bin/python}")
@@ -52,7 +54,13 @@ public class PreprocessServiceImpl implements PreprocessService {
             Integer enhanceScriptId,
             Map<String, Object> enhanceParams,
             Integer augmentScriptId,
-            Map<String, Object> augmentParams) throws Exception {
+            Map<String, Object> augmentParams,
+            Double trainRatio) throws Exception {
+
+        double effectiveTrainRatio = trainRatio == null ? 0.8D : trainRatio;
+        if (effectiveTrainRatio < 0.01D || effectiveTrainRatio > 0.99D) {
+            throw new IllegalArgumentException("训练集占比须在 0.01～0.99 之间");
+        }
 
         // 1. 确保根目录存在
         Path rootPath = WorkspacePathUtil.instanceDatasetRoot().toAbsolutePath().normalize();
@@ -84,6 +92,14 @@ public class PreprocessServiceImpl implements PreprocessService {
             }
             if (source == null) {
                 throw new RuntimeException("源实例数据集不存在: ID=" + sourceId);
+            }
+
+            // 历史中间集只有集中式 instances.json。先在中间目录补齐逐图片 DOTA TXT，
+            // 确保后续增强/增广脚本从一开始拿到的就是统一的成对输入。
+            materializeStoredMidCoco(source.getTrainImagePath(), source.getTrainAnnoPath());
+            if (!Objects.equals(source.getTrainImagePath(), source.getTestImagePath())
+                    || !Objects.equals(source.getTrainAnnoPath(), source.getTestAnnoPath())) {
+                materializeStoredMidCoco(source.getTestImagePath(), source.getTestAnnoPath());
             }
 
             // 2.2 落盘：{instancedata-root}/{任务数据集名}/{实例数据集名}/images|annotations/...
@@ -188,6 +204,28 @@ public class PreprocessServiceImpl implements PreprocessService {
             result.setCreatedTime(LocalDateTime.now());
             result.setUpdatedTime(LocalDateTime.now());
 
+            // 预处理的最终产物必须直接可用于 MMDet：汇总所有输出后重新随机划分，
+            // 并确保 train/test 两侧均有图片和标注，再允许写入数据库。
+            materializeCocoAnnotations(outputTrainImgPath, outputTrainAnnoPath);
+            materializeCocoAnnotations(outputTestImgPath, outputTestAnnoPath);
+            Files.deleteIfExists(outputTrainAnnoPath.resolve("instances.json"));
+            Files.deleteIfExists(outputTestAnnoPath.resolve("instances.json"));
+            InstanceDatasetTrainTestRandomSplitUtil.SplitResult split;
+            try {
+                split = InstanceDatasetTrainTestRandomSplitUtil.run(result, instanceRoot.toString(), effectiveTrainRatio);
+            } catch (Exception e) {
+                deleteDirectory(pathWithTrailingSlash(datasetOut));
+                throw e;
+            }
+            int trainAnnoCount = InstanceDatasetTrainTestRandomSplitUtil.countAnnoLabelFiles(outputTrainAnnoPath);
+            int testAnnoCount = InstanceDatasetTrainTestRandomSplitUtil.countAnnoLabelFiles(outputTestAnnoPath);
+            if (split.trainImages() < 1 || split.testImages() < 1 || trainAnnoCount < 1 || testAnnoCount < 1) {
+                deleteDirectory(pathWithTrailingSlash(datasetOut));
+                throw new IllegalStateException("预处理输出无法用于 MMDet：训练集和测试集都必须至少包含一张图片及一份标注");
+            }
+            result.setImgNum(split.trainImages() + split.testImages());
+            result.setAnnoNum(trainAnnoCount + testAnnoCount);
+
             // 只记录实际执行的脚本；未使用脚本时保存空链路 []。
             List<Map<String, Object>> configList = new ArrayList<>();
             if (enhanceScript != null) {
@@ -202,6 +240,7 @@ public class PreprocessServiceImpl implements PreprocessService {
             Map<String, Object> allParams = new HashMap<>();
             allParams.put("enhance", enhanceParams);
             allParams.put("augment", augmentParams);
+            allParams.put("trainRatio", effectiveTrainRatio);
             result.setParamSchema(objectMapper.writeValueAsString(allParams));
 
             instanceDatasetMapper.insert(result);
@@ -209,6 +248,84 @@ public class PreprocessServiceImpl implements PreprocessService {
         }
 
         return results;
+    }
+
+    private void materializeStoredMidCoco(String imagePath, String annotationPath) throws IOException {
+        if (StrUtil.isBlank(imagePath) || StrUtil.isBlank(annotationPath)) return;
+        Path images = Paths.get(imagePath).normalize();
+        Path annotations = Paths.get(annotationPath).normalize();
+        Path midRoot = WorkspacePathUtil.instanceDatasetMidRoot().toAbsolutePath().normalize();
+        if (!images.isAbsolute()) images = midRoot.resolve(images).normalize();
+        if (!annotations.isAbsolute()) annotations = midRoot.resolve(annotations).normalize();
+        if (Files.isDirectory(images) && Files.isDirectory(annotations)) {
+            materializeCocoAnnotations(images, annotations);
+        }
+    }
+
+    /** 兼容历史中间集：将集中式 COCO instances.json 展开为逐图片同名 DOTA TXT。 */
+    private void materializeCocoAnnotations(Path imagesDir, Path annotationsDir) throws IOException {
+        Path coco = annotationsDir.resolve("instances.json");
+        if (!Files.isRegularFile(coco)) return;
+        JSONObject root = JSONUtil.parseObj(Files.readString(coco, StandardCharsets.UTF_8));
+        JSONArray images = root.getJSONArray("images");
+        JSONArray annotations = root.getJSONArray("annotations");
+        JSONArray categories = root.getJSONArray("categories");
+        if (images == null || annotations == null || categories == null) return;
+
+        Map<Integer, String> categoryNames = new HashMap<>();
+        for (Object value : categories) {
+            if (value instanceof JSONObject category && category.getInt("id") != null) {
+                categoryNames.put(category.getInt("id"), category.getStr("name", ""));
+            }
+        }
+        Map<Long, String> imageNames = new HashMap<>();
+        Set<String> imagesWithExistingTxt = new HashSet<>();
+        for (Object value : images) {
+            if (value instanceof JSONObject image && image.getLong("id") != null) {
+                String fileName = image.getStr("file_name", "");
+                imageNames.put(image.getLong("id"), fileName);
+                int dot = fileName.lastIndexOf('.');
+                String stem = dot > 0 ? fileName.substring(0, dot) : fileName;
+                if (Files.isRegularFile(annotationsDir.resolve(stem + ".txt"))) imagesWithExistingTxt.add(fileName);
+            }
+        }
+        for (Object value : annotations) {
+            if (!(value instanceof JSONObject annotation)) continue;
+            String imageName = imageNames.get(annotation.getLong("image_id"));
+            String category = categoryNames.get(annotation.getInt("category_id"));
+            if (StrUtil.isBlank(imageName) || StrUtil.isBlank(category)) continue;
+            if (imagesWithExistingTxt.contains(imageName)) continue;
+            Path image = imagesDir.resolve(imageName).normalize();
+            if (!image.startsWith(imagesDir.normalize()) || !Files.isRegularFile(image)) continue;
+            List<Double> polygon = cocoPolygon(annotation);
+            if (polygon.size() < 8) continue;
+            int dot = imageName.lastIndexOf('.');
+            String stem = dot > 0 ? imageName.substring(0, dot) : imageName;
+            Path txt = annotationsDir.resolve(stem + ".txt");
+            StringBuilder line = new StringBuilder();
+            for (int i = 0; i < 8; i++) {
+                if (i > 0) line.append(' ');
+                line.append(polygon.get(i));
+            }
+            line.append(' ').append(category).append(" 0\n");
+            Files.writeString(txt, line.toString(), StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        }
+    }
+
+    private List<Double> cocoPolygon(JSONObject annotation) {
+        JSONArray segmentation = annotation.getJSONArray("segmentation");
+        if (segmentation != null && !segmentation.isEmpty() && segmentation.get(0) instanceof JSONArray arr
+                && arr.size() >= 8) {
+            List<Double> points = new ArrayList<>();
+            for (int i = 0; i < 8; i++) points.add(arr.getDouble(i));
+            return points;
+        }
+        JSONArray bbox = annotation.getJSONArray("bbox");
+        if (bbox == null || bbox.size() < 4) return Collections.emptyList();
+        double x = bbox.getDouble(0, 0D), y = bbox.getDouble(1, 0D);
+        double w = bbox.getDouble(2, 0D), h = bbox.getDouble(3, 0D);
+        return List.of(x, y, x + w, y, x + w, y + h, x, y + h);
     }
 
     private PreprocessScriptInfo findOptionalScript(Integer scriptId, String scriptType) {

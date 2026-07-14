@@ -161,6 +161,9 @@ export class TrainTaskService {
     static async readConfig(params) {
         return request('/trainTask/config/read', params, 'get');
     }
+    static async traceConfig(params) {
+        return request('/trainTask/config/trace', params, 'get');
+    }
     static async update(params) {
         return request('/trainTask/update', params, 'post', 'multipart/form-data;chartset=utf-8');
     }
@@ -184,6 +187,18 @@ export class TrainTaskService {
     }
     static async startRunner(params) {
         return request('/api/runner/start', params || {}, 'post');
+    }
+    static async checkRunnerDependencies() {
+        return request('/api/runner/dependencies/check', {}, 'post');
+    }
+    static async installRunnerDependencies() {
+        return request('/api/runner/dependencies/install', {}, 'post');
+    }
+    static async pickTrainingPython() {
+        return request('/trainTask/python/pick', {}, 'post');
+    }
+    static async defaultTrainingPython() {
+        return request('/trainTask/python/default', {}, 'get');
     }
     static async latestTrainLog(params) {
         return request('/trainTask/runner/log/latest', params, 'post');
@@ -214,19 +229,6 @@ export class TrainTaskService {
         return request('/trainTask/predict/add', params, 'post', 'multipart/form-data;chartset=utf-8');
     }
 
-}
-
-/** ClearML 集群监控（dev），密钥仅存服务端 */
-export class ClearmlDevService {
-    static async status() {
-        return request('/clearml/status', {}, 'post', 'application/json;charset=UTF-8');
-    }
-    static async probe() {
-        return request('/clearml/probe', {}, 'post', 'application/json;charset=UTF-8');
-    }
-    static async activeTasks(params = {}) {
-        return request('/clearml/tasks/active', params, 'post', 'application/json;charset=UTF-8');
-    }
 }
 
 /**训练文件管理 */
@@ -698,4 +700,3 @@ export class ResultQueryService {
         return request('/trainResult/del', { id }, 'post');
     }
 }
-

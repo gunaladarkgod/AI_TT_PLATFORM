@@ -170,6 +170,14 @@
             </div>
           </div>
         </div>
+        <div class="split-ratio-section">
+          <span class="script-label">训练集占比：</span>
+          <el-slider v-model="trainRatioPercent" :min="1" :max="99" :step="1" show-input style="max-width: 520px;" />
+          <div class="split-ratio-hint">
+            预处理完成后自动随机划分为 images/train、images/test、annotations/train、annotations/test；
+            当前训练集 {{ trainRatioPercent }}%，测试集 {{ 100 - trainRatioPercent }}%。
+          </div>
+        </div>
         <!-- ========== 选择数据（中间实例数据集） =========== -->
         <div class="data-selection">
           <h3 class="section-title">选择数据（中间实例数据集）</h3>
@@ -355,6 +363,9 @@
               style="width: 300px;"
             />
           </div>
+        </el-form-item>
+        <el-form-item label="训测划分">
+          <el-tag type="success">训练集 {{ trainRatioPercent }}% / 测试集 {{ 100 - trainRatioPercent }}%</el-tag>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -663,6 +674,7 @@ const createFormRef = ref()
 // 0 表示不使用脚本，避免依赖数据库中的“空操作”脚本记录
 const selectedAugmentationScript = ref(0)
 const selectedEnhancementScript = ref(0)
+const trainRatioPercent = ref(80)
 
 const augmentationScripts = ref([])
 const enhancementScripts = ref([])
@@ -1167,7 +1179,8 @@ if (selectedAugmentationScript.value && selectedAugmentationScriptObj.value) {
           enhanceScriptId: selectedEnhancementScript.value || null,
           enhanceParams: enhanceParams,
           augmentScriptId: selectedAugmentationScript.value || null,
-          augmentParams: augmentParams
+          augmentParams: augmentParams,
+          trainRatio: trainRatioPercent.value / 100
         };
         console.log(' 发送预处理请求:', requestBody);
         const response = await fetch('/develop/api/preprocess/run', {

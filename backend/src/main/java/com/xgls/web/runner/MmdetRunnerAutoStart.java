@@ -73,7 +73,7 @@ public class MmdetRunnerAutoStart implements ApplicationListener<ApplicationRead
         pb.directory(script.getParent().toFile());
         pb.redirectErrorStream(true);
         pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()));
-        // 与子进程 uvicorn 一致：避免 Python 混入 ~/.local 中与 numpy/pandas 冲突导致 clearml 无法 import
+        // Runner 使用独立环境，不混入用户级 site-packages。
         pb.environment().putIfAbsent("PYTHONNOUSERSITE", "1");
         pb.environment().putIfAbsent("PYTHONUTF8", "1");
         applyWorkspaceRunnerEnv(pb);

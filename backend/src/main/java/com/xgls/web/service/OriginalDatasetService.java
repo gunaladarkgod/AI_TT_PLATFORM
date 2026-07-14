@@ -60,9 +60,10 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
     @Value("${sys.original-dataset-root:data/original_dataset}")
     private String originalDatasetRoot;
 
-    /** 当库里 data_path 为空时的回落目录（你提供的实际根） */
-    private static final Path DEFAULT_DATA_ROOT =
-            Paths.get("/home/cs303-1/AI_TT_Platform/data/original_dataset");
+    /** 库里 data_path 为空时回落到项目根目录下的数据目录。 */
+    private Path defaultDataRoot() {
+        return WorkspacePathUtil.resolveConfiguredPath(originalDatasetRoot, "data/original_dataset");
+    }
 
     /* ====================== 任务数据集：标记 + 物化 ====================== */
 
@@ -231,7 +232,11 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
     /* ====================== 外部导入数据集（注册表） ====================== */
 
     public AjaxResult validateExternalDatasetPath(String rawPath) {
-        ScanStat stat = scanExternalDataset(rawPath);
+        return validateExternalDatasetPath(rawPath, null);
+    }
+
+    public AjaxResult validateExternalDatasetPath(String rawPath, String annotationDir) {
+        ScanStat stat = scanExternalDataset(rawPath, annotationDir);
         if (!stat.valid) {
             return AjaxResult.error(stat.errorMsg);
         }
@@ -242,6 +247,8 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         data.put("annoNum", stat.boxCount);
         data.put("classNum", stat.classMap.size());
         data.put("classList", JSONUtil.toJsonStr(stat.classMap));
+        data.put("annotationDir", stat.annotationDirName);
+        data.put("annotationDirCandidates", stat.annotationDirCandidates);
         return AjaxResult.success(data);
     }
 
@@ -336,11 +343,15 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
     }
 
     public AjaxResult importExternalDataset(String name, String rawPath) {
+        return importExternalDataset(name, rawPath, null);
+    }
+
+    public AjaxResult importExternalDataset(String name, String rawPath, String annotationDir) {
         String dsName = StrUtil.trimToEmpty(name);
         if (StrUtil.isBlank(dsName)) {
             return AjaxResult.error("数据集显示名称不能为空");
         }
-        ScanStat stat = scanExternalDataset(rawPath);
+        ScanStat stat = scanExternalDataset(rawPath, annotationDir);
         if (!stat.valid) {
             return AjaxResult.error(stat.errorMsg);
         }
@@ -355,6 +366,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             RegistryItem n = new RegistryItem();
             n.name = dsName;
             n.path = stat.datasetRoot.toString().replace("\\", "/");
+            n.annotationDir = stat.annotationDirName;
             n.createdTime = LocalDateTime.now().toString();
             items.add(n);
             writeExternalRegistry(items);
@@ -395,7 +407,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         }
         Path uploadedRoot = null;
         try {
-            Path base = Paths.get(firstNonBlank(originalDatasetRoot, DEFAULT_DATA_ROOT.toString()))
+            Path base = defaultDataRoot()
                     .resolve("external_uploaded")
                     .resolve(System.currentTimeMillis() + "_" + UUID.randomUUID().toString().replace("-", ""))
                     .normalize();
@@ -429,7 +441,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             if (!Files.isDirectory(uploadedRoot)) {
                 return AjaxResult.error("上传后目录结构异常");
             }
-            return importExternalDataset(dsName, uploadedRoot.toString());
+            return importExternalDataset(dsName, uploadedRoot.toString(), null);
         } catch (Exception e) {
             log.warn("importExternalDatasetByUpload failed, name={}", dsName, e);
             return AjaxResult.error("上传导入失败: " + e.getMessage());
@@ -484,7 +496,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             if (!name.equals(StrUtil.trimToEmpty(it.name))) {
                 continue;
             }
-            ScanStat stat = scanExternalDataset(it.path);
+            ScanStat stat = scanExternalDataset(it.path, it.annotationDir);
             if (stat.valid && stat.classMap != null) {
                 for (Map.Entry<String, Integer> e : stat.classMap.entrySet()) {
                     out.put(e.getKey(), e.getValue().longValue());
@@ -500,7 +512,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         List<RegistryItem> items = readExternalRegistry();
         for (int i = 0; i < items.size(); i++) {
             RegistryItem it = items.get(i);
-            ScanStat stat = scanExternalDataset(it.path);
+            ScanStat stat = scanExternalDataset(it.path, it.annotationDir);
             Map<String, Object> row = new LinkedHashMap<String, Object>();
             row.put("id", "ext-" + i + "-" + Math.abs(Objects.hash(it.name, it.path)));
             row.put("name", it.name);
@@ -510,6 +522,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             row.put("data_source", "外部导入");
             row.put("is_external", true);
             row.put("external_path", it.path);
+            row.put("annotation_dir", stat.annotationDirName);
             if (stat.valid) {
                 row.put("img_num", stat.imageCount);
                 row.put("anno_num", stat.boxCount);
@@ -528,8 +541,10 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
     }
 
     public AjaxResult browseExternalDirs(String base) {
-        Path root = resolveBrowseRoot();
         boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+        // Windows 保持原有的盘符浏览行为；Linux 从文件系统根目录开始，允许浏览
+        // 后端进程有权限访问的任意绝对路径，而不是限制在 data 目录附近。
+        Path root = windows ? resolveBrowseRoot() : Paths.get("/").normalize();
         if (windows && StrUtil.isBlank(base)) {
             List<String> roots = new ArrayList<String>();
             for (Path p : FileSystems.getDefault().getRootDirectories()) {
@@ -544,7 +559,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             return AjaxResult.success(data);
         }
         Path cur = StrUtil.isBlank(base) ? root : Paths.get(base).normalize();
-        if (!windows && !cur.startsWith(root)) {
+        if (!windows && (!cur.isAbsolute() || !cur.startsWith(root))) {
             return AjaxResult.error("非法路径：超出可浏览范围");
         }
         if (!Files.isDirectory(cur)) {
@@ -601,7 +616,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             if (StrUtil.isNotBlank(od.getDataPath())) {
                 imagesDir = resolveImagesDir(Paths.get(od.getDataPath()).normalize());
             } else {
-                imagesDir = resolveImagesDir(DEFAULT_DATA_ROOT.resolve(String.valueOf(od.getProjectId())).normalize());
+                imagesDir = resolveImagesDir(defaultDataRoot().resolve(String.valueOf(od.getProjectId())).normalize());
             }
             if (imagesDir == null) {
                 return AjaxResult.error("数据集图片目录不存在");
@@ -705,7 +720,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             if (imagesDir == null) return AjaxResult.error("image dir not found");
             Path datasetRoot = imagesDir.getParent();
             if (datasetRoot == null) return AjaxResult.error("dataset root invalid");
-            Path annDir = datasetRoot.resolve("annotations").normalize();
+            Path annDir = resolveRegisteredAnnotationDir(datasetRoot);
 
             String rel = relImgPath.replace("\\", "/");
             while (rel.startsWith("/")) rel = rel.substring(1);
@@ -780,7 +795,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
 
     /**
      * 图片二进制直出：基于 original_dataset.data_path + img_name
-     * 当 data_path 为空时，回落到 DEFAULT_DATA_ROOT/{projectId}/images
+     * 当 data_path 为空时，回落到项目根目录下 data/original_dataset/{projectId}/images
      */
     public void streamImage(Long datasetId, String imgName, jakarta.servlet.http.HttpServletResponse resp) throws java.io.IOException {
         if (datasetId == null || StrUtil.isBlank(imgName)) { resp.setStatus(404); return; }
@@ -796,7 +811,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         if (StrUtil.isNotBlank(od.getDataPath())) {
             base = resolveImagesDir(Paths.get(od.getDataPath()).normalize());
         } else {
-            base = resolveImagesDir(DEFAULT_DATA_ROOT.resolve(String.valueOf(od.getProjectId())).normalize());
+            base = resolveImagesDir(defaultDataRoot().resolve(String.valueOf(od.getProjectId())).normalize());
         }
         if (base == null) {
             resp.setStatus(404);
@@ -848,7 +863,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             if (StrUtil.isNotBlank(od.getDataPath())) {
                 imagesDir = resolveImagesDir(Paths.get(od.getDataPath()).normalize());
             } else {
-                imagesDir = resolveImagesDir(DEFAULT_DATA_ROOT.resolve(String.valueOf(od.getProjectId())).normalize());
+                imagesDir = resolveImagesDir(defaultDataRoot().resolve(String.valueOf(od.getProjectId())).normalize());
             }
             if (imagesDir == null) return AjaxResult.error("图片目录不存在");
 
@@ -1037,6 +1052,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
     private static class RegistryItem {
         String name;
         String path;
+        String annotationDir;
         String createdTime;
     }
 
@@ -1044,24 +1060,15 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         boolean valid;
         String errorMsg;
         Path datasetRoot;
+        String annotationDirName;
+        List<String> annotationDirCandidates = new ArrayList<String>();
         int imageCount;
         int boxCount;
         Map<String, Integer> classMap = new LinkedHashMap<String, Integer>();
     }
 
     private Path externalRegistryPath() {
-        String root = StrUtil.trimToEmpty(originalDatasetRoot);
-        Path base;
-        if (StrUtil.isBlank(root)
-                || "/home/omen1/AI_TT_Platform/data/original_dataset".equals(root)
-                || DEFAULT_DATA_ROOT.toString().equals(root)) {
-            base = WorkspacePathUtil.originalDatasetRoot();
-        } else {
-            Path configured = Paths.get(root).normalize();
-            base = configured.isAbsolute()
-                    ? configured
-                    : WorkspacePathUtil.workspaceRoot().resolve(configured).normalize();
-        }
+        Path base = defaultDataRoot();
         try {
             Files.createDirectories(base);
         } catch (Exception e) {
@@ -1099,6 +1106,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
                 RegistryItem ri = new RegistryItem();
                 ri.name = name;
                 ri.path = path;
+                ri.annotationDir = StrUtil.trimToEmpty(one.getStr("annotationDir"));
                 ri.createdTime = one.getStr("createdTime");
                 out.add(ri);
             }
@@ -1116,6 +1124,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             JSONObject one = new JSONObject();
             one.put("name", it.name);
             one.put("path", it.path);
+            one.put("annotationDir", it.annotationDir);
             one.put("createdTime", it.createdTime);
             arr.add(one);
         }
@@ -1123,7 +1132,65 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         Files.writeString(file, JSONUtil.toJsonPrettyStr(obj), StandardCharsets.UTF_8);
     }
 
+    private List<String> findAnnotationDirCandidates(Path root) {
+        List<String> out = new ArrayList<String>();
+        try (DirectoryStream<Path> dirs = Files.newDirectoryStream(root)) {
+            for (Path dir : dirs) {
+                if (!Files.isDirectory(dir) || dir.getFileName() == null) continue;
+                String name = dir.getFileName().toString();
+                String normalized = name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+                if (normalized.contains("annotation") || normalized.equals("anno") || normalized.equals("annos")
+                        || normalized.contains("label")) {
+                    out.add(name);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("scan annotation directory candidates failed: {}", e.getMessage());
+        }
+        out.sort((a, b) -> {
+            int pa = annotationDirPriority(a);
+            int pb = annotationDirPriority(b);
+            return pa != pb ? Integer.compare(pa, pb) : a.compareToIgnoreCase(b);
+        });
+        return out;
+    }
+
+    private int annotationDirPriority(String name) {
+        String n = StrUtil.trimToEmpty(name).toLowerCase(Locale.ROOT);
+        if ("annotations".equals(n)) return 0;
+        if ("labels".equals(n)) return 1;
+        if ("annotation".equals(n)) return 2;
+        if ("label".equals(n)) return 3;
+        if ("anno".equals(n) || "annos".equals(n)) return 4;
+        return 10;
+    }
+
+    private String chooseDefaultAnnotationDir(List<String> candidates) {
+        return candidates == null || candidates.isEmpty() ? "annotations" : candidates.get(0);
+    }
+
+    /** 预览时按注册表中保存的选择定位标注目录；老记录仍默认使用 annotations。 */
+    private Path resolveRegisteredAnnotationDir(Path datasetRoot) {
+        String normalizedRoot = datasetRoot.toAbsolutePath().normalize().toString();
+        for (RegistryItem item : readExternalRegistry()) {
+            try {
+                if (Paths.get(item.path).toAbsolutePath().normalize().toString().equals(normalizedRoot)) {
+                    String selected = StrUtil.blankToDefault(item.annotationDir, "annotations");
+                    Path resolved = datasetRoot.resolve(selected).normalize();
+                    if (resolved.getParent() != null && resolved.getParent().equals(datasetRoot)
+                            && Files.isDirectory(resolved)) return resolved;
+                }
+            } catch (Exception ignore) {
+            }
+        }
+        return datasetRoot.resolve("annotations").normalize();
+    }
+
     private ScanStat scanExternalDataset(String rawPath) {
+        return scanExternalDataset(rawPath, null);
+    }
+
+    private ScanStat scanExternalDataset(String rawPath, String selectedAnnotationDir) {
         ScanStat stat = new ScanStat();
         String p = StrUtil.trimToEmpty(rawPath);
         if (StrUtil.isBlank(p)) {
@@ -1146,12 +1213,37 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             return stat;
         }
 
-        Path annDir = root.resolve("annotations").normalize();
-        if (!Files.isDirectory(annDir)) {
+        stat.annotationDirCandidates = findAnnotationDirCandidates(root);
+        String annName = StrUtil.trimToEmpty(selectedAnnotationDir);
+        // 首次校验尚未由用户指定目录时，按优先级逐个尝试候选目录。
+        // 例如 VisDrone 的 annotations 是原始 CSV，而 labels 是可训练的 YOLO；
+        // 不能因为优先级更高的 annotations 不可解析，就阻止前端拿到候选列表。
+        if (StrUtil.isBlank(annName) && stat.annotationDirCandidates.size() > 1) {
+            ScanStat firstFailure = null;
+            for (String candidate : stat.annotationDirCandidates) {
+                ScanStat candidateStat = scanExternalDataset(rawPath, candidate);
+                if (candidateStat.valid) return candidateStat;
+                if (firstFailure == null) firstFailure = candidateStat;
+            }
+            if (firstFailure != null) return firstFailure;
+        }
+        if (StrUtil.isBlank(annName)) {
+            annName = chooseDefaultAnnotationDir(stat.annotationDirCandidates);
+        }
+        if (annName.contains("/") || annName.contains("\\") || annName.contains("..")) {
             stat.valid = false;
-            stat.errorMsg = "路径无效：缺少 annotations 目录";
+            stat.errorMsg = "标注目录必须是数据集根目录下的直接子目录";
             return stat;
         }
+        Path annDir = root.resolve(annName).normalize();
+        if (!annDir.getParent().equals(root) || !Files.isDirectory(annDir)) {
+            stat.valid = false;
+            stat.errorMsg = stat.annotationDirCandidates.isEmpty()
+                    ? "路径无效：未发现 annotations、labels、anno 等标注目录"
+                    : "路径无效：所选标注目录不存在";
+            return stat;
+        }
+        stat.annotationDirName = annDir.getFileName().toString();
 
         try {
             long imgCnt;
@@ -1344,8 +1436,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
     }
 
     private Path resolveBrowseRoot() {
-        String root = firstNonBlank(originalDatasetRoot, DEFAULT_DATA_ROOT.toString());
-        Path p = Paths.get(root).normalize();
+        Path p = defaultDataRoot();
         Path parent = p.getParent();
         return parent != null ? parent : p;
     }
@@ -1622,6 +1713,3 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         return candidate;
     }
 }
-
-
-

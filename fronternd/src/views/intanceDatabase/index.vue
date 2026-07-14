@@ -79,7 +79,6 @@
                       <el-dropdown-menu>
                         <el-dropdown-item command="preview">查看示例</el-dropdown-item>
                         <el-dropdown-item command="openPath">打开路径</el-dropdown-item>
-                        <el-dropdown-item command="split">训测划分</el-dropdown-item>
                         <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
@@ -261,7 +260,6 @@
                       <el-dropdown-menu>
                         <el-dropdown-item command="preview">查看示例</el-dropdown-item>
                         <el-dropdown-item command="openPath">打开路径</el-dropdown-item>
-                        <el-dropdown-item command="split">训测划分</el-dropdown-item>
                         <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
@@ -395,19 +393,6 @@
             </template>
           </el-table-column>
           <el-table-column prop="username" label="创建用户" align="center" />
-          <el-table-column label="训测划分" align="center" width="100">
-            <template #default="{ row }">
-              <el-tooltip
-                content="按训练集占全部图片的比例，将图像与成对标注随机拆分到训练目录与测试目录；若测试侧已有文件，会先合并回训练集再按新比例划分"
-                placement="top"
-                :show-after="200"
-              >
-                <el-button type="primary" link size="small" @click.stop="openInstanceSplitDialog(row)">
-                  训测划分
-                </el-button>
-              </el-tooltip>
-            </template>
-          </el-table-column>
                     <el-table-column label="示例" align="center" width="80">
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="openInstancePreview(row)">
@@ -1907,4 +1892,3 @@ onMounted(() => {
   background-color: #fff;
 }
 </style>
-

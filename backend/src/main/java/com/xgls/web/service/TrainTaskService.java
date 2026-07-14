@@ -396,6 +396,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
             JSONObject params = JSONUtil.parseObj(ext.getParams());
             String mode = StrUtil.blankToDefault(params.getStr("runner_mode"), "original");
             out.set("runner_mode", mode);
+            copyIfPresent(params, out, "training_python_path");
             if ("fixed".equalsIgnoreCase(mode)) {
                 copyIfPresent(params, out, "fixed_python_path");
                 copyIfPresent(params, out, "fixed_exec_dir");

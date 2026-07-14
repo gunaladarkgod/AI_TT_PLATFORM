@@ -23,6 +23,7 @@ public interface PreprocessService {
             Integer enhanceScriptId,
             Map<String, Object> enhanceParams,
             Integer augmentScriptId,
-            Map<String, Object> augmentParams
+            Map<String, Object> augmentParams,
+            Double trainRatio
     ) throws Exception;
 }

@@ -5,6 +5,9 @@ import cn.hutool.core.util.StrUtil;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
 
 /** Resolve data directories from the actual checked-out workspace, without hard-coded OS paths. */
 public final class WorkspacePathUtil {
@@ -17,12 +20,23 @@ public final class WorkspacePathUtil {
         }
 
         Path start = Paths.get(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
-        for (Path candidate = start; candidate != null; candidate = candidate.getParent()) {
-            boolean hasBackend = Files.isDirectory(candidate.resolve("backend"));
-            boolean hasFrontend = Files.isDirectory(candidate.resolve("fronternd"));
-            boolean hasMmdet = Files.isDirectory(candidate.resolve("mmdet_run"));
-            if (hasBackend && (hasFrontend || hasMmdet)) {
-                return candidate;
+        List<Path> starts = new ArrayList<>();
+        starts.add(start);
+        try {
+            URI location = WorkspacePathUtil.class.getProtectionDomain().getCodeSource().getLocation().toURI();
+            Path codeLocation = Paths.get(location).toAbsolutePath().normalize();
+            starts.add(Files.isDirectory(codeLocation) ? codeLocation : codeLocation.getParent());
+        } catch (Exception ignore) {
+        }
+
+        for (Path probe : starts) {
+            for (Path candidate = probe; candidate != null; candidate = candidate.getParent()) {
+                boolean hasBackend = Files.isDirectory(candidate.resolve("backend"));
+                boolean hasFrontend = Files.isDirectory(candidate.resolve("fronternd"));
+                boolean hasMmdet = Files.isDirectory(candidate.resolve("mmdet_run"));
+                if (hasBackend && (hasFrontend || hasMmdet)) {
+                    return candidate;
+                }
             }
         }
         if (start.getFileName() != null && "backend".equalsIgnoreCase(start.getFileName().toString())
@@ -32,9 +46,16 @@ public final class WorkspacePathUtil {
         return start;
     }
 
+    /** 配置为相对路径时统一相对于项目根目录解析；绝对路径仅用于用户显式外部挂载。 */
+    public static Path resolveConfiguredPath(String configured, String defaultRelative) {
+        String value = StrUtil.blankToDefault(StrUtil.trim(configured), defaultRelative);
+        Path path = Paths.get(value).normalize();
+        return (path.isAbsolute() ? path : workspaceRoot().resolve(path)).toAbsolutePath().normalize();
+    }
+
     /** 原始数据集登记文件跟随当前工作区；原始图片本身仍可放在任意外部目录。 */
     public static Path originalDatasetRoot() {
-        return workspaceRoot().resolve("data").resolve("original_dataset").normalize();
+        return resolveConfiguredPath("data/original_dataset", "data/original_dataset");
     }
 
     /** 中间实例数据集固定跟随当前工作区，便于整项目迁移到不同设备。 */

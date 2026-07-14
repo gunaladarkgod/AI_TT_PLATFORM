@@ -79,7 +79,8 @@ public class OriginalDatasetController {
     @PostMapping("/external/validate")
     public AjaxResult validateExternal(@RequestBody Map<String, String> req) {
         String path = req != null ? req.get("path") : null;
-        return originalDatasetService.validateExternalDatasetPath(path);
+        String annotationDir = req != null ? req.get("annotationDir") : null;
+        return originalDatasetService.validateExternalDatasetPath(path, annotationDir);
     }
 
     /** 本机目录选择器（同机部署场景） */
@@ -93,7 +94,8 @@ public class OriginalDatasetController {
     public AjaxResult importExternal(@RequestBody Map<String, String> req) {
         String name = req != null ? req.get("name") : null;
         String path = req != null ? req.get("path") : null;
-        return originalDatasetService.importExternalDataset(name, path);
+        String annotationDir = req != null ? req.get("annotationDir") : null;
+        return originalDatasetService.importExternalDataset(name, path, annotationDir);
     }
 
     /** 删除外部导入记录（仅删除记录，不删物理文件） */
@@ -290,4 +292,3 @@ public class OriginalDatasetController {
         return originalDatasetService.getDotaObjects(id, imgName);
     }
 }
-

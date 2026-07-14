@@ -57,6 +57,18 @@ public class ApiController {
     public AjaxResult runnerStart() {
         return AjaxResult.success(trainRunnerService.startRunnerManually());
     }
+
+    @Operation(summary = "检测 Runner 最小依赖")
+    @PostMapping("/runner/dependencies/check")
+    public AjaxResult runnerDependenciesCheck() {
+        return AjaxResult.success(trainRunnerService.checkRunnerDependencies());
+    }
+
+    @Operation(summary = "安装 Runner 最小依赖")
+    @PostMapping("/runner/dependencies/install")
+    public AjaxResult runnerDependenciesInstall() {
+        return AjaxResult.success(trainRunnerService.installRunnerDependencies());
+    }
     @RequestMapping("webhook/project")
     public AjaxResult project(@RequestBody String body) {
         JSONObject json = new JSONObject(body);

@@ -9,6 +9,7 @@ import shlex
 import shutil
 import subprocess
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -25,10 +26,10 @@ _ACTIVE_PROCESSES_LOCK = threading.Lock()
 
 _RUNNER_DIR = Path(__file__).resolve().parent
 _REPO_ROOT_DIR = _RUNNER_DIR.parent.parent
+_ACTIVE_PID_DIR = Path(os.getenv("MMDET_ACTIVE_PID_DIR", str(_REPO_ROOT_DIR / "mmdet_run" / "logs" / "active_pids")))
 
-# 1) 训练用的 Python 解释器
-PY_EXE = os.getenv("MMDET_PY_EXE", sys.executable)
-# 2) mmdetection 仓库根目录
+# 训练解释器不属于 Runner 环境，必须由每个任务显式传入。
+# 1) mmdetection 仓库根目录
 REPO_ROOT = os.getenv("MMDET_REPO_ROOT", str(_REPO_ROOT_DIR / "mmdet_run" / "mmdetection-3.0.0"))
 # 3) train.py 路径（用 REPO_ROOT 拼出来，避免写两份）
 TRAIN_PY = str(Path(REPO_ROOT) / "tools" / "train.py")
@@ -38,13 +39,13 @@ ROOT_UPLOAD = os.getenv("MMDET_UPLOAD_ROOT", str(_REPO_ROOT_DIR / "mmdet_run" / 
 DEFAULT_WORK_ROOT = os.getenv("MMDET_WORK_ROOT", str(_REPO_ROOT_DIR / "artifacts" / "mmdet_runs"))
 
 # Runner 模式直接写在本文件中，不从环境变量或启动脚本读取。
-# 可选值："original"（原 MMDet + ClearML 流程）/ "fixed"（固定命令且跳过 ClearML）。
+# 可选值："original"（MMDet 标准流程）/ "fixed"（固定命令流程）。
 RUNNER_MODE = "original"
 
 # fixed 模式的全部执行信息也写在本文件中。
 # 实际效果：在 FIXED_EXEC_DIR 中执行：
 #   FIXED_PYTHON_PATH -u tools/runner_fixed_test.py --run-id ... --work-dir ...
-FIXED_PYTHON_PATH = os.getenv("MMDET_PY_EXE", sys.executable)
+FIXED_PYTHON_PATH = ""
 FIXED_EXEC_DIR = str(_REPO_ROOT_DIR / "mmdet_run" / "mmdetection-3.0.0")
 FIXED_COMMAND_LINE = "tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}"
 FIXED_WORK_ROOT = str(_REPO_ROOT_DIR / "artifacts" / "mmdet_runs")
@@ -52,144 +53,10 @@ FIXED_WORK_ROOT = str(_REPO_ROOT_DIR / "artifacts" / "mmdet_runs")
 # 追加的可选参数（保持你之前成功用过的设置）
 EXTRA_ARGS = ["--cfg-options", "default_scope=mmdet"]
 
-# =========================
-# ClearML：每个训练 run 在启动子进程前 Task.init，并把 CLEARML_* / CLEARML_TASK_ID 写入子进程 env
-# =========================
-
-
 def _append_log(log_path: Path, text: str) -> None:
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(text.rstrip() + "\n")
-    except Exception:
-        pass
-
-
-def _parse_dot_env(path: Path) -> Dict[str, str]:
-    out: Dict[str, str] = {}
-    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        eq = line.find("=")
-        if eq <= 0:
-            continue
-        k = line[:eq].strip()
-        v = line[eq + 1 :].strip()
-        if len(v) >= 2 and ((v[0] == v[-1] == '"') or (v[0] == v[-1] == "'")):
-            v = v[1:-1]
-        if k:
-            out[k] = v
-    return out
-
-
-def _candidate_clearml_env_files() -> List[Path]:
-    out: List[Path] = []
-    override = os.getenv("MMDET_CLEARML_ENV_FILE", "").strip()
-    if override:
-        out.append(Path(override))
-    out.extend(
-        [
-            _RUNNER_DIR / "env.clearml.local",
-            _REPO_ROOT_DIR / "backend" / "env.clearml.local",
-        ]
-    )
-    return out
-
-
-def merge_clearml_into_env(env: Dict[str, str]) -> List[Path]:
-    """合并所有存在的 ClearML env 文件（后者覆盖前者）；返回已加载路径列表。"""
-    loaded: List[Path] = []
-    for p in _candidate_clearml_env_files():
-        try:
-            if not p.is_file():
-                continue
-            for k, v in _parse_dot_env(p).items():
-                env[k] = v
-            loaded.append(p.resolve())
-        except Exception:
-            continue
-    return loaded
-
-
-def init_clearml_task(
-    run_id: str, env: Dict[str, str], log_path: Path
-) -> Tuple[Optional[Any], Optional[str]]:
-    """创建 ClearML Task；失败时按 CLEARML_TRAINING_REQUIRED 决定是否中止。"""
-    strict = os.getenv("CLEARML_TRAINING_REQUIRED", "false").lower() in ("1", "true", "yes")
-    if os.getenv("CLEARML_DISABLE_TRAINING_HOOK", "").lower() in ("1", "true", "yes"):
-        _append_log(log_path, "[clearml] disabled via CLEARML_DISABLE_TRAINING_HOOK")
-        return None, None
-
-    env_files_used = merge_clearml_into_env(env)
-    if env_files_used:
-        _append_log(log_path, "[clearml] merged env files: " + ", ".join(str(p) for p in env_files_used))
-
-    if not env.get("CLEARML_API_ACCESS_KEY"):
-        msg = "[clearml] CLEARML_API_ACCESS_KEY missing — training continues without ClearML Task"
-        _append_log(log_path, msg)
-        if strict:
-            raise RuntimeError("CLEARML_TRAINING_REQUIRED but credentials missing")
-        return None, None
-
-    try:
-        from clearml import Task
-    except ImportError:
-        msg = "[clearml] python package not installed (pip install clearml)"
-        _append_log(log_path, msg)
-        if strict:
-            raise RuntimeError(msg)
-        return None, None
-
-    keys_to_push = {k: v for k, v in env.items() if k.startswith("CLEARML_")}
-    backup = {k: os.environ.get(k) for k in keys_to_push}
-    try:
-        os.environ.update(keys_to_push)
-        project = env.get("CLEARML_PROJECT_NAME", "AI-TT-Platform")
-        task = Task.init(
-            project_name=project,
-            task_name=run_id,
-            task_type=Task.TaskTypes.training,
-            tags=["mmdet-runner"],
-            reuse_last_task_id=False,
-        )
-        tid = task.id
-        env["CLEARML_TASK_ID"] = tid
-        _append_log(log_path, f"[clearml] Task.init ok task_id={tid} project={project}")
-        return task, tid
-    except Exception as e:
-        _append_log(log_path, f"[clearml] Task.init error: {e}")
-        if strict:
-            raise
-        return None, None
-    finally:
-        for k, old in backup.items():
-            if old is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = old
-
-
-def finalize_clearml_task(task: Any, exit_code: int, log_path: Path) -> None:
-    if task is None:
-        return
-    try:
-        task.get_logger().report_text(f"[mmdet-runner] train subprocess exit_code={exit_code}")
-    except Exception:
-        pass
-    try:
-        if exit_code == 0:
-            if hasattr(task, "mark_completed"):
-                task.mark_completed()
-            elif hasattr(task, "completed"):
-                task.completed()
-        else:
-            if hasattr(task, "mark_failed"):
-                task.mark_failed(status_reason=f"exit_code={exit_code}")
-    except Exception as e:
-        _append_log(log_path, f"[clearml] finalize status warn: {e}")
-    try:
-        task.close()
     except Exception:
         pass
 
@@ -476,6 +343,54 @@ def stop_process_tree(proc: subprocess.Popen) -> None:
             pass
 
 
+def active_pid_path(run_id: str) -> Path:
+    safe = re.sub(r"[^\w\-.\u4e00-\u9fff]+", "_", run_id).strip("._")
+    return _ACTIVE_PID_DIR / f"{safe}.pid"
+
+
+def write_active_pid(run_id: str, pid: int) -> None:
+    _ACTIVE_PID_DIR.mkdir(parents=True, exist_ok=True)
+    active_pid_path(run_id).write_text(str(pid), encoding="utf-8")
+
+
+def clear_active_pid(run_id: str, pid: Optional[int] = None) -> None:
+    path = active_pid_path(run_id)
+    try:
+        if pid is None or not path.is_file() or path.read_text(encoding="utf-8").strip() == str(pid):
+            path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def stop_persisted_pid(run_id: str) -> Optional[int]:
+    path = active_pid_path(run_id)
+    if not path.is_file():
+        return None
+    try:
+        pid = int(path.read_text(encoding="utf-8").strip())
+        if os.name == "nt":
+            completed = subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                                       capture_output=True, text=True, timeout=15, check=False)
+            if completed.returncode != 0:
+                raise OSError(completed.stderr.strip() or "taskkill failed")
+        else:
+            pgid = os.getpgid(pid)
+            os.killpg(pgid, signal.SIGTERM)
+            for _ in range(30):
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.1)
+            else:
+                os.killpg(pgid, signal.SIGKILL)
+        clear_active_pid(run_id, pid)
+        return pid
+    except ProcessLookupError:
+        clear_active_pid(run_id)
+        return None
+
+
 # =========================
 # API
 # =========================
@@ -565,7 +480,19 @@ def start_train(
 
     # 3) 组装命令。original 分支保持原命令；fixed 分支完全使用固定值。
     if mode == "original":
-        cmd = [PY_EXE, "-u", TRAIN_PY, str(cfg_path), "--work-dir", str(work_dir), "--launcher", "none", *EXTRA_ARGS]
+        training_python = str(payload.get("training_python_path") or "").strip()
+        if not training_python:
+            return JSONResponse(
+                content=api_response(False, 400, "training Python is required", error="missing training_python_path"),
+                status_code=400,
+            )
+        python_file = Path(training_python).expanduser()
+        if not python_file.is_file():
+            return JSONResponse(
+                content=api_response(False, 400, "training Python not found", error=str(python_file)),
+                status_code=400,
+            )
+        cmd = [str(python_file), "-u", TRAIN_PY, str(cfg_path), "--work-dir", str(work_dir), "--launcher", "none", *EXTRA_ARGS]
         process_cwd = REPO_ROOT
         executed_script = TRAIN_PY
     else:
@@ -588,26 +515,13 @@ def start_train(
         cfg_path = Path(executed_script)
     cmd_str = fmt_cmd(cmd)
 
-    # 4) 写 header 并 ClearML Task.init（调度仍在本 Runner HTTP 进程内）
+    # 4) 写日志并启动训练子进程。
     ensure_dir(log_path.parent)
     write_header(log_path, process_cwd, str(work_dir), str(cfg_path), cmd_str)
     _append_log(log_path, f"[server] runner_mode={mode}")
     _append_log(log_path, f"[server] executed_script={executed_script}")
 
     env = make_env()
-
-    clearml_task = None
-    clearml_task_id: Optional[str] = None
-    if mode == "original":
-        try:
-            clearml_task, clearml_task_id = init_clearml_task(runId, env, log_path)
-        except RuntimeError as e:
-            return JSONResponse(
-                content=api_response(False, 400, "clearml_required_failed", error=str(e)),
-                status_code=400,
-            )
-    else:
-        _append_log(log_path, "[clearml] skipped: fixed runner mode")
 
     exit_code = 1
     proc = None
@@ -630,20 +544,19 @@ def start_train(
             )
             with _ACTIVE_PROCESSES_LOCK:
                 _ACTIVE_PROCESSES[runId] = proc
+            write_active_pid(runId, proc.pid)
             try:
                 exit_code = proc.wait()
             finally:
                 with _ACTIVE_PROCESSES_LOCK:
                     if _ACTIVE_PROCESSES.get(runId) is proc:
                         _ACTIVE_PROCESSES.pop(runId, None)
+                clear_active_pid(runId, proc.pid)
     except Exception as e:
-        finalize_clearml_task(clearml_task, 1, log_path)
         return JSONResponse(
             content=api_response(False, 500, "failed to run process", error=f"failed to start or wait process: {e}"),
             status_code=500,
         )
-    finalize_clearml_task(clearml_task, exit_code, log_path)
-
     # 6) 读取日志并解析 COCO 指标
     try:
         text = Path(log_path).read_text(encoding="utf-8", errors="ignore")
@@ -683,7 +596,6 @@ def start_train(
         "executed_script": executed_script,
         "results_file": str(results_file),
         "results_txt": parsed,
-        "clearml_task_id": clearml_task_id,
     }
     if exit_code != 0 and err_snippet:
         resp["error"] = err_snippet[:8000]
@@ -698,10 +610,14 @@ def stop_train(runId: str = Query(..., description="训练任务名称/runId")):
     with _ACTIVE_PROCESSES_LOCK:
         proc = _ACTIVE_PROCESSES.get(runId)
     if proc is None or proc.poll() is not None:
-        return JSONResponse(
-            content=api_response(False, 404, "active training process not found", run_id=runId),
-            status_code=404,
-        )
+        try:
+            persisted_pid = stop_persisted_pid(runId)
+        except OSError as e:
+            return JSONResponse(content=api_response(False, 500, "failed to stop persisted training process", error=str(e)), status_code=500)
+        if persisted_pid is not None:
+            return api_response(True, 0, "training stopped from persisted pid", run_id=runId,
+                                pid=persisted_pid, stopped=True, source="pid_file")
+        return JSONResponse(content=api_response(False, 404, "active training process not found", run_id=runId), status_code=404)
     pid = proc.pid
     try:
         stop_process_tree(proc)
@@ -711,7 +627,8 @@ def stop_train(runId: str = Query(..., description="训练任务名称/runId")):
             content=api_response(False, 500, "failed to stop training process", error=str(e)),
             status_code=500,
         )
-    return api_response(True, 0, "training stopped", run_id=runId, pid=pid, stopped=True)
+    clear_active_pid(runId, pid)
+    return api_response(True, 0, "training stopped", run_id=runId, pid=pid, stopped=True, source="memory")
 
 
 @app.get("/api/runner/log/latest")

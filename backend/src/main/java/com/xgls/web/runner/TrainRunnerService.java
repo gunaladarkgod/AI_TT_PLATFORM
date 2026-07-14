@@ -31,6 +31,11 @@ import java.util.concurrent.atomic.AtomicReference;
 @Service
 public class TrainRunnerService {
 
+    private static final String RUNNER_IMPORT_CHECK =
+            "import fastapi,uvicorn,mmengine; from mmengine.config import Config; "
+                    + "print('fastapi='+fastapi.__version__); print('uvicorn='+uvicorn.__version__); "
+                    + "print('mmengine='+mmengine.__version__)";
+
     @Value("${sys.runner.train-url:http://127.0.0.1:8009/api/runner/train}")
     private String runnerTrainUrl;
 
@@ -41,6 +46,80 @@ public class TrainRunnerService {
     private String runnerAutoStartLog;
 
     private final AtomicReference<Process> manualRunnerProcessRef = new AtomicReference<>();
+
+    /** 检查独立 Runner Python 及其最小依赖，不启动 Runner。 */
+    public Map<String, Object> checkRunnerDependencies() {
+        Map<String, Object> out = new LinkedHashMap<>();
+        Path script = resolveLaunchScript();
+        Path python = resolveRunnerPython(script);
+        Path requirements = script.getParent().resolve("requirements.txt").normalize();
+        out.put("python", python.toString());
+        out.put("requirements", requirements.toString());
+        out.put("pythonExists", Files.isRegularFile(python));
+        out.put("requirementsExists", Files.isRegularFile(requirements));
+        if (!Files.isRegularFile(python)) {
+            out.put("ok", false);
+            out.put("message", "Runner Python 不存在");
+            return out;
+        }
+        try {
+            Process p = new ProcessBuilder(python.toString(), "-c", RUNNER_IMPORT_CHECK)
+                    .redirectErrorStream(true).start();
+            String text = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            int code = p.waitFor();
+            out.put("ok", code == 0);
+            out.put("exitCode", code);
+            out.put("detail", text);
+            out.put("message", code == 0 ? "Runner 依赖已安装" : "Runner 依赖缺失或损坏");
+        } catch (Exception e) {
+            out.put("ok", false);
+            out.put("message", "依赖检测失败");
+            out.put("detail", e.getMessage());
+        }
+        return out;
+    }
+
+    /** 安装 requirements.txt 后重新检测。该操作仅由前端用户明确触发。 */
+    public synchronized Map<String, Object> installRunnerDependencies() {
+        Map<String, Object> before = checkRunnerDependencies();
+        if (Boolean.TRUE.equals(before.get("ok"))) return before;
+        Path script = resolveLaunchScript();
+        Path python = resolveRunnerPython(script);
+        Path requirements = script.getParent().resolve("requirements.txt").normalize();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("before", before);
+        if (!Files.isRegularFile(python) || !Files.isRegularFile(requirements)) {
+            out.put("ok", false);
+            out.put("message", "Runner Python 或 requirements.txt 不存在");
+            return out;
+        }
+        try {
+            Process p = new ProcessBuilder(python.toString(), "-m", "pip", "install", "-r", requirements.toString())
+                    .redirectErrorStream(true).start();
+            String text = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            int code = p.waitFor();
+            out.put("installExitCode", code);
+            out.put("installLog", StrUtil.maxLength(text, 8000));
+            Map<String, Object> after = checkRunnerDependencies();
+            out.put("after", after);
+            out.put("ok", code == 0 && Boolean.TRUE.equals(after.get("ok")));
+            out.put("message", Boolean.TRUE.equals(out.get("ok")) ? "Runner 依赖安装完成" : "Runner 依赖安装失败");
+        } catch (Exception e) {
+            out.put("ok", false);
+            out.put("message", "执行 pip 安装失败");
+            out.put("detail", e.getMessage());
+        }
+        return out;
+    }
+
+    private Path resolveRunnerPython(Path script) {
+        Path dir = script.getParent();
+        boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+        Path conda = dir.resolve(windows ? ".conda_runner/python.exe" : ".conda_runner/bin/python");
+        if (Files.isRegularFile(conda)) return conda.toAbsolutePath().normalize();
+        Path venv = dir.resolve(windows ? ".venv/Scripts/python.exe" : ".venv/bin/python");
+        return venv.toAbsolutePath().normalize();
+    }
 
     /** 探测 Runner HTTP 服务是否可用（GET /health，与 train-url 同主机端口）。 */
     public Map<String, Object> probeHealth() {
@@ -349,6 +428,49 @@ public class TrainRunnerService {
                 + (lastError == null ? runId : lastError.getMessage()), lastError);
     }
 
+    /** Runner 不可达或重启丢失内存登记时，按唯一任务名从本机进程命令行终止整棵进程树。 */
+    public JSONObject stopLocalProcessByRunId(String runId) {
+        String key = StrUtil.trimToEmpty(runId);
+        if (StrUtil.isBlank(key) || key.contains("/") || key.contains("\\") || ".".equals(key) || "..".equals(key)) {
+            throw new IllegalStateException("非法训练任务名称");
+        }
+        List<ProcessHandle> matched = ProcessHandle.allProcesses()
+                .filter(ProcessHandle::isAlive)
+                .filter(p -> {
+                    ProcessHandle.Info info = p.info();
+                    String commandLine = info.commandLine().orElse("");
+                    String args = String.join(" ", info.arguments().orElse(new String[0]));
+                    String text = commandLine + " " + args;
+                    return text.contains(key) && (text.contains("train.py") || text.contains("config.py")
+                            || text.contains("--run-id") || text.contains("--work-dir"));
+                })
+                .toList();
+        if (matched.isEmpty()) {
+            throw new IllegalStateException("本机进程列表中也未找到任务 " + key);
+        }
+        List<Long> pids = new ArrayList<>();
+        for (ProcessHandle root : matched) {
+            pids.add(root.pid());
+            List<ProcessHandle> descendants = root.descendants().toList();
+            for (int i = descendants.size() - 1; i >= 0; i--) descendants.get(i).destroy();
+            root.destroy();
+        }
+        try { Thread.sleep(800L); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        for (ProcessHandle root : matched) {
+            root.descendants().filter(ProcessHandle::isAlive).forEach(ProcessHandle::destroyForcibly);
+            if (root.isAlive()) root.destroyForcibly();
+        }
+        try { Thread.sleep(300L); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        boolean stopped = matched.stream().noneMatch(ProcessHandle::isAlive);
+        if (!stopped) throw new IllegalStateException("已发送强制终止信号，但仍检测到存活进程");
+        JSONObject result = new JSONObject();
+        result.set("ok", true);
+        result.set("stopped", true);
+        result.set("source", "java_process_scan");
+        result.set("pids", pids);
+        return result;
+    }
+
     private Path resolveLaunchScript() {
         Path configured = Path.of(runnerLaunchScript).toAbsolutePath().normalize();
         if (isWindows() && isStartRunnerSh(configured)) {
@@ -518,7 +640,6 @@ public class TrainRunnerService {
                 resultsTxt = jo.getStr("result_text");
             }
             result.setResultsTxt(resultsTxt);
-            result.setClearmlTaskId(jo.getStr("clearml_task_id"));
         } catch (Exception ex) {
             result.setOk(statusCode >= 200 && statusCode < 300);
             result.setError("invalid runner response: " + ex.getMessage());
@@ -526,5 +647,3 @@ public class TrainRunnerService {
         return result;
     }
 }
-
-

@@ -34,6 +34,7 @@ import com.xgls.web.service.*;
 import com.xgls.web.utils.MyUtils;
 import com.xgls.web.utils.SessionUtil;
 import com.xgls.web.utils.WorkspacePathUtil;
+import com.xgls.web.utils.TrainConfigPathUtil;
 import com.xgls.web.vo.MyTask;
 import com.xgls.web.vo.TrainForm;
 import com.xgls.web.vo.TrainItem;
@@ -53,6 +54,9 @@ import lombok.extern.slf4j.Slf4j;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
+import java.awt.GraphicsEnvironment;
+import javax.swing.JFileChooser;
+import javax.swing.SwingUtilities;
 
 @Tag(name = "模型训练任务管理")
 @RestController
@@ -60,11 +64,110 @@ import java.awt.image.BufferedImage;
 @Slf4j
 public class TrainTaskController {
 
+    /** 选择后端所在机器的训练 Python 解释器；只返回路径，不执行该文件。 */
+    @PostMapping("python/pick")
+    public AjaxResult pickTrainingPython() {
+        boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+        Path initialDirectory = resolvePythonEnvironmentDirectory(windows);
+        if (!windows) {
+            try {
+                List<String> command = new ArrayList<>();
+                command.add("zenity");
+                command.add("--file-selection");
+                command.add("--title=选择训练 Python 解释器");
+                if (initialDirectory != null) {
+                    command.add("--filename=" + initialDirectory.toString() + File.separator);
+                }
+                Process p = new ProcessBuilder(command).start();
+                int code = p.waitFor();
+                String selected = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+                if (code == 0 && StrUtil.isNotBlank(selected)) {
+                    return AjaxResult.success(Collections.singletonMap("path", selected.replace("\\", "/")));
+                }
+            } catch (Exception ignore) {
+                // 无 zenity 或无 DISPLAY 时继续尝试 Swing；均不可用时由前端手工填写。
+            }
+        }
+        if (GraphicsEnvironment.isHeadless()) {
+            return AjaxResult.error("当前环境无法打开文件选择器，请手工填写训练 Python 的绝对路径");
+        }
+        final File[] selected = new File[1];
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                JFileChooser chooser = new JFileChooser();
+                chooser.setDialogTitle("选择训练 Python 解释器");
+                chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+                if (initialDirectory != null) chooser.setCurrentDirectory(initialDirectory.toFile());
+                if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                    selected[0] = chooser.getSelectedFile();
+                }
+            });
+        } catch (Exception e) {
+            return AjaxResult.error("打开文件选择器失败: " + e.getMessage());
+        }
+        if (selected[0] == null) return AjaxResult.error("未选择文件");
+        return AjaxResult.success(Collections.singletonMap("path", selected[0].getAbsolutePath().replace("\\", "/")));
+    }
+
+    private Path resolvePythonEnvironmentDirectory(boolean windows) {
+        String home = System.getProperty("user.home", "");
+        List<Path> candidates = new ArrayList<>();
+        String condaPrefix = System.getenv("CONDA_PREFIX");
+        if (StrUtil.isNotBlank(condaPrefix)) {
+            Path prefix = Paths.get(condaPrefix).toAbsolutePath().normalize();
+            Path parent = prefix.getParent();
+            if (parent != null && "envs".equalsIgnoreCase(parent.getFileName().toString())) candidates.add(parent);
+        }
+        candidates.add(Paths.get(home, "miniconda3", "envs"));
+        candidates.add(Paths.get(home, "anaconda3", "envs"));
+        candidates.add(Paths.get(home, ".conda", "envs"));
+        if (windows) {
+            String localAppData = System.getenv("LOCALAPPDATA");
+            if (StrUtil.isNotBlank(localAppData)) {
+                candidates.add(Paths.get(localAppData, "miniconda3", "envs"));
+                candidates.add(Paths.get(localAppData, "anaconda3", "envs"));
+            }
+        }
+        for (Path candidate : candidates) {
+            Path normalized = candidate.toAbsolutePath().normalize();
+            Path platformMmdet = normalized.resolve("platform_mmdet");
+            if (Files.isDirectory(platformMmdet)) return platformMmdet;
+            if (Files.isDirectory(normalized)) return normalized;
+        }
+        return Paths.get(home).toAbsolutePath().normalize();
+    }
+
+    /** 返回本机 platform_mmdet 环境的解释器，用作创建任务和旧任务编辑的默认值。 */
+    @GetMapping("python/default")
+    public AjaxResult defaultTrainingPython() {
+        boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+        String executable = windows ? "python.exe" : "bin/python";
+        List<Path> candidates = new ArrayList<>();
+        String configured = System.getenv("MMDET_PY_EXE");
+        if (StrUtil.isNotBlank(configured)) candidates.add(Paths.get(configured));
+        String condaPrefix = System.getenv("CONDA_PREFIX");
+        if (StrUtil.isNotBlank(condaPrefix)) {
+            Path envs = Paths.get(condaPrefix).getParent();
+            if (envs != null) candidates.add(envs.resolve("platform_mmdet").resolve(executable));
+        }
+        String home = System.getProperty("user.home", "");
+        candidates.add(Paths.get(home, "miniconda3", "envs", "platform_mmdet", executable));
+        candidates.add(Paths.get(home, "anaconda3", "envs", "platform_mmdet", executable));
+        candidates.add(Paths.get(home, ".conda", "envs", "platform_mmdet", executable));
+        for (Path candidate : candidates) {
+            Path normalized = candidate.toAbsolutePath().normalize();
+            if (Files.isRegularFile(normalized)) {
+                return AjaxResult.success(Collections.singletonMap("path", normalized.toString().replace("\\", "/")));
+            }
+        }
+        return AjaxResult.error("未找到 platform_mmdet 环境，请手工选择训练 Python");
+    }
+
     @Value("${sys.root-upload}")
     private String rootPath;
 
     /** 与预处理落盘一致：实例数据集根目录（INSTANCE_DATA_ROOT / sys.instancecfg.instancedata-root） */
-    @Value("${sys.instancecfg.instancedata-root:/home/omen1/AI_TT_Platform/data/instance_dataset/}")
+    @Value("${sys.instancecfg.instancedata-root:data/instance_dataset/}")
     private String instanceDataRoot;
 
     // 三个基础模板：data / train / runtime
@@ -221,11 +324,83 @@ public class TrainTaskController {
         TrainTask task = taskService.getById(id);
         if (task == null) return AjaxResult.error("训练任务不存在");
         if (!SessionUtil.hasAdminOrSelf(task.getUsername())) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+
+        // 配置文件本来就落在平台工作区，优先本地读取，避免 Runner 未启动或环境变量
+        // MMDET_UPLOAD_ROOT 不一致时把“连接/路径问题”误报成“没有生成配置”。
+        Map<String, Object> trace = buildConfigTrace(task);
+        log.info("[config-read] {}", JSONUtil.toJsonStr(trace));
+        Path localConfig = resolveLocalTaskConfig(task);
+        if (localConfig != null) {
+            try {
+                Map<String, Object> config = new LinkedHashMap<>();
+                config.put("run_id", task.getName());
+                config.put("config_path", localConfig.toString().replace("\\", "/"));
+                config.put("file_name", localConfig.getFileName().toString());
+                if (includeText) config.put("text", Files.readString(localConfig, StandardCharsets.UTF_8));
+                return AjaxResult.success(config);
+            } catch (IOException e) {
+                trace.put("readError", e.toString());
+                return AjaxResult.error("读取本地配置文件失败：" + e.getMessage(), trace);
+            }
+        }
         try {
             return AjaxResult.success(trainRunnerService.readConfig(task.getName(), includeText).get("config"));
         } catch (IllegalStateException e) {
-            return AjaxResult.error(e.getMessage());
+            trace.put("runnerError", e.getMessage());
+            log.warn("[config-read] local and runner lookup failed: {}", JSONUtil.toJsonStr(trace));
+            return AjaxResult.error("未找到任务配置文件：mmdet_run/myfiles/modelcfg/" + task.getName()
+                    + "/config.py。Runner 信息：" + e.getMessage(), trace);
         }
+    }
+
+    @GetMapping("/config/trace")
+    public AjaxResult traceTaskConfig(@RequestParam Integer id) {
+        TrainTask task = taskService.getById(id);
+        if (task == null) return AjaxResult.error("训练任务不存在");
+        if (!SessionUtil.hasAdminOrSelf(task.getUsername())) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        Map<String, Object> trace = buildConfigTrace(task);
+        log.info("[config-trace] {}", JSONUtil.toJsonStr(trace));
+        return AjaxResult.success(trace);
+    }
+
+    private Map<String, Object> buildConfigTrace(TrainTask task) {
+        Map<String, Object> trace = new LinkedHashMap<>();
+        Path workspace = WorkspacePathUtil.workspaceRoot();
+        Path myfiles = mmdetMyfilesRoot();
+        Path expected = TrainConfigPathUtil.resolveConfig(myfiles, task.getName());
+        Path modelRoot = myfiles.resolve("modelcfg").normalize();
+        trace.put("taskId", task.getId());
+        trace.put("taskName", task.getName());
+        trace.put("taskNameLength", task.getName() == null ? 0 : task.getName().length());
+        trace.put("userDir", System.getProperty("user.dir"));
+        trace.put("appWorkspaceRootEnv", System.getenv("APP_WORKSPACE_ROOT"));
+        trace.put("workspaceRoot", workspace.toString());
+        trace.put("configuredRootUpload", rootPath);
+        trace.put("resolvedMyfilesRoot", myfiles.toString());
+        trace.put("myfilesExists", Files.isDirectory(myfiles));
+        trace.put("modelcfgRoot", modelRoot.toString());
+        trace.put("modelcfgExists", Files.isDirectory(modelRoot));
+        trace.put("expectedConfig", expected == null ? null : expected.toString());
+        trace.put("expectedConfigExists", expected != null && Files.isRegularFile(expected));
+        List<String> actualTaskDirs = new ArrayList<>();
+        if (Files.isDirectory(modelRoot)) {
+            try (DirectoryStream<Path> dirs = Files.newDirectoryStream(modelRoot)) {
+                for (Path dir : dirs) {
+                    if (Files.isDirectory(dir) && dir.getFileName() != null) {
+                        actualTaskDirs.add(dir.getFileName().toString());
+                    }
+                    if (actualTaskDirs.size() >= 100) break;
+                }
+            } catch (IOException e) {
+                trace.put("listModelcfgError", e.toString());
+            }
+        }
+        trace.put("actualTaskDirs", actualTaskDirs);
+        return trace;
+    }
+
+    private Path resolveLocalTaskConfig(TrainTask task) {
+        return TrainConfigPathUtil.findExistingConfig(mmdetMyfilesRoot(), task.getName());
     }
 
     /**
@@ -251,6 +426,11 @@ public class TrainTaskController {
         if ("fixed".equalsIgnoreCase(runnerMode)) {
             return packFixedRunnerTask(params, editingTaskId, taskName, taskType);
         }
+
+        String trainingPythonPath = StrUtil.trim(params.getStr("training_python_path"));
+        if (StrUtil.isBlank(trainingPythonPath)) return AjaxResult.error("请选择训练 Python 解释器");
+        Path trainingPython = Paths.get(trainingPythonPath).toAbsolutePath().normalize();
+        if (!Files.isRegularFile(trainingPython)) return AjaxResult.error("训练 Python 不存在: " + trainingPython);
 
         if (StrUtil.isBlank(datasetName)) return AjaxResult.error("缺少参数：dataset");
         if (StrUtil.isBlank(templateName)) return AjaxResult.error("缺少参数：mmdet_network");
@@ -485,10 +665,7 @@ public class TrainTaskController {
 
     /** MMDet 单文件配置根目录：固定跟随当前工作区，而不是使用 /home/... 这类机器绝对路径。 */
     private Path mmdetMyfilesRoot() {
-        return WorkspacePathUtil.workspaceRoot()
-                .resolve("mmdet_run")
-                .resolve("myfiles")
-                .normalize();
+        return WorkspacePathUtil.resolveConfiguredPath(rootPath, "mmdet_run/myfiles");
     }
 
     private void saveMmdetParams(Integer taskId, JSONObject params) {
@@ -2499,7 +2676,26 @@ public class TrainTaskController {
         if (!SessionUtil.hasAdminOrSelf(task.getUsername())) {
             return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
         }
-        return taskService.delLink(id) ? AjaxResult.success() : AjaxResult.error();
+        if (!taskService.delLink(id)) {
+            return AjaxResult.error();
+        }
+        // delLink 已删除旧版 src/train/{id} 目录；这里同步删除新版
+        // modelcfg/{任务名称}/config.py 所在目录。
+        try {
+            Path modelRoot = mmdetMyfilesRoot().resolve("modelcfg").normalize();
+            Path configDir = modelRoot.resolve(StrUtil.trimToEmpty(task.getName())).normalize();
+            if (!configDir.equals(modelRoot) && configDir.startsWith(modelRoot)) {
+                boolean existed = Files.exists(configDir);
+                boolean deleted = cn.hutool.core.io.FileUtil.del(configDir.toFile());
+                if (existed && (!deleted || Files.exists(configDir))) {
+                    throw new IOException("无法删除 " + configDir);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("训练任务已删除，但清理配置目录失败，taskId={}, taskName={}", id, task.getName(), e);
+            return AjaxResult.success("任务已删除；配置目录清理失败，请检查后端日志");
+        }
+        return AjaxResult.success("删除成功");
     }
 
     @Operation(summary = "获取基本训练参数信息", description = "获取基本训练参数信息")
@@ -2578,12 +2774,21 @@ public class TrainTaskController {
             return AjaxResult.error("只能停止运行状态中的任务");
         }
         Object stopDetail = null;
-        if ("mmdet".equalsIgnoreCase(task.getType()) || "custom".equalsIgnoreCase(task.getType())
-                || "自定义".equalsIgnoreCase(task.getType()) || "1".equalsIgnoreCase(task.getType())) {
+        boolean runnerManaged = resolveLocalTaskConfig(task) != null
+                || "mmdet".equalsIgnoreCase(task.getType()) || "custom".equalsIgnoreCase(task.getType())
+                || "自定义".equalsIgnoreCase(task.getType()) || "1".equalsIgnoreCase(task.getType());
+        if (runnerManaged) {
             try {
                 stopDetail = trainRunnerService.stopByRunId(task.getName());
-            } catch (IllegalStateException e) {
-                return AjaxResult.error(e.getMessage());
+            } catch (IllegalStateException runnerError) {
+                log.warn("Runner stop failed, trying local process scan. taskId={}, name={}, error={}",
+                        id, task.getName(), runnerError.getMessage());
+                try {
+                    stopDetail = trainRunnerService.stopLocalProcessByRunId(task.getName());
+                } catch (IllegalStateException localError) {
+                    return AjaxResult.error("未能确认训练进程已结束。Runner：" + runnerError.getMessage()
+                            + "；本机兜底：" + localError.getMessage());
+                }
             }
         } else {
             taskService.stopTrain();

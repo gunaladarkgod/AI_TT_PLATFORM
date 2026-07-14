@@ -13,6 +13,7 @@ import com.xgls.web.entity.EngineProject;
 import com.xgls.web.entity.User;
 import com.xgls.web.utils.CvatApiUtil;
 import com.xgls.web.utils.SessionUtil;
+import com.xgls.web.utils.WorkspacePathUtil;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -426,9 +427,8 @@ public class ProjectExportService {
     }
 
     private Path getProjectBaseDir(Integer projectId) {
-        String base = StrUtil.isNotBlank(oriDatasetRoot)
-                ? oriDatasetRoot
-                : Paths.get(rootPath, CodeMap.DIR_DATA, CodeMap.DIR_ORIGINAL_DATASET).toString();
+        String base = WorkspacePathUtil.resolveConfiguredPath(
+                oriDatasetRoot, "data/original_dataset").toString();
         return Paths.get(base, projectId.toString());
     }
 

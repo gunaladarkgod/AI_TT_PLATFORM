@@ -55,7 +55,7 @@ knife4j:
     username: ${KNIFE4J_USERNAME:xgls}
     password: ${KNIFE4J_PASSWORD:12345}
 sys:
-  license: ${SYS_LICENSE:/home/omen1/AI_TT_Platform/ai_zm_web_master/config/license.lic}
+  license: ${SYS_LICENSE:config/license.lic}
   jwt-key: ${SYS_JWT_KEY:xgls!123#hk}
   encode-src: false
   enable-token: true
@@ -104,20 +104,6 @@ sys:
     script-storage-dir: "${INSTANCE_SCRIPT_DIR:data/preprocess_scripts/}"
     instancedata-root: "${INSTANCE_DATA_ROOT:data/instance_dataset/}"  # 实例数据集根目录
     python-path: "${INSTANCE_PYTHON_PATH:/home/omen1/miniconda3/envs/platform/bin/python}"  # Python 解释器路径
-
-
-  # ClearML：优先自动加载 backend/env.clearml.local（见 ClearmlDotEnvEnvironmentPostProcessor）。
-  # 关闭集成：在 env 文件或系统环境中设置 CLEARML_ENABLED=false。
-  clearml:
-    enabled: ${CLEARML_ENABLED:true}
-    api-host: ${CLEARML_API_HOST:https://api.clear.ml}
-    web-host: ${CLEARML_WEB_HOST:https://app.clear.ml}
-    # REST 路径形如 https://api.clear.ml/v2.23/auth.login（带点号）；勿写成 v2_23。
-    api-version: ${CLEARML_API_VERSION:2.23}
-    access-key: ${CLEARML_API_ACCESS_KEY:}
-    secret-key: ${CLEARML_API_SECRET_KEY:}
-    project-name-contains: ${CLEARML_PROJECT_NAME_CONTAINS:}
-    active-tasks-page-size: ${CLEARML_ACTIVE_TASKS_PAGE_SIZE:50}
 
   runner:
     train-url: "${RUNNER_TRAIN_URL:http://127.0.0.1:8009/api/runner/train}"
