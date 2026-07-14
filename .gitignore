@@ -3,6 +3,8 @@
 Thumbs.db
 .idea/
 .vscode/
+.codegraph/*.db
+.codegraph/*.lock
 *.swp
 *.swo
 
