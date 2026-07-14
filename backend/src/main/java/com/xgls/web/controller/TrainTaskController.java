@@ -204,6 +204,16 @@ public class TrainTaskController {
         }
     }
 
+    @Operation(summary = "读取 MMDet 模板默认参数")
+    @GetMapping("/config/template/defaults")
+    public AjaxResult configTemplateDefaults(@RequestParam String template) {
+        try {
+            return AjaxResult.success(trainRunnerService.getTemplateDefaults(template).get("defaults"));
+        } catch (IllegalStateException e) {
+            return AjaxResult.error(e.getMessage());
+        }
+    }
+
     @Operation(summary = "读取任务的 MMDet 单文件配置")
     @GetMapping("/config/read")
     public AjaxResult readTaskConfig(@RequestParam Integer id,
@@ -231,20 +241,30 @@ public class TrainTaskController {
 
         if (StrUtil.isBlank(taskName)) return AjaxResult.error("缺少参数：taskName");
         if (StrUtil.isBlank(taskType)) return AjaxResult.error("缺少参数：taskType");
-        if (StrUtil.isBlank(datasetName)) return AjaxResult.error("缺少参数：dataset");
-        if (StrUtil.isBlank(templateName)) return AjaxResult.error("缺少参数：mmdet_network");
-
-        String templateRelative = singleTemplateRelative(templateName);
-        if (templateRelative == null) return AjaxResult.error("不支持的网络模板：" + templateName);
-        Path templatePath = Paths.get(rootPath, "template").resolve(templateRelative).normalize();
-        if (!Files.isRegularFile(templatePath)) {
-            return AjaxResult.error("模板暂不可用，文件不存在：" + templatePath);
-        }
 
         LambdaQueryWrapper<TrainTask> nameWrapper = new LambdaQueryWrapper<>();
         nameWrapper.eq(TrainTask::getName, taskName);
         if (editingTaskId != null) nameWrapper.ne(TrainTask::getId, editingTaskId);
         if (taskService.exists(nameWrapper)) return AjaxResult.error("任务名称已存在，请更换名称");
+
+        String runnerMode = StrUtil.blankToDefault(StrUtil.trim(params.getStr("runner_mode")), "original");
+        if ("fixed".equalsIgnoreCase(runnerMode)) {
+            return packFixedRunnerTask(params, editingTaskId, taskName, taskType);
+        }
+
+        if (StrUtil.isBlank(datasetName)) return AjaxResult.error("缺少参数：dataset");
+        if (StrUtil.isBlank(templateName)) return AjaxResult.error("缺少参数：mmdet_network");
+
+        String templateRelative = singleTemplateRelative(templateName);
+        if (templateRelative == null) return AjaxResult.error("不支持的网络模板：" + templateName);
+        Path templateRoot = mmdetMyfilesRoot().resolve("template").normalize();
+        Path templatePath = templateRoot.resolve(templateRelative).normalize();
+        if (!Files.isRegularFile(templatePath)) {
+            return AjaxResult.error("模板暂不可用，文件不存在：" + templatePath);
+        }
+        if (!templatePath.startsWith(templateRoot)) {
+            return AjaxResult.error("模板路径非法：" + templateRelative);
+        }
 
         DatasetCfg dsCfg;
         try {
@@ -305,8 +325,9 @@ public class TrainTaskController {
         String checkpoint = null;
         if (useCustom) {
             if (weightFile != null && !weightFile.isEmpty()) {
-                Path weightDir = Paths.get(rootPath, CodeMap.DIR_SRC, CodeMap.DIR_TRAIN_TASK,
-                        taskId.toString(), CodeMap.DIR_TRAIN_FILE);
+                Path weightDir = mmdetMyfilesRoot().resolve(CodeMap.DIR_SRC).resolve(CodeMap.DIR_TRAIN_TASK)
+                        .resolve(taskId.toString()).resolve(CodeMap.DIR_TRAIN_FILE)
+                        .normalize();
                 Files.createDirectories(weightDir);
                 Path savedWeight = weightDir.resolve("weights_0.pt");
                 if (editingTaskId != null) weightFile.transferTo(savedWeight);
@@ -347,8 +368,8 @@ public class TrainTaskController {
 
             // 重命名任务时清理旧名称对应的单文件目录。
             if (StrUtil.isNotBlank(oldTaskName) && !oldTaskName.equals(taskName)) {
-                Path oldDir = Paths.get(rootPath, "modelcfg", oldTaskName).normalize();
-                Path modelRoot = Paths.get(rootPath, "modelcfg").normalize();
+                Path modelRoot = mmdetMyfilesRoot().resolve("modelcfg").normalize();
+                Path oldDir = modelRoot.resolve(oldTaskName).normalize();
                 if (oldDir.startsWith(modelRoot)) cn.hutool.core.io.FileUtil.del(oldDir.toFile());
             }
 
@@ -380,6 +401,94 @@ public class TrainTaskController {
             case "YOLOv3" -> "yolo/yolov3.py";
             default -> null;
         };
+    }
+
+    private AjaxResult packFixedRunnerTask(JSONObject params, Integer editingTaskId,
+                                          String taskName, String taskType) {
+        String pythonPath = StrUtil.trim(params.getStr("fixed_python_path"));
+        String execDir = StrUtil.trim(params.getStr("fixed_exec_dir"));
+        String commandLine = StrUtil.trim(params.getStr("fixed_command_line"));
+        String workRoot = StrUtil.trim(params.getStr("fixed_work_root"));
+        if (StrUtil.isBlank(pythonPath)) return AjaxResult.error("缺少参数：fixed_python_path");
+        if (StrUtil.isBlank(execDir)) return AjaxResult.error("缺少参数：fixed_exec_dir");
+        if (StrUtil.isBlank(commandLine)) return AjaxResult.error("缺少参数：fixed_command_line");
+        if (StrUtil.isBlank(workRoot)) return AjaxResult.error("缺少参数：fixed_work_root");
+
+        params.set("runner_mode", "fixed");
+        params.set("mmdetType", "自定义");
+        params.set("taskType", taskType);
+
+        TrainForm form = new TrainForm();
+        form.setId(editingTaskId);
+        form.setName(taskName);
+        form.setType(taskType);
+        form.setRemark(params.getStr("remark", "自定义 fixed runner 任务 - " + taskName));
+        form.setCls_num(0);
+        form.setPrj_num(0);
+        form.setTask_num(0);
+        form.setImg_num(0);
+        form.setObj_num(0L);
+        form.setImg_val_num(0);
+        form.setObj_val_num(0L);
+        form.setArgs(null);
+        form.setData(new TrainData());
+
+        Integer taskId;
+        if (editingTaskId == null) {
+            boolean saved;
+            try {
+                saved = taskService.saveLink(form, SessionUtil.getCurUser(),
+                        null, null, params.toString(), null, null);
+            } catch (Exception e) {
+                return AjaxResult.error("训练任务入库失败：" + e.getMessage());
+            }
+            if (!saved) return AjaxResult.error("训练任务入库失败");
+            taskId = form.getId();
+        } else {
+            TrainTask old = taskService.getById(editingTaskId);
+            if (old == null) return AjaxResult.error("训练任务不存在");
+            if (!SessionUtil.hasAdminOrSelf(old.getUsername())) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+            if (Objects.equals(old.getStatus(), CodeMap.TRAIN_TASK_STATUS_RUN)) {
+                return AjaxResult.error("训练中的任务不能修改配置");
+            }
+            TrainTask update = new TrainTask();
+            update.setId(editingTaskId);
+            update.setName(taskName);
+            update.setType(taskType);
+            update.setRemark(form.getRemark());
+            update.setCls_num(0);
+            update.setStatus(CodeMap.TRAIN_TASK_STATUS_READY);
+            update.setUpdated_date(LocalDateTime.now());
+            taskService.updateById(update);
+            taskId = editingTaskId;
+            saveMmdetParams(taskId, params);
+        }
+
+        params.set("taskId", taskId);
+        saveMmdetParams(taskId, params);
+        TrainTask ready = new TrainTask();
+        ready.setId(taskId);
+        ready.setStatus(CodeMap.TRAIN_TASK_STATUS_READY);
+        ready.setUpdated_date(LocalDateTime.now());
+        taskService.updateById(ready);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("taskId", taskId);
+        result.put("taskName", taskName);
+        result.put("runnerMode", "fixed");
+        result.put("fixedPythonPath", pythonPath);
+        result.put("fixedExecDir", execDir);
+        result.put("fixedCommandLine", commandLine);
+        result.put("fixedWorkRoot", workRoot);
+        return AjaxResult.success(result);
+    }
+
+    /** MMDet 单文件配置根目录：固定跟随当前工作区，而不是使用 /home/... 这类机器绝对路径。 */
+    private Path mmdetMyfilesRoot() {
+        return WorkspacePathUtil.workspaceRoot()
+                .resolve("mmdet_run")
+                .resolve("myfiles")
+                .normalize();
     }
 
     private void saveMmdetParams(Integer taskId, JSONObject params) {
@@ -2469,7 +2578,8 @@ public class TrainTaskController {
             return AjaxResult.error("只能停止运行状态中的任务");
         }
         Object stopDetail = null;
-        if ("mmdet".equalsIgnoreCase(task.getType()) || "1".equalsIgnoreCase(task.getType())) {
+        if ("mmdet".equalsIgnoreCase(task.getType()) || "custom".equalsIgnoreCase(task.getType())
+                || "自定义".equalsIgnoreCase(task.getType()) || "1".equalsIgnoreCase(task.getType())) {
             try {
                 stopDetail = trainRunnerService.stopByRunId(task.getName());
             } catch (IllegalStateException e) {

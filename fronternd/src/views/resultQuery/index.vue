@@ -10,7 +10,7 @@
       <div class="flex-start">
         <el-input
           v-model="searchName"
-          placeholder="Type to search"
+          placeholder="按任务名称/指标搜索"
           size="small"
           clearable
           class="result-search"
@@ -24,15 +24,9 @@
         v-el-height-adaptive-table="{ bottomOffset: 70, isUse: true }">
 
 
-        <el-table-column prop="id" label="id" align="center" width="80" fixed="left" sortable="custom">
-          <template #default="scope">
-            <el-text size="small">{{ scope.row.training ? '—' : `#${scope.row.id}` }}</el-text>
-          </template>
-        </el-table-column>
-
-        <el-table-column prop="taskId" label="任务id" align="center" fixed="left" sortable="custom" />
-
-        <el-table-column prop="taskName" label="任务名称" align="center" fixed="left" sortable="custom" />
+        <el-table-column prop="taskName" label="任务名称" align="center" fixed="left" width="260"
+          column-key="taskName" sortable="custom" :filters="taskNameFilterOptions"
+          :filter-method="tableColumnFilterPassAll" />
 
 
         <el-table-column prop="userName" label="创建人" align="center" column-key="userName"
@@ -129,6 +123,7 @@
     const tableData = ref([])
     const deletingId = ref(null)
     const columnFilters = ref({
+      taskName: [],
       userName: [],
       modelType: [],
       dataset: [],
@@ -142,6 +137,7 @@
         .map(value => ({ text: String(value), value }))
     );
     const userFilterOptions = makeFilterOptions('userName');
+    const taskNameFilterOptions = makeFilterOptions('taskName');
     const modelTypeFilterOptions = makeFilterOptions('modelType');
     const datasetFilterOptions = makeFilterOptions('dataset');
     const networkFilterOptions = makeFilterOptions('networkName');

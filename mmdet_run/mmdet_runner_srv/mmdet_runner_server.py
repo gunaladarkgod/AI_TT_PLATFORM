@@ -16,38 +16,38 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import Body, FastAPI, Query
 from fastapi.responses import JSONResponse
 
-from mmdet_config_service import generate_config, list_templates, read_config
+from mmdet_config_service import generate_config, list_templates, read_config, template_defaults
 
 app = FastAPI(title="MMDet Runner Server (sync)")
 
 _ACTIVE_PROCESSES: Dict[str, subprocess.Popen] = {}
 _ACTIVE_PROCESSES_LOCK = threading.Lock()
 
+_RUNNER_DIR = Path(__file__).resolve().parent
+_REPO_ROOT_DIR = _RUNNER_DIR.parent.parent
+
 # 1) 训练用的 Python 解释器
-PY_EXE = os.getenv("MMDET_PY_EXE", "/home/omen1/miniconda3/envs/platform_mmdet/bin/python")
+PY_EXE = os.getenv("MMDET_PY_EXE", sys.executable)
 # 2) mmdetection 仓库根目录
-REPO_ROOT = os.getenv("MMDET_REPO_ROOT", "/home/omen1/AI_TT_Platform/mmdet_run/mmdetection-3.0.0")
+REPO_ROOT = os.getenv("MMDET_REPO_ROOT", str(_REPO_ROOT_DIR / "mmdet_run" / "mmdetection-3.0.0"))
 # 3) train.py 路径（用 REPO_ROOT 拼出来，避免写两份）
 TRAIN_PY = str(Path(REPO_ROOT) / "tools" / "train.py")
 # 4) 前端/Java 上传的配置文件根目录
-ROOT_UPLOAD = os.getenv("MMDET_UPLOAD_ROOT", "/home/omen1/AI_TT_Platform/mmdet_run/myfiles")
+ROOT_UPLOAD = os.getenv("MMDET_UPLOAD_ROOT", str(_REPO_ROOT_DIR / "mmdet_run" / "myfiles"))
 # 5) 训练产出目录根路径
-DEFAULT_WORK_ROOT = os.getenv("MMDET_WORK_ROOT", "/home/omen1/AI_TT_Platform/artifacts/mmdet_runs")
+DEFAULT_WORK_ROOT = os.getenv("MMDET_WORK_ROOT", str(_REPO_ROOT_DIR / "artifacts" / "mmdet_runs"))
 
 # Runner 模式直接写在本文件中，不从环境变量或启动脚本读取。
 # 可选值："original"（原 MMDet + ClearML 流程）/ "fixed"（固定命令且跳过 ClearML）。
-RUNNER_MODE = "fixed"
+RUNNER_MODE = "original"
 
 # fixed 模式的全部执行信息也写在本文件中。
 # 实际效果：在 FIXED_EXEC_DIR 中执行：
 #   FIXED_PYTHON_PATH -u tools/runner_fixed_test.py --run-id ... --work-dir ...
-FIXED_PYTHON_PATH = r"C:\Users\Guo Qinyao\.conda\envs\openmmlab\python.exe"
-FIXED_EXEC_DIR = r"C:\Users\Guo Qinyao\Desktop\platform\AI_TT_PLATFORM\mmdet_run\mmdetection-3.0.0"
+FIXED_PYTHON_PATH = os.getenv("MMDET_PY_EXE", sys.executable)
+FIXED_EXEC_DIR = str(_REPO_ROOT_DIR / "mmdet_run" / "mmdetection-3.0.0")
 FIXED_COMMAND_LINE = "tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}"
-FIXED_WORK_ROOT = r"C:\Users\Guo Qinyao\Desktop\platform\AI_TT_PLATFORM\artifacts\mmdet_runs"
-
-_RUNNER_DIR = Path(__file__).resolve().parent
-_REPO_ROOT_DIR = _RUNNER_DIR.parent.parent
+FIXED_WORK_ROOT = str(_REPO_ROOT_DIR / "artifacts" / "mmdet_runs")
 
 # 追加的可选参数（保持你之前成功用过的设置）
 EXTRA_ARGS = ["--cfg-options", "default_scope=mmdet"]
@@ -235,9 +235,10 @@ def find_cfg_path(run_id: str) -> Path:
     return Path(ROOT_UPLOAD) / "modelcfg" / run_id / "config.py"
 
 
-def make_work_dir(run_id: str) -> Path:
+def make_work_dir(run_id: str, mode_override: Optional[str] = None, root_override: Optional[str] = None) -> Path:
     # D:/xgls/artifacts/mmdet_runs/{runId}_from_pyserver_sync_{ts}
-    root = FIXED_WORK_ROOT if current_runner_mode() == "fixed" else DEFAULT_WORK_ROOT
+    mode = current_runner_mode(mode_override)
+    root = root_override or (FIXED_WORK_ROOT if mode == "fixed" else DEFAULT_WORK_ROOT)
     return Path(root) / f"{run_id}_from_pyserver_sync_{ts_for_path()}"
 
 
@@ -280,12 +281,20 @@ def find_result_work_dir(run_id: str, finished_at: Optional[str]) -> Optional[Pa
     return min(candidates, key=lambda p: abs(p.stat().st_mtime - target_time))
 
 
-def current_runner_mode() -> str:
-    if RUNNER_MODE not in ("original", "fixed"):
+def current_runner_mode(mode_override: Optional[str] = None) -> str:
+    mode = (mode_override or RUNNER_MODE or "original").strip().lower()
+    if mode not in ("original", "fixed"):
         raise ValueError(
-            f"unsupported MMDET_RUNNER_MODE={RUNNER_MODE!r}; expected 'original' or 'fixed'"
+            f"unsupported runner_mode={mode!r}; expected 'original' or 'fixed'"
         )
-    return RUNNER_MODE
+    return mode
+
+
+def resolve_project_path(path_text: str) -> str:
+    path = Path(path_text).expanduser()
+    if not path.is_absolute():
+        path = (_REPO_ROOT_DIR / path).resolve()
+    return str(path)
 
 
 def build_fixed_execution(
@@ -475,6 +484,23 @@ def config_templates():
     return api_response(True, 0, "ok", templates=list_templates(ROOT_UPLOAD))
 
 
+@app.get("/api/config/template/defaults")
+def config_template_defaults(template: str = Query(...)):
+    try:
+        result = template_defaults(ROOT_UPLOAD, template)
+        return api_response(True, 0, "ok", defaults=result)
+    except (ValueError, FileNotFoundError) as e:
+        return JSONResponse(
+            content=api_response(False, 404, "template not found", error=str(e)),
+            status_code=404,
+        )
+    except Exception as e:
+        return JSONResponse(
+            content=api_response(False, 500, "template defaults read failed", error=f"{type(e).__name__}: {e}"),
+            status_code=500,
+        )
+
+
 @app.post("/api/config/generate")
 def config_generate(payload: Dict[str, Any] = Body(...)):
     try:
@@ -511,10 +537,12 @@ def config_read(runId: str = Query(...), includeText: bool = Query(False)):
 
 @app.post("/api/runner/train")
 def start_train(
-    runId: str = Query(..., description="前端/Java 只需传 runId")
+    runId: str = Query(..., description="前端/Java 只需传 runId"),
+    payload: Optional[Dict[str, Any]] = Body(None),
 ):
+    payload = payload or {}
     try:
-        mode = current_runner_mode()
+        mode = current_runner_mode(str(payload.get("runner_mode") or ""))
     except ValueError as e:
         return JSONResponse(
             content=api_response(False, 400, "invalid runner mode", error=str(e)),
@@ -530,7 +558,8 @@ def start_train(
         )
 
     # 2) 准备 work_dir & 日志文件
-    work_dir = make_work_dir(runId)
+    fixed_work_root = resolve_project_path(str(payload.get("fixed_work_root") or FIXED_WORK_ROOT))
+    work_dir = make_work_dir(runId, mode, fixed_work_root if mode == "fixed" else None)
     ensure_dir(work_dir)
     log_path = work_dir / "train.log"
 
@@ -541,10 +570,13 @@ def start_train(
         executed_script = TRAIN_PY
     else:
         try:
+            fixed_python = str(payload.get("fixed_python_path") or FIXED_PYTHON_PATH)
+            fixed_exec_dir = resolve_project_path(str(payload.get("fixed_exec_dir") or FIXED_EXEC_DIR))
+            fixed_command = str(payload.get("fixed_command_line") or FIXED_COMMAND_LINE)
             cmd, process_cwd, executed_script = build_fixed_execution(
-                FIXED_PYTHON_PATH,
-                FIXED_EXEC_DIR,
-                FIXED_COMMAND_LINE,
+                fixed_python,
+                fixed_exec_dir,
+                fixed_command,
                 runId,
                 work_dir,
             )

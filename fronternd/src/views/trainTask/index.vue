@@ -247,7 +247,7 @@
           <div class="task-overview-item">
             <div class="task-overview-label required-label">模型类别</div>
             <div class="task-overview-content">
-              <el-select v-model="addForm.type" :disabled="is_add || isSee" @change="handleTypeChange">
+              <el-select v-model="addForm.type" :disabled="is_add || isSee || !is_create" @change="handleTypeChange">
                 <el-option v-for="item in algList" :key="item.id" :value="item.id + ''" :label="item.name" />
               </el-select>
             </div>
@@ -255,8 +255,9 @@
           <div class="task-overview-item">
             <div class="task-overview-label">算法模板</div>
             <div class="task-overview-content">
-              <el-select v-model="addForm.temp" :disabled="!isMMDetSelected || isSee" @change="handleTempChange">
+              <el-select v-model="addForm.temp" :disabled="!isMMDetSelected || isSee || !is_create" @change="handleTempChange">
                 <el-option v-for="item in templateList" :key="item" :value="item" :label="item" />
+                <el-option v-if="isFixedRunnerSelected" value="fixed" label="fixed" />
               </el-select>
             </div>
           </div>
@@ -280,7 +281,7 @@
           <div class="task-overview-item">
             <div class="task-overview-label required-label">模型类别</div>
             <div class="task-overview-content">
-              <el-select v-model="addForm.type" :disabled="is_add || isSee" @change="handleTypeChange">
+              <el-select v-model="addForm.type" :disabled="is_add || isSee || !is_create" @change="handleTypeChange">
                 <el-option v-for="item in algList" :key="item.id" :value="item.id + ''" :label="item.name" />
               </el-select>
             </div>
@@ -288,8 +289,9 @@
           <div class="task-overview-item">
             <div class="task-overview-label">算法模板</div>
             <div class="task-overview-content">
-              <el-select v-model="addForm.temp" :disabled="!isMMDetSelected || isSee" @change="handleTempChange">
+              <el-select v-model="addForm.temp" :disabled="!isMMDetSelected || isSee || !is_create" @change="handleTempChange">
                 <el-option v-for="item in templateList" :key="item" :value="item" :label="item" />
+                <el-option v-if="isFixedRunnerSelected" value="fixed" label="fixed" />
               </el-select>
             </div>
           </div>
@@ -337,7 +339,7 @@
           </div>
         </div>
       </div>
-      <el-row v-if="!isMMDetSelected">
+      <el-row v-if="!isRunnerConfigSelected">
         <el-col :span="6">
           <el-form-item label="模型标签" required>
             <el-select-v2 v-model="addForm.labels" :options="label_list" :reserve-keyword="false" filterable
@@ -371,7 +373,7 @@
         </el-col>
       </el-row>
 
-      <el-tabs v-if="!isMMDetSelected" v-model="activeTab" class="tabs-div">
+      <el-tabs v-if="!isRunnerConfigSelected" v-model="activeTab" class="tabs-div">
         <el-tab-pane label="训练样本配置" name="data-tab">
           <div class="pane-div">
             <el-container>
@@ -1256,8 +1258,9 @@
                   <el-input-number class="width-200" :controls="false" v-model="mmdetParameter.train_epoch" :disabled="isSee"></el-input-number>
                 </el-form-item>
 
-                <el-form-item label="学习率下降轮次" required>
-                  <el-input-number  v-model="mmdetParameter.down_round" class="width-200" :controls="false"    :disabled="isSee"></el-input-number>
+                <el-form-item v-if="mmdetTemplateSupportsStep" label="学习率下降轮次" required>
+                  <el-input v-model="mmdetParameter.down_round" class="width-200" :disabled="isSee"
+                    placeholder="例如：8, 11"></el-input>
                 </el-form-item>
 
                 <el-form-item label="权值保存轮次间隔" required>
@@ -1280,9 +1283,33 @@
 
       <div v-else class="mmdet-div">
         <el-divider />
-        <el-alert class="single-config-tip" type="info" :closable="false" show-icon
+        <el-alert v-if="isMMDetSelected" class="single-config-tip" type="info" :closable="false" show-icon
           title="所有参数均从一个完整模板读取，保存后只生成 modelcfg/{任务名称}/config.py" />
-        <el-row :gutter="20">
+        <el-alert v-else class="single-config-tip" type="info" :closable="false" show-icon
+          title="自定义任务使用 Runner fixed 模式：不初始化 ClearML，按下方 Python、执行目录和命令行直接运行。" />
+        <div v-if="isFixedRunnerSelected" class="mmdet-file-block">
+          <span class="mmdet-file-title">fixed runner · 运行参数</span>
+          <el-form-item label="Python路径：" required>
+            <el-input v-model="fixedRunnerParameter.python_path" :disabled="isSee"
+              placeholder="例如：C:\\Users\\...\\.conda\\envs\\openmmlab\\python.exe" />
+          </el-form-item>
+          <el-form-item label="执行目录：" required>
+            <el-input v-model="fixedRunnerParameter.exec_dir" :disabled="isSee"
+              placeholder="支持相对项目根目录，例如：mmdet_run/mmdetection-3.0.0" />
+          </el-form-item>
+          <el-form-item label="命令行：" required>
+            <el-input v-model="fixedRunnerParameter.command_line" :disabled="isSee" type="textarea" :rows="3"
+              placeholder="例如：tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}" />
+          </el-form-item>
+          <el-form-item label="输出根目录：" required>
+            <el-input v-model="fixedRunnerParameter.work_root" :disabled="isSee"
+              placeholder="支持相对项目根目录，例如：artifacts/mmdet_runs" />
+          </el-form-item>
+          <div class="el-form-item__tip">
+            可用占位符：{run_id} 为任务名称，{work_dir} 为本次训练输出目录。相对路径按 AI_TT_PLATFORM 项目根目录解析。
+          </div>
+        </div>
+        <el-row v-else :gutter="20">
           <el-col :span="14">
             <div class="mmdet-file-block">
               <span class="mmdet-file-title">config.py · 模型与网络参数</span>
@@ -1727,9 +1754,9 @@
                   :disabled="isSee"></el-input-number>
               </el-form-item>
 
-              <el-form-item label="学习率下降轮次" required>
-                <el-input-number v-model="mmdetParameter.down_round" class="width-200" :controls="false"
-                  :disabled="isSee"></el-input-number>
+              <el-form-item v-if="mmdetTemplateSupportsStep" label="学习率下降轮次" required>
+                <el-input v-model="mmdetParameter.down_round" class="width-200" :disabled="isSee"
+                  placeholder="例如：8, 11"></el-input>
               </el-form-item>
             </div>
 
@@ -2251,6 +2278,7 @@ const templateCatalog = ref([
 ])
 const networkTemplateOptions = computed(() => templateCatalog.value.filter(item => item.group === addForm.temp))
 const restoringMmdetParams = ref(false)
+const mmdetTemplateSupportsStep = ref(true)
 // 主干网
 const backboneNetwork=ref(["ResNet","ConvNext","SwinTransformer"])
 
@@ -2558,9 +2586,13 @@ const cur_cmd = computed(() => {
 const queryAlgs = () => {
   TrainScriptService.queryAll({ type: 'train' }).then(res => {
     if (res.code === 0) {
-      algList.value = res.data
+      const list = [...(res.data || [])]
+      if (!list.some(item => item.id === 'custom' || item.name === '自定义')) {
+        list.push({ id: 'custom', name: '自定义', cmd: 'fixed' })
+      }
+      algList.value = list
       let map = new Map;
-      res.data.forEach(item => {
+      list.forEach(item => {
         map.set(item.id + '', item)
       })
       algMap.value = map;
@@ -2572,6 +2604,10 @@ const fetchConfigTemplates = () => {
   TrainTaskService.configTemplates().then((res) => {
     if (res.code === 0 && Array.isArray(res.data)) {
       templateCatalog.value = res.data
+      const cur = templateCatalog.value.find(item => item.name === mmdetParameter.selected_template)
+      if (is_create.value && cur?.available) {
+        loadMmdetTemplateDefaults(mmdetParameter.selected_template)
+      }
     }
   }).catch(() => {
     // Runner 重启前沿用页面内的保守默认值，缺失模板仍保持禁用。
@@ -2635,6 +2671,8 @@ const showAddModal = () => {
     if (isMMDetSelected.value) {
       addForm.temp = 'CNN'
       fetchMmdetInstanceDatasets()
+    } else if (isFixedRunnerSelected.value) {
+      addForm.temp = 'fixed'
     } else {
       addForm.temp = null
       addForm.labels = label_list.value.length ? [label_list.value[0].id] : []
@@ -3315,6 +3353,13 @@ const isMMDetSelected=computed(() => {
   return selectedItem && selectedItem.name === 'mmdet'
 })
 
+const isFixedRunnerSelected = computed(() => {
+  const selectedItem = algList.value.find(item => item.id == addForm.type)
+  return addForm.type === 'custom' || selectedItem?.name === '自定义' || selectedItem?.cmd === 'fixed'
+})
+
+const isRunnerConfigSelected = computed(() => isMMDetSelected.value || isFixedRunnerSelected.value)
+
 
 const taskTable = computed(() => {
   return filterTable.value.slice((currentPage2.value - 1) * currentSize2.value, currentPage2.value * currentSize2.value)
@@ -3922,7 +3967,7 @@ const saveRecord = () => {
 
 
 const handleSave = () => {
-  if (isMMDetSelected.value) {
+  if (isRunnerConfigSelected.value) {
     saveMMdetRecord()
   } else {
     saveRecord()
@@ -3983,6 +4028,13 @@ const mmdetParameter = reactive({
 
 })
 
+const fixedRunnerParameter = reactive({
+  python_path: 'C:\\Users\\Guo Qinyao\\.conda\\envs\\openmmlab\\python.exe',
+  exec_dir: 'mmdet_run/mmdetection-3.0.0',
+  command_line: 'tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}',
+  work_root: 'artifacts/mmdet_runs',
+})
+
 /**新建弹窗用：带时间戳的任务名 */
 const formatQuickTaskName = () => {
   const d = new Date()
@@ -4022,6 +4074,68 @@ const applyMmdetCnnQuickDefaults = () => {
   addForm.train_img_h = 800
   addForm.train_bath_size = 2
   addForm.train_epoch = 12
+}
+
+const mmdetParamFieldMap = {
+  selected_template: 'mmdet_network', selected_network: 'mmdet_backbone', deep: 'mmdet_depth',
+  dcn_sac_use: 'mmdet_dcn', exist_stage: 'mmdet_dcnStage', scale: 'mmdet_conv_arch',
+  window_size: 'mmdet_window', photo_width: 'mmdet_input_width', photo_height: 'mmdet_input_height',
+  train_bath_size: 'mmdet_batchsize', optimizer: 'mmdet_opt', stu_rate: 'mmdet_inlr',
+  train_epoch: 'mmdet_epoch', down_round: 'mmdet_step', weight_round: 'mmdet_weight_interval',
+  valid_round: 'mmdet_val_interval', RFP: 'mmdet_rfp_steps', ASPP: 'mmdet_aspp_dilation',
+  iter_count: 'mmdet_detectors_itrnum', measure: 'detr_neck_mode', embedding_dimension: 'detr_embed_dims',
+  encoder_layers: 'detr_encoder_layers', decoder_layers: 'detr_decoder_layers', attention_num: 'detr_num_heads',
+  attention_discard_rate: 'detr_attn_dropout', FFN_intermediate_layer_dimension: 'detr_ffn_channels',
+  FFN_linear_layer_num: 'detr_ffn_num_fcs', FFN_discard_rate: 'detr_ffn_dropout',
+  FFN_active_func: 'detr_ffn_act', temperature: 'detr_pos_temperature', loss_cls: 'detr_loss_cls_type',
+  loss_bbox: 'detr_loss_bbox_type', loss_iou: 'detr_loss_iou_type', loss_cls_weight: 'detr_loss_cls_weight',
+  loss_bbox_weight: 'detr_loss_bbox_weight', loss_iou_weight: 'detr_loss_iou_weight',
+  use_custom_pretrained: 'mmdet_use_custom_pretrained', pretrained_address: 'mmdet_pretrained_address',
+  selected_dataset: 'dataset',
+}
+
+const syncMmdetCommonFormFields = () => {
+  addForm.train_img_w = Number(mmdetParameter.photo_width) || addForm.train_img_w
+  addForm.train_img_h = Number(mmdetParameter.photo_height) || addForm.train_img_h
+  addForm.train_bath_size = Number(mmdetParameter.train_bath_size) || addForm.train_bath_size
+  addForm.train_epoch = Number(mmdetParameter.train_epoch) || addForm.train_epoch
+}
+
+const applyMmdetParamPayload = (p = {}, { keepDataset = true, keepPretrained = true } = {}) => {
+  Object.entries(mmdetParamFieldMap).forEach(([field, key]) => {
+    if (keepDataset && field === 'selected_dataset') return
+    if (keepPretrained && (field === 'use_custom_pretrained' || field === 'pretrained_address')) return
+    if (p[key] !== undefined && p[key] !== null) mmdetParameter[field] = p[key]
+  })
+  syncMmdetCommonFormFields()
+}
+
+let templateDefaultsSeq = 0
+const loadMmdetTemplateDefaults = async (templateName = mmdetParameter.selected_template) => {
+  if (!is_create.value || restoringMmdetParams.value || !templateName) return
+  const selectedTemplate = templateCatalog.value.find(item => item.name === templateName)
+  if (selectedTemplate && selectedTemplate.available === false) return
+  const seq = ++templateDefaultsSeq
+  try {
+    const res = await TrainTaskService.configTemplateDefaults({ template: templateName })
+    if (seq !== templateDefaultsSeq) return
+    if (res.code === 0 && res.data?.params) {
+      restoringMmdetParams.value = true
+      mmdetTemplateSupportsStep.value = Object.prototype.hasOwnProperty.call(res.data.params, 'mmdet_step')
+      if (!mmdetTemplateSupportsStep.value) {
+        mmdetParameter.down_round = ''
+      }
+      if (res.data.group) addForm.temp = res.data.group
+      applyMmdetParamPayload(res.data.params, { keepDataset: true, keepPretrained: true })
+      nextTick(() => { restoringMmdetParams.value = false })
+    } else if (res.msg) {
+      ElMessage.warning(res.msg)
+    }
+  } catch (e) {
+    if (seq === templateDefaultsSeq) {
+      ElMessage.warning('读取模板默认参数失败：' + (e?.message || String(e)))
+    }
+  }
 }
 
 function suggestInstanceDatasetScroll(row) {
@@ -4115,6 +4229,7 @@ watch(() => addForm.temp, (newType) => {
     mmdetParameter.weight_round = 7
     mmdetParameter.valid_round = 7
   }
+  nextTick(() => loadMmdetTemplateDefaults(mmdetParameter.selected_template))
 })
 
 watch(() => mmdetParameter.selected_template, (newTemp) => {
@@ -4136,7 +4251,12 @@ const handleTempChange = () => {
 
 const handleTypeChange = () => {
   if (isMMDetSelected.value) {
+    addForm.temp = 'CNN'
     fetchMmdetInstanceDatasets()
+  } else if (isFixedRunnerSelected.value) {
+    addForm.temp = 'fixed'
+  } else {
+    addForm.temp = null
   }
 }
 
@@ -4158,26 +4278,17 @@ const availableBackboneNetworks = computed(() => {
 const applyStoredMmdetParams = (p) => {
   restoringMmdetParams.value = true
   addForm.temp = p.mmdetType || addForm.temp || 'CNN'
-  const mapping = {
-    selected_template: 'mmdet_network', selected_network: 'mmdet_backbone', deep: 'mmdet_depth',
-    dcn_sac_use: 'mmdet_dcn', exist_stage: 'mmdet_dcnStage', scale: 'mmdet_conv_arch',
-    window_size: 'mmdet_window', photo_width: 'mmdet_input_width', photo_height: 'mmdet_input_height',
-    train_bath_size: 'mmdet_batchsize', optimizer: 'mmdet_opt', stu_rate: 'mmdet_inlr',
-    train_epoch: 'mmdet_epoch', down_round: 'mmdet_step', weight_round: 'mmdet_weight_interval',
-    valid_round: 'mmdet_val_interval', RFP: 'mmdet_rfp_steps', ASPP: 'mmdet_aspp_dilation',
-    iter_count: 'mmdet_detectors_itrnum', measure: 'detr_neck_mode', embedding_dimension: 'detr_embed_dims',
-    encoder_layers: 'detr_encoder_layers', decoder_layers: 'detr_decoder_layers', attention_num: 'detr_num_heads',
-    attention_discard_rate: 'detr_attn_dropout', FFN_intermediate_layer_dimension: 'detr_ffn_channels',
-    FFN_linear_layer_num: 'detr_ffn_num_fcs', FFN_discard_rate: 'detr_ffn_dropout',
-    FFN_active_func: 'detr_ffn_act', temperature: 'detr_pos_temperature', loss_cls: 'detr_loss_cls_type',
-    loss_bbox: 'detr_loss_bbox_type', loss_iou: 'detr_loss_iou_type', loss_cls_weight: 'detr_loss_cls_weight',
-    loss_bbox_weight: 'detr_loss_bbox_weight', loss_iou_weight: 'detr_loss_iou_weight',
-    use_custom_pretrained: 'mmdet_use_custom_pretrained', pretrained_address: 'mmdet_pretrained_address',
-    selected_dataset: 'dataset',
+  if (p.runner_mode === 'fixed') {
+    addForm.temp = 'fixed'
+    if (p.fixed_python_path !== undefined && p.fixed_python_path !== null) fixedRunnerParameter.python_path = p.fixed_python_path
+    if (p.fixed_exec_dir !== undefined && p.fixed_exec_dir !== null) fixedRunnerParameter.exec_dir = p.fixed_exec_dir
+    if (p.fixed_command_line !== undefined && p.fixed_command_line !== null) fixedRunnerParameter.command_line = p.fixed_command_line
+    if (p.fixed_work_root !== undefined && p.fixed_work_root !== null) fixedRunnerParameter.work_root = p.fixed_work_root
+    nextTick(() => { restoringMmdetParams.value = false })
+    return
   }
-  Object.entries(mapping).forEach(([field, key]) => {
-    if (p[key] !== undefined && p[key] !== null) mmdetParameter[field] = p[key]
-  })
+  mmdetTemplateSupportsStep.value = p.mmdet_step !== undefined && p.mmdet_step !== null && String(p.mmdet_step).trim() !== ''
+  applyMmdetParamPayload(p, { keepDataset: false, keepPretrained: false })
   nextTick(() => { restoringMmdetParams.value = false })
 }
 
@@ -4189,6 +4300,7 @@ watch(() => mmdetParameter.selected_template, (newVal) => {
   if (newVal === 'YOLOv3' && mmdetParameter.selected_network !== 'Darknet53') {
     mmdetParameter.selected_network = 'Darknet53'
   }
+  loadMmdetTemplateDefaults(newVal)
 })
 
 
@@ -4201,6 +4313,45 @@ const saveMMdetRecord = () =>{
   if (!alg_type) {
     ElMessage.warning('请选择模型类别')
     return;
+  }
+
+  if (isFixedRunnerSelected.value) {
+    if (!fixedRunnerParameter.python_path || !fixedRunnerParameter.exec_dir ||
+      !fixedRunnerParameter.command_line || !fixedRunnerParameter.work_root) {
+      ElMessage.warning('请填写 fixed 模式的 Python路径、执行目录、命令行和输出根目录')
+      return
+    }
+    const params = {
+      taskName: addForm.name,
+      taskId: is_create.value ? null : cur_task_id.value,
+      remark: addForm.remark || '',
+      taskType: addForm.type,
+      mmdetType: '自定义',
+      runner_mode: 'fixed',
+      fixed_python_path: fixedRunnerParameter.python_path,
+      fixed_exec_dir: fixedRunnerParameter.exec_dir,
+      fixed_command_line: fixedRunnerParameter.command_line,
+      fixed_work_root: fixedRunnerParameter.work_root,
+    }
+    let fd = new FormData()
+    fd.append("params", JSON.stringify(params))
+    loading_saveRecord.value = true
+    TrainTaskService.addMMD(fd).then(res => {
+      if (res.code === 0) {
+        ElMessage.success(res.msg)
+        addVisible.value = false
+        queryUsers()
+        setTimeout(() => {
+          handleCurrentChange()
+        }, 1000)
+      } else {
+        ElMessage.warning(res.msg)
+      }
+      loading_saveRecord.value = false
+    }).catch(() => {
+      loading_saveRecord.value = false
+    })
+    return
   }
 
   // if (!model_labels?.length) {
@@ -4274,7 +4425,6 @@ const saveMMdetRecord = () =>{
     mmdet_opt:mmdetParameter.optimizer,
     mmdet_inlr:mmdetParameter.stu_rate,
     mmdet_epoch:mmdetParameter.train_epoch,
-    mmdet_step:mmdetParameter.down_round,
     mmdet_weight_interval:mmdetParameter.weight_round,
     mmdet_val_interval:mmdetParameter.valid_round,
 
@@ -4308,6 +4458,9 @@ const saveMMdetRecord = () =>{
     mmdet_use_custom_pretrained: mmdetParameter.use_custom_pretrained,
     mmdet_pretrained_address: (mmdetParameter.pretrained_address || '').trim(),
 
+  }
+  if (mmdetTemplateSupportsStep.value && String(mmdetParameter.down_round || '').trim()) {
+    params.mmdet_step = String(mmdetParameter.down_round).trim()
   }
 
   let fd = new FormData();
@@ -4925,6 +5078,11 @@ const templateAlgorithmList = ref([])
 //监听模型类别 获取算法模板下拉数据  同时默认选中
 watch(() => addForm.type, async (newV) => {
   if (newV) {
+    if (isRunnerConfigSelected.value) {
+      templateAlgorithmList.value = []
+      templateAlgorithm.value = null
+      return
+    }
     templateAlgorithmList.value = (await apiRequest(trainService.allTrain, { alg_id: newV })) || []
     const findItem = templateAlgorithmList.value.find(val => val.id == templateAlgorithm.value?.id)
     if (!findItem) {

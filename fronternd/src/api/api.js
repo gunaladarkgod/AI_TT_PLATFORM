@@ -155,6 +155,9 @@ export class TrainTaskService {
     static async configTemplates(params = {}) {
         return request('/trainTask/config/templates', params, 'get');
     }
+    static async configTemplateDefaults(params) {
+        return request('/trainTask/config/template/defaults', params, 'get');
+    }
     static async readConfig(params) {
         return request('/trainTask/config/read', params, 'get');
     }

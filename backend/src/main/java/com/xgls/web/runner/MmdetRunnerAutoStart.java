@@ -22,6 +22,8 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationListener;
 import org.springframework.stereotype.Component;
 
+import com.xgls.web.utils.WorkspacePathUtil;
+
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -73,6 +75,8 @@ public class MmdetRunnerAutoStart implements ApplicationListener<ApplicationRead
         pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()));
         // 与子进程 uvicorn 一致：避免 Python 混入 ~/.local 中与 numpy/pandas 冲突导致 clearml 无法 import
         pb.environment().putIfAbsent("PYTHONNOUSERSITE", "1");
+        pb.environment().putIfAbsent("PYTHONUTF8", "1");
+        applyWorkspaceRunnerEnv(pb);
         try {
             Process p = pb.start();
             processRef.set(p);
@@ -159,6 +163,17 @@ public class MmdetRunnerAutoStart implements ApplicationListener<ApplicationRead
             }
         }
         return new ProcessBuilder("bash", script.toString());
+    }
+
+    private void applyWorkspaceRunnerEnv(ProcessBuilder pb) {
+        Path workspace = WorkspacePathUtil.workspaceRoot();
+        pb.environment().putIfAbsent("APP_WORKSPACE_ROOT", workspace.toString());
+        pb.environment().putIfAbsent("MMDET_REPO_ROOT",
+                workspace.resolve("mmdet_run").resolve("mmdetection-3.0.0").toString());
+        pb.environment().putIfAbsent("MMDET_UPLOAD_ROOT",
+                workspace.resolve("mmdet_run").resolve("myfiles").toString());
+        pb.environment().putIfAbsent("MMDET_WORK_ROOT",
+                workspace.resolve("artifacts").resolve("mmdet_runs").toString());
     }
 
     private boolean isStartRunnerSh(Path script) {

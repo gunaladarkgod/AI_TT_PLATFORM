@@ -7,6 +7,8 @@ import cn.hutool.json.JSONUtil;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import com.xgls.web.utils.WorkspacePathUtil;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -32,10 +34,10 @@ public class TrainRunnerService {
     @Value("${sys.runner.train-url:http://127.0.0.1:8009/api/runner/train}")
     private String runnerTrainUrl;
 
-    @Value("${sys.runner.launch-script:/home/omen1/AI_TT_Platform/mmdet_run/mmdet_runner_srv/start_runner.sh}")
+    @Value("${sys.runner.launch-script:mmdet_run/mmdet_runner_srv/start_runner.sh}")
     private String runnerLaunchScript;
 
-    @Value("${sys.runner.auto-start-log:/home/omen1/AI_TT_Platform/mmdet_run/logs/runner-autostart.log}")
+    @Value("${sys.runner.auto-start-log:mmdet_run/logs/runner-autostart.log}")
     private String runnerAutoStartLog;
 
     private final AtomicReference<Process> manualRunnerProcessRef = new AtomicReference<>();
@@ -104,6 +106,7 @@ public class TrainRunnerService {
             pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()));
             pb.environment().putIfAbsent("PYTHONNOUSERSITE", "1");
             pb.environment().putIfAbsent("PYTHONUTF8", "1");
+            applyWorkspaceRunnerEnv(pb);
             Process p = pb.start();
             manualRunnerProcessRef.set(p);
             out.put("started", true);
@@ -160,6 +163,12 @@ public class TrainRunnerService {
         return getConfigJson("/api/config/templates", Duration.ofSeconds(15));
     }
 
+    /** 读取某个模板文件中的默认训练参数，用于创建任务弹窗回填前端。 */
+    public JSONObject getTemplateDefaults(String templateName) {
+        String query = "template=" + URLEncoder.encode(templateName, StandardCharsets.UTF_8);
+        return getConfigJson("/api/config/template/defaults?" + query, Duration.ofSeconds(30));
+    }
+
     /** 读取已生成的单文件配置摘要；includeText=true 时同时返回源码。 */
     public JSONObject readConfig(String runId, boolean includeText) {
         String query = "runId=" + URLEncoder.encode(runId, StandardCharsets.UTF_8)
@@ -169,11 +178,17 @@ public class TrainRunnerService {
 
     private JSONObject postConfigJson(String path, JSONObject payload, Duration timeout) {
         try {
-            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+            String json = payload == null ? "{}" : payload.toString();
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .version(HttpClient.Version.HTTP_1_1)
+                    .build();
             HttpRequest request = HttpRequest.newBuilder(runnerUri(path))
+                    .version(HttpClient.Version.HTTP_1_1)
                     .timeout(timeout)
                     .header("Content-Type", "application/json; charset=UTF-8")
-                    .POST(HttpRequest.BodyPublishers.ofString(payload.toString(), StandardCharsets.UTF_8))
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(json.getBytes(StandardCharsets.UTF_8)))
                     .build();
             HttpResponse<String> response = client.send(
                     request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -185,9 +200,15 @@ public class TrainRunnerService {
 
     private JSONObject getConfigJson(String pathAndQuery, Duration timeout) {
         try {
-            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .version(HttpClient.Version.HTTP_1_1)
+                    .build();
             HttpRequest request = HttpRequest.newBuilder(runnerUri(pathAndQuery))
-                    .timeout(timeout).GET().build();
+                    .version(HttpClient.Version.HTTP_1_1)
+                    .timeout(timeout)
+                    .header("Accept", "application/json")
+                    .GET().build();
             HttpResponse<String> response = client.send(
                     request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             return requireOkConfigResponse(response);
@@ -201,6 +222,11 @@ public class TrainRunnerService {
         if (response.statusCode() < 200 || response.statusCode() >= 300
                 || !body.getBool("ok", false)) {
             String detail = body.getStr("error", body.getStr("message", "配置服务返回异常"));
+            if ("配置服务返回异常".equals(detail) && response.body() != null && !response.body().isBlank()) {
+                detail = "HTTP " + response.statusCode() + ": " + response.body();
+            } else if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                detail = "HTTP " + response.statusCode() + ": " + detail;
+            }
             throw new IllegalStateException(detail);
         }
         return body;
@@ -379,6 +405,17 @@ public class TrainRunnerService {
         return new ProcessBuilder("bash", script.toString());
     }
 
+    private void applyWorkspaceRunnerEnv(ProcessBuilder pb) {
+        Path workspace = WorkspacePathUtil.workspaceRoot();
+        pb.environment().putIfAbsent("APP_WORKSPACE_ROOT", workspace.toString());
+        pb.environment().putIfAbsent("MMDET_REPO_ROOT",
+                workspace.resolve("mmdet_run").resolve("mmdetection-3.0.0").toString());
+        pb.environment().putIfAbsent("MMDET_UPLOAD_ROOT",
+                workspace.resolve("mmdet_run").resolve("myfiles").toString());
+        pb.environment().putIfAbsent("MMDET_WORK_ROOT",
+                workspace.resolve("artifacts").resolve("mmdet_runs").toString());
+    }
+
     private boolean isStartRunnerSh(Path script) {
         Path fileName = script.getFileName();
         return fileName != null && "start_runner.sh".equalsIgnoreCase(fileName.toString());
@@ -412,6 +449,11 @@ public class TrainRunnerService {
 
     /** 同步启动训练（等待 Python Runner 返回） */
     public RunnerTrainResponse startByRunId(String runId) {
+        return startByRunId(runId, null);
+    }
+
+    /** 同步启动训练（等待 Python Runner 返回），可传 runner_mode/fixed 参数。 */
+    public RunnerTrainResponse startByRunId(String runId, JSONObject runnerOptions) {
         // Runner 可能随后端刚拉起；略加长间隔以便自动启动完成健康检查后再连上
         int[] retryDelaysMs = {0, 2000, 5000};
         RunnerTrainResponse lastError = RunnerTrainResponse.transportError("runner not called");
@@ -424,7 +466,7 @@ public class TrainRunnerService {
                     return RunnerTrainResponse.transportError("interrupted before retry");
                 }
             }
-            RunnerTrainResponse resp = callRunner(runId);
+            RunnerTrainResponse resp = callRunner(runId, runnerOptions);
             if (resp.isOk()) {
                 return resp;
             }
@@ -435,17 +477,22 @@ public class TrainRunnerService {
         return lastError;
     }
 
-    private RunnerTrainResponse callRunner(String runId) {
+    private RunnerTrainResponse callRunner(String runId, JSONObject runnerOptions) {
         try {
             String url = runnerTrainUrl + "?runId=" + URLEncoder.encode(runId, StandardCharsets.UTF_8);
             HttpClient client = HttpClient.newBuilder()
                     .connectTimeout(Duration.ofSeconds(10))
+                    .version(HttpClient.Version.HTTP_1_1)
                     .build();
+            String json = runnerOptions == null ? "{}" : runnerOptions.toString();
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
+                    .version(HttpClient.Version.HTTP_1_1)
                     .timeout(Duration.ofMinutes(90))
-                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(json.getBytes(StandardCharsets.UTF_8)))
                     .build();
 
             HttpResponse<String> resp = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));

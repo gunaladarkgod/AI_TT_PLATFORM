@@ -48,6 +48,7 @@ import org.springframework.web.multipart.MultipartFile;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.CharsetUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
 
@@ -372,7 +373,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         boolean ok = false;
         String remarkTail = "runner:unknown";
         try {
-            RunnerTrainResponse runnerResp = trainRunnerService.startByRunId(task.getName());
+            RunnerTrainResponse runnerResp = trainRunnerService.startByRunId(task.getName(), runnerOptionsForTask(task.getId()));
             ok = runnerResp.isOk();
             remarkTail = applyRunnerResult(task, runnerResp, "startTrain");
         } catch (Exception e) {
@@ -381,6 +382,36 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         } finally {
             updateStopStatus(id, null, ok ? CodeMap.TRAIN_FINISH_SUCCESS : CodeMap.TRAIN_FINISH_ERROR);
             appendTrainRemark(id, task.getRemark(), remarkTail);
+        }
+    }
+
+    public JSONObject runnerOptionsForTask(Integer taskId) {
+        JSONObject out = new JSONObject();
+        TrainExt ext = trainExtMapper.selectById(taskId);
+        if (ext == null || StrUtil.isBlank(ext.getParams())) {
+            out.set("runner_mode", "original");
+            return out;
+        }
+        try {
+            JSONObject params = JSONUtil.parseObj(ext.getParams());
+            String mode = StrUtil.blankToDefault(params.getStr("runner_mode"), "original");
+            out.set("runner_mode", mode);
+            if ("fixed".equalsIgnoreCase(mode)) {
+                copyIfPresent(params, out, "fixed_python_path");
+                copyIfPresent(params, out, "fixed_exec_dir");
+                copyIfPresent(params, out, "fixed_command_line");
+                copyIfPresent(params, out, "fixed_work_root");
+            }
+        } catch (Exception e) {
+            out.set("runner_mode", "original");
+        }
+        return out;
+    }
+
+    private void copyIfPresent(JSONObject src, JSONObject dst, String key) {
+        String value = StrUtil.trim(src.getStr(key));
+        if (StrUtil.isNotBlank(value)) {
+            dst.set(key, value);
         }
     }
 
@@ -646,7 +677,8 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
     }
 
     private boolean isMmdetType(String type) {
-        return "mmdet".equalsIgnoreCase(type) || "1".equalsIgnoreCase(type);
+        return "mmdet".equalsIgnoreCase(type) || "custom".equalsIgnoreCase(type)
+                || "自定义".equalsIgnoreCase(type) || "1".equalsIgnoreCase(type);
     }
 
     private void updateStartStatus(Integer id, String expName) {

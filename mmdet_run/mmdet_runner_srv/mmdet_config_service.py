@@ -95,6 +95,30 @@ def _as_float(value: Any, default: float) -> float:
         return default
 
 
+def _clean_str(value: Any, default: str = "") -> str:
+    text = str(value if value is not None else default).strip()
+    return text or default
+
+
+def _set_backbone(backbone: MutableMapping[str, Any], params: Dict[str, Any]) -> None:
+    selected = _clean_str(params.get("mmdet_backbone"))
+    type_map = {
+        "ResNet": "ResNet",
+        "Darknet53": "Darknet",
+        "Darknet": "Darknet",
+        "ConvNext": "ConvNeXt",
+        "ConvNeXt": "ConvNeXt",
+        "SwinTransformer": "SwinTransformer",
+    }
+    target_type = type_map.get(selected)
+    if target_type:
+        backbone["type"] = target_type
+    if selected == "Darknet53" and "depth" in backbone:
+        backbone["depth"] = 53
+    elif "depth" in backbone:
+        backbone["depth"] = _as_int(params.get("mmdet_depth"), backbone["depth"])
+
+
 def _milestones(value: Any) -> List[int]:
     if isinstance(value, (list, tuple)):
         return [int(v) for v in value]
@@ -115,6 +139,190 @@ def _walk(value: Any) -> Iterable[MutableMapping[str, Any]]:
     elif isinstance(value, (list, tuple)):
         for child in value:
             yield from _walk(child)
+
+
+def _first_mapping_with_key(value: Any, key: str) -> MutableMapping[str, Any] | None:
+    for node in _walk(value):
+        if key in node:
+            return node
+    return None
+
+
+def _first_resize_scale(cfg: MutableMapping[str, Any]) -> tuple[int, int] | None:
+    for node in _walk(cfg):
+        node_type = str(node.get("type", ""))
+        if "Resize" not in node_type or "scale" not in node:
+            continue
+        scale = node.get("scale")
+        if isinstance(scale, (list, tuple)) and len(scale) >= 2:
+            try:
+                return int(scale[0]), int(scale[1])
+            except (TypeError, ValueError):
+                continue
+    input_size = cfg.get("input_size")
+    if isinstance(input_size, (list, tuple)) and len(input_size) >= 2:
+        try:
+            return int(input_size[0]), int(input_size[1])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _stringify_milestones(cfg: MutableMapping[str, Any]) -> str:
+    for scheduler in cfg.get("param_scheduler", []):
+        if isinstance(scheduler, MutableMapping) and scheduler.get("milestones"):
+            return ", ".join(str(v) for v in scheduler.get("milestones", []))
+    return ""
+
+
+def _front_backbone_name(backbone: MutableMapping[str, Any] | None) -> str:
+    if not isinstance(backbone, MutableMapping):
+        return "ResNet"
+    btype = str(backbone.get("type") or "")
+    depth = backbone.get("depth")
+    if btype == "Darknet" and str(depth) == "53":
+        return "Darknet53"
+    if btype in ("ConvNeXt", "ConvNext"):
+        return "ConvNext"
+    if btype == "SwinTransformer":
+        return "SwinTransformer"
+    return btype or "ResNet"
+
+
+def _stage_string(value: Any) -> str:
+    if isinstance(value, (list, tuple)):
+        return ",".join(str(i) for i, enabled in enumerate(value) if bool(enabled))
+    return ""
+
+
+def _loss_defaults(head: Any) -> Dict[str, Any]:
+    if isinstance(head, list) and head:
+        head = head[0]
+    if not isinstance(head, MutableMapping):
+        return {}
+    out: Dict[str, Any] = {}
+    for loss_key, type_key, weight_key in (
+        ("loss_cls", "detr_loss_cls_type", "detr_loss_cls_weight"),
+        ("loss_bbox", "detr_loss_bbox_type", "detr_loss_bbox_weight"),
+        ("loss_iou", "detr_loss_iou_type", "detr_loss_iou_weight"),
+    ):
+        loss = head.get(loss_key)
+        if isinstance(loss, MutableMapping):
+            if loss.get("type") is not None:
+                out[type_key] = loss.get("type")
+            if loss.get("loss_weight") is not None:
+                out[weight_key] = loss.get("loss_weight")
+    return out
+
+
+def _extract_attention_defaults(model: MutableMapping[str, Any]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    if isinstance(model.get("encoder"), MutableMapping) and model["encoder"].get("num_layers") is not None:
+        out["detr_encoder_layers"] = model["encoder"].get("num_layers")
+    if isinstance(model.get("decoder"), MutableMapping) and model["decoder"].get("num_layers") is not None:
+        out["detr_decoder_layers"] = model["decoder"].get("num_layers")
+    if isinstance(model.get("positional_encoding"), MutableMapping) and model["positional_encoding"].get("temperature") is not None:
+        out["detr_pos_temperature"] = model["positional_encoding"].get("temperature")
+
+    for source_key, target_key in (
+        ("embed_dims", "detr_embed_dims"),
+        ("num_heads", "detr_num_heads"),
+        ("attn_drop", "detr_attn_dropout"),
+        ("dropout", "detr_attn_dropout"),
+        ("feedforward_channels", "detr_ffn_channels"),
+        ("num_fcs", "detr_ffn_num_fcs"),
+        ("ffn_drop", "detr_ffn_dropout"),
+    ):
+        node = _first_mapping_with_key(model, source_key)
+        if node is not None and node.get(source_key) is not None and target_key not in out:
+            out[target_key] = node.get(source_key)
+
+    for node in _walk(model):
+        act_cfg = node.get("act_cfg")
+        if isinstance(act_cfg, MutableMapping) and act_cfg.get("type"):
+            out["detr_ffn_act"] = act_cfg.get("type")
+            break
+    return out
+
+
+def template_defaults(upload_root: str, template_name: str) -> Dict[str, Any]:
+    template = _template_path(upload_root, template_name)
+    group = TEMPLATE_CATALOG[template_name][0]
+    Config = _config_class()
+    cfg_obj = Config.fromfile(str(template))
+    cfg = cfg_obj._cfg_dict
+    model = cfg.get("model", {})
+    if not isinstance(model, MutableMapping):
+        model = {}
+    backbone = model.get("backbone")
+    if not isinstance(backbone, MutableMapping):
+        backbone = {}
+
+    params: Dict[str, Any] = {
+        "mmdetType": group,
+        "mmdet_network": template_name,
+        "mmdet_backbone": _front_backbone_name(backbone),
+    }
+    if backbone.get("depth") is not None:
+        params["mmdet_depth"] = backbone.get("depth")
+    if "stage_with_dcn" in backbone:
+        params["mmdet_dcnStage"] = _stage_string(backbone.get("stage_with_dcn"))
+        params["mmdet_dcn"] = bool(params["mmdet_dcnStage"])
+    if backbone.get("arch") is not None:
+        params["mmdet_conv_arch"] = backbone.get("arch")
+        params["mmdet_swint_arch"] = backbone.get("arch")
+    if backbone.get("window_size") is not None:
+        params["mmdet_window"] = backbone.get("window_size")
+
+    scale = _first_resize_scale(cfg)
+    if scale:
+        params["mmdet_input_width"], params["mmdet_input_height"] = scale
+
+    train_loader = cfg.get("train_dataloader", {})
+    if isinstance(train_loader, MutableMapping) and train_loader.get("batch_size") is not None:
+        params["mmdet_batchsize"] = train_loader.get("batch_size")
+
+    train_cfg = cfg.get("train_cfg", {})
+    if isinstance(train_cfg, MutableMapping):
+        if train_cfg.get("max_epochs") is not None:
+            params["mmdet_epoch"] = train_cfg.get("max_epochs")
+        if train_cfg.get("val_interval") is not None:
+            params["mmdet_val_interval"] = train_cfg.get("val_interval")
+
+    hooks = cfg.get("default_hooks", {})
+    if isinstance(hooks, MutableMapping) and isinstance(hooks.get("checkpoint"), MutableMapping):
+        if hooks["checkpoint"].get("interval") is not None:
+            params["mmdet_weight_interval"] = hooks["checkpoint"].get("interval")
+
+    optimizer = cfg.get("optim_wrapper", {}).get("optimizer")
+    if isinstance(optimizer, MutableMapping):
+        if optimizer.get("type") is not None:
+            params["mmdet_opt"] = optimizer.get("type")
+        if optimizer.get("lr") is not None:
+            params["mmdet_inlr"] = optimizer.get("lr")
+
+    milestones = _stringify_milestones(cfg)
+    if milestones:
+        params["mmdet_step"] = milestones
+
+    if template_name == "YOLOv3":
+        params["mmdet_backbone"] = "Darknet53"
+        params["mmdet_depth"] = 53
+    if group == "DETR":
+        params.update(_extract_attention_defaults(model))
+        params.setdefault("detr_neck_mode", "multi" if template_name in ("DINO", "Deformable DETR") else "single")
+
+    head = model.get("bbox_head")
+    if not isinstance(head, (MutableMapping, list)):
+        head = model.get("roi_head", {}).get("bbox_head")
+    params.update(_loss_defaults(head))
+
+    return {
+        "template": template_name,
+        "group": group,
+        "template_path": str(template),
+        "params": params,
+    }
 
 
 def _set_num_classes(model: MutableMapping[str, Any], count: int) -> None:
@@ -212,7 +420,7 @@ def _apply_params(cfg: MutableMapping[str, Any], params: Dict[str, Any], dataset
 
     optimizer = cfg.get("optim_wrapper", {}).get("optimizer")
     if isinstance(optimizer, MutableMapping):
-        opt_type = str(params.get("mmdet_opt") or optimizer.get("type") or "SGD")
+        opt_type = _clean_str(params.get("mmdet_opt"), optimizer.get("type") or "SGD")
         optimizer["type"] = opt_type
         optimizer["lr"] = _as_float(params.get("mmdet_inlr"), optimizer.get("lr", 0.001))
         if opt_type.lower() == "adamw":
@@ -233,8 +441,7 @@ def _apply_params(cfg: MutableMapping[str, Any], params: Dict[str, Any], dataset
     model = cfg["model"]
     backbone = model.get("backbone")
     if isinstance(backbone, MutableMapping):
-        if "depth" in backbone:
-            backbone["depth"] = _as_int(params.get("mmdet_depth"), backbone["depth"])
+        _set_backbone(backbone, params)
         if params.get("checkpoint"):
             backbone["init_cfg"] = {"type": "Pretrained", "checkpoint": str(params["checkpoint"])}
 
@@ -264,7 +471,7 @@ def _apply_params(cfg: MutableMapping[str, Any], params: Dict[str, Any], dataset
             loss = item.get(key)
             if isinstance(loss, MutableMapping):
                 if params.get(type_key):
-                    loss["type"] = str(params[type_key])
+                    loss["type"] = _clean_str(params[type_key], loss.get("type") or "")
                 if params.get(weight_key) is not None:
                     loss["loss_weight"] = _as_float(params[weight_key], loss.get("loss_weight", 1.0))
 

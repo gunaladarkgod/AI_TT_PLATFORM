@@ -58,7 +58,12 @@ public class TrainQueueWorker {
             TaskQueue.takeIfHead(headId); // 清理脏队列
             return;
         }
-        TrainScript script = trainScriptService.getById(Integer.valueOf(head.getType()));
+        TrainScript script = null;
+        try {
+            script = trainScriptService.getById(Integer.valueOf(head.getType()));
+        } catch (Exception ignore) {
+            // 自定义 fixed runner 任务的 type 可以是 custom/自定义，不对应 train_script 数字主键。
+        }
         String algName = script != null ? script.getName() : null;
         if (!CodeMap.TRAIN_TASK_STATUS_QUEUE.equals(head.getStatus())) {
             TaskQueue.takeIfHead(headId); // 清理异常状态
@@ -70,9 +75,12 @@ public class TrainQueueWorker {
             return;
         }
 
-        // 分流：mmdet -> Python Runner；其他 -> 旧脚本 startTrain
-        if ("mmdet".equalsIgnoreCase(algName)) {
-            log.info("Auto-dispatch mmdet task: id={}, runId={}", headId, head.getName());
+        // 分流：mmdet/original 与自定义/fixed 都走 Python Runner；其他 -> 旧脚本 startTrain
+        boolean runnerBacked = "mmdet".equalsIgnoreCase(algName) || "custom".equalsIgnoreCase(algName)
+                || "自定义".equalsIgnoreCase(algName) || "custom".equalsIgnoreCase(head.getType())
+                || "自定义".equalsIgnoreCase(head.getType());
+        if (runnerBacked) {
+            log.info("Auto-dispatch runner-backed task: id={}, runId={}, algName={}", headId, head.getName(), algName);
 
             // 标记 RUN
             TrainTask upd = new TrainTask();
@@ -88,7 +96,8 @@ public class TrainQueueWorker {
             String remarkTail;
             try {
                 // 同步等待 Python Runner 返回
-                RunnerTrainResponse runnerResp = trainRunnerService.startByRunId(head.getName());
+                RunnerTrainResponse runnerResp = trainRunnerService.startByRunId(
+                        head.getName(), taskService.runnerOptionsForTask(head.getId()));
                 ok = runnerResp.isOk();
                 remarkTail = taskService.applyRunnerResult(head, runnerResp, "queueWorker");
             } catch (Exception e) {
