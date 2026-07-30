@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.stream.Collectors;
 
@@ -88,6 +89,17 @@ public class TrainTaskController {
                 // 无 zenity 或无 DISPLAY 时继续尝试 Swing；均不可用时由前端手工填写。
             }
         }
+        if (windows) {
+            AjaxResult windowsPickResult = pickTrainingPythonByWindowsDialog(initialDirectory);
+            if (windowsPickResult != null && windowsPickResult.isSuccess()) {
+                return windowsPickResult;
+            }
+            if (GraphicsEnvironment.isHeadless()) {
+                return windowsPickResult != null
+                        ? windowsPickResult
+                        : AjaxResult.error("当前环境无法打开文件选择器，请手工填写训练 Python 的绝对路径");
+            }
+        }
         if (GraphicsEnvironment.isHeadless()) {
             return AjaxResult.error("当前环境无法打开文件选择器，请手工填写训练 Python 的绝对路径");
         }
@@ -107,6 +119,63 @@ public class TrainTaskController {
         }
         if (selected[0] == null) return AjaxResult.error("未选择文件");
         return AjaxResult.success(Collections.singletonMap("path", selected[0].getAbsolutePath().replace("\\", "/")));
+    }
+
+    /**
+     * Windows 下优先使用系统文件选择器。
+     *
+     * Swing 的 JFileChooser 在后端进程、IDEA 子进程或部分高 DPI/焦点场景里容易不显示；
+     * PowerShell + WinForms 的 OpenFileDialog 更接近普通 Windows 文件浏览器。
+     */
+    private AjaxResult pickTrainingPythonByWindowsDialog(Path initialDirectory) {
+        try {
+            String initial = "";
+            if (initialDirectory != null && Files.isDirectory(initialDirectory)) {
+                initial = initialDirectory.toAbsolutePath().normalize().toString();
+            }
+            String escapedInitial = initial.replace("'", "''");
+            String script = String.join("; ",
+                    "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8",
+                    "Add-Type -AssemblyName System.Windows.Forms",
+                    "$dlg=New-Object System.Windows.Forms.OpenFileDialog",
+                    "$dlg.Title='选择训练 Python 解释器'",
+                    "$dlg.Filter='Python executable (python.exe)|python.exe|Executable files (*.exe)|*.exe|All files (*.*)|*.*'",
+                    "$dlg.CheckFileExists=$true",
+                    "$dlg.Multiselect=$false",
+                    StrUtil.isNotBlank(escapedInitial) ? "$dlg.InitialDirectory='" + escapedInitial + "'" : "$null=$null",
+                    "if($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){ Write-Output $dlg.FileName; exit 0 } else { exit 2 }"
+            );
+            Process p = new ProcessBuilder(
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-STA",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    script
+            ).redirectErrorStream(true).start();
+            boolean finished = p.waitFor(10, TimeUnit.MINUTES);
+            if (!finished) {
+                p.destroyForcibly();
+                return AjaxResult.error("打开文件选择器超时，请手工填写训练 Python 的绝对路径");
+            }
+            String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            if (p.exitValue() == 0 && StrUtil.isNotBlank(output)) {
+                String selected = Arrays.stream(output.split("\\R"))
+                        .map(String::trim)
+                        .filter(StrUtil::isNotBlank)
+                        .reduce((first, second) -> second)
+                        .orElse("");
+                if (StrUtil.isNotBlank(selected)) {
+                    return AjaxResult.success(Collections.singletonMap("path", selected.replace("\\", "/")));
+                }
+            }
+            if (p.exitValue() == 2) return AjaxResult.error("未选择文件");
+            return AjaxResult.error("打开 Windows 文件选择器失败，请手工填写训练 Python 的绝对路径"
+                    + (StrUtil.isNotBlank(output) ? "；详情：" + output : ""));
+        } catch (Exception e) {
+            return AjaxResult.error("打开 Windows 文件选择器失败，请手工填写训练 Python 的绝对路径；详情：" + e.getMessage());
+        }
     }
 
     private Path resolvePythonEnvironmentDirectory(boolean windows) {

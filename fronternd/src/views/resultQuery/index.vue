@@ -1,8 +1,8 @@
 
 
 <template>
-  <div class="content">
-    <div class="search-div flex-between">
+  <div class="content app-list-page">
+    <div class="search-div app-list-toolbar flex-between">
       <div class="flex-start gap-8">
         <el-button size="small" @click="clearTableColumnFilters">清除列筛选</el-button>
         <el-button size="small" @click="clearTableSort">清除列排序</el-button>
@@ -18,10 +18,10 @@
       </div>
     </div>
 
-    <div class="table-div">
+    <div class="table-div app-list-table">
       <el-table ref="tableRef" :row-key="resultRowKey" class="my-table" :data="pageData" stripe style="width: 100%" size="small"
         v-loading="loading" @filter-change="onTableFilterChange" @sort-change="onTableSortChange"
-        v-el-height-adaptive-table="{ bottomOffset: 70, isUse: true }">
+        v-el-height-adaptive-table="{ bottomOffset: 110, isUse: true }">
 
 
         <el-table-column prop="taskName" label="任务名称" align="center" fixed="left" width="260"
@@ -75,7 +75,7 @@
       </el-table>
     </div>
 
-    <div class="flex-end">
+    <div class="flex-end app-list-footer">
       <el-pagination background size="small" v-model:current-page="currentPage" v-model:page-size="currentSize"
         :page-sizes="[5, 10, 20, 30, 40, 50]" layout="total, sizes, prev, pager, next, jumper" :total="total"
         @size-change="handlePageSizeChange" />

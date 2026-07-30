@@ -44,6 +44,13 @@ export const TOP_NAV_LAYOUT = Object.freeze([
     route: 'resultQuery',
     component: 'resultQuery/index.vue',
   },
+])
+
+/**
+ * 需要保证存在、但默认放入“...”中的页面。
+ * 这里的页面仍会注册路由，只是不占用顶部主 Tab。
+ */
+export const TOP_NAV_OVERFLOW_LAYOUT = Object.freeze([
   {
     label: '数据集管理（dev）',
     route: 'datasetManageUnified',
@@ -59,7 +66,8 @@ const SYNTHETIC_MENU_ID_BASE = 99000
 export function ensureTopNavigationMenus(menuList = []) {
   const source = Array.isArray(menuList) ? menuList : []
   const configured = new Map()
-  TOP_NAV_LAYOUT.forEach((item, index) => {
+  const allConfiguredNav = [...TOP_NAV_LAYOUT, ...TOP_NAV_OVERFLOW_LAYOUT]
+  allConfiguredNav.forEach((item, index) => {
     const nav = { ...item, index }
     configured.set(item.route, nav)
     ;(item.aliases || []).forEach(alias => configured.set(alias, nav))
@@ -81,7 +89,7 @@ export function ensureTopNavigationMenus(menuList = []) {
 
   const existingRoutes = new Set(normalized.map(item => item?.url).filter(Boolean))
 
-  TOP_NAV_LAYOUT.forEach((nav, index) => {
+  allConfiguredNav.forEach((nav, index) => {
     if (existingRoutes.has(nav.route)) return
     normalized.push({
       id: SYNTHETIC_MENU_ID_BASE + index,

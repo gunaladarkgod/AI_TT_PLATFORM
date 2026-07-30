@@ -91,11 +91,6 @@
               实例数据集预处理
               <a class="section-link" href="#sec-preprocess" @click.prevent="scrollToAnchor('#sec-preprocess')">#</a>
             </h2>
-            <div class="section-desc-row section-desc-row--single">
-              <p class="section-desc section-desc--inline">
-                选择中间实例数据集、增强/增广脚本并创建实例数据集（与独立预处理页一致）。
-              </p>
-            </div>
           </div>
           <div class="section-body section-embed section-embed--preprocess">
             <PreprocessPage
@@ -117,14 +112,6 @@
               <p class="section-desc section-desc--inline">
                 按任务查看中间实例数据集与训测划分等；表头支持排序与列筛选，下方为清除与搜索（与「原始数据集」一致）。
               </p>
-              <div v-if="false" class="section-task-toolbar" @click.stop>
-                <el-switch
-                  v-model="instanceViewAsTable"
-                  inline-prompt
-                  active-text="列表"
-                  inactive-text="卡片"
-                />
-              </div>
             </div>
           </div>
           <div class="section-body section-embed section-embed--instance">
@@ -206,12 +193,12 @@ watch(
 .doc-layout {
   --dm-unified-section-height: min(70vh, 700px);
   display: flex;
-  gap: 24px;
+  gap: 22px;
   align-items: flex-start;
-  background: #ffffff;
+  background: transparent;
   width: 100%;
   box-sizing: border-box;
-  padding: 0 28px 0 24px;
+  padding: 0 24px 0 22px;
 }
 
 .doc-left {
@@ -244,7 +231,7 @@ watch(
 }
 
 .doc-section {
-  margin-bottom: 28px;
+  margin-bottom: 22px;
 }
 
 .page-hero {
@@ -271,11 +258,11 @@ watch(
 }
 
 .section-block {
-  background: #fff;
-  border: 1px solid #e6e8ee;
-  border-radius: 12px;
-  overflow: visible;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 14px 38px rgba(15, 23, 42, 0.07);
 }
 
 /*
@@ -333,8 +320,8 @@ watch(
 }
 
 .section-heading {
-  padding: 22px 24px 14px;
-  border-bottom: 1px solid #ededed;
+  padding: 20px 22px 10px;
+  border-bottom: none;
   background: #ffffff;
 }
 
@@ -414,13 +401,14 @@ watch(
 }
 
 .section-body {
-  padding: 20px 24px 24px;
+  padding: 0 22px 18px;
   min-width: 0;
   max-width: 100%;
+  background: #ffffff;
 }
 
 .section-embed {
-  padding: 0;
+  padding: 0 22px 18px;
   margin: 0;
   min-width: 0;
   max-width: 100%;
@@ -429,11 +417,73 @@ watch(
 /* 与「原始数据集」一致：内层 el-card 与「大标题」白底卡片左右留白 */
 .section-body.section-embed.section-embed--task,
 .section-body.section-embed.section-embed--instance {
-  padding: 8px 10px 12px;
+  padding: 0 22px 18px;
 }
 
 .section-body.section-embed.section-embed--original {
-  padding: 8px 10px 12px;
+  padding: 0 22px 18px;
+}
+
+.section-body.section-embed.section-embed--preprocess {
+  padding: 0 22px 18px;
+}
+
+.section-block :deep(.original-dataset-panel),
+.section-block :deep(.instance-embed-outer-card),
+.section-block :deep(.create-interface.preprocess-list-panel) {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.section-block :deep(.original-dataset-panel .el-card__body),
+.section-block :deep(.instance-embed-outer-card .el-card__body) {
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+.section-block :deep(.original-dataset-panel .el-card__footer),
+.section-block :deep(.instance-embed-outer-card .el-card__footer) {
+  padding: 12px 0 0 !important;
+  min-height: 40px;
+  border-top: none !important;
+  background: transparent !important;
+}
+
+.section-block :deep(.original-dataset-toolbar-row),
+.section-block :deep(.preprocess-page-toolbar) {
+  min-height: 32px;
+  margin: 0 0 8px !important;
+  padding: 0 !important;
+  align-items: center;
+}
+
+.section-block :deep(.original-dataset-panel__footer),
+.section-block :deep(.selection-table-footer) {
+  min-height: 40px;
+  padding: 12px 0 0 !important;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  background: transparent !important;
+}
+
+.section-block :deep(.table-div),
+.section-block :deep(.selection-table-container) {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  margin: 0 !important;
+}
+
+.section-block :deep(.el-table) {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 8px rgba(15, 23, 42, 0.06);
+}
+
+.section-block :deep(.el-table__header-wrapper th) {
+  background-color: #dbdada !important;
 }
 
 .section-embed--original :deep(.content) {

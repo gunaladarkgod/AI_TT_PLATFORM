@@ -133,72 +133,79 @@
         <el-table-column prop="img_num" label="图片数" align="center" v-if="showExt" />
         <el-table-column prop="cls_num" label="标签数" align="center" v-if="showExt" />
         <el-table-column prop="obj_num" label="标注数" align="center" v-if="showExt" />
-        <el-table-column label="操作" align="center" width="350" fixed="right">
-
-
-          <!-- 操作按钮 -->
+        <el-table-column label="操作" align="center" width="230" fixed="right">
           <template #default="{ row }">
-            <div class="flex-start  flex-wrap">
-              <el-space :wrap="true">
-                <el-button link size="small" @click="showEditModal(row)" v-if="isSys || curUser == row.username">
-                  <el-tag size="small" type="primary" class="iconfont icon-bianji fontSpan">{{ row.run_name ? '查看任务' :
-                    '编辑任务' }}</el-tag>
+            <div class="table-row-actions train-task-row-actions" @click.stop>
+              <template v-if="isSys || curUser == row.username">
+                <el-button v-if="!row.run_name && (row.status == 1 || row.status == 4)" size="small"
+                  class="table-action-button table-action-button--success" @click="enqueueTask(row)">
+                  发布
                 </el-button>
-                <el-button link size="small" @click="showCloneModal(row)">
-                  <el-tag size="small" type="primary" class="iconfont icon-guanlianxinghao fontSpan">克隆任务</el-tag>
+              </template>
+              <el-dropdown trigger="click" placement="bottom-end">
+                <el-button size="small" class="table-action-button table-action-dropdown-button">
+                  操作
+                  <el-icon class="el-icon--right"><ArrowDown /></el-icon>
                 </el-button>
-                <el-button @click="viewLatestTrainLog(row)" link size="small"
-                  :loading="latestLogLoadingId === row.id" v-show="isSys || curUser == row.username">
-                  <el-tag size="small" class="iconfont icon-chakan fontSpan">查看日志</el-tag></el-button>
-                <el-button @click="viewTaskConfig(row)" link size="small"
-                  :loading="configLoadingId === row.id" v-show="isSys || curUser == row.username">
-                  <el-tag size="small" type="info" class="iconfont icon-chakan fontSpan">查看配置</el-tag></el-button>
-
-                
-                <template v-if="isSys || curUser == row.username">
-                  <!-- 执行成功了 -->
-                  <template v-if="row.run_name">
-                    <el-button @click="showTransModal(row)" link size="small"><el-tag size="small" type="warning"
-                        class="iconfont icon-yingshe fontSpan">模型转换</el-tag></el-button>
-                    <el-button @click="showValModal(row, true)" link size="small" :loading="row.val_state == 1"><el-tag
-                        size="small" type="warning"
-                        :class="row.val_state ? '' : 'iconfont icon-trainScript fontSpan'">模型验证</el-tag></el-button>
-                    <el-button @click="showValModal(row, false)" link size="small"
-                      :loading="row.predict_state == 1"><el-tag size="small" type="warning"
-                        :class="row.predict_state ? '' : 'iconfont icon-brain-o fontSpan'">模型预测</el-tag></el-button>
-                    <el-button @click="delRecord(row)" link size="small">
-                      <el-tag size="small" type="danger"
-                        class="iconfont icon-shanchu fontSpan">删除任务</el-tag></el-button>
-                  </template>
-                  <template v-else-if="row.status == 1 || row.status == 4">
-                    <el-button link size="small" @click="enqueueTask(row)" v-if="!row.run_name">
-                      <el-tag size="small" type="success" class="iconfont icon-qidongruanjian fontSpan">发布任务</el-tag>
-                    </el-button>
-                    <el-button @click="delRecord(row)" link size="small">
-                      <el-tag size="small" type="danger"
-                        class="iconfont icon-shanchu fontSpan">删除任务</el-tag></el-button>
-                  </template>
-                  <template v-else-if="row.status == 5">
-                    <el-button @click="delRecord(row)" link size="small">
-                      <el-tag size="small" type="danger"
-                        class="iconfont icon-shanchu fontSpan">删除任务</el-tag></el-button>
-                  </template>
-                  <template v-else-if="row.status == 2">
-                    <el-button link size="small" @click="topTask(row)">
-                      <el-tag size="small" type="primary" class="iconfont icon-qidongruanjian fontSpan">置顶任务</el-tag>
-                    </el-button>
-                    <el-button link size="small" @click="cancelTask(row)">
-                      <el-tag size="small" type="info" class="iconfont icon-tingzhiruanjian fontSpan">取消任务</el-tag>
-                    </el-button>
-                  </template>
-                  <template v-else-if="row.status == 3">
-                    <el-button link size="small" @click="stopTask(row)"
-                      :loading="stoppingTaskId === row.id" :disabled="row.status != 3 || stoppingTaskId !== null">
-                      <el-tag size="small" type="danger" class="iconfont icon-tingzhiruanjian fontSpan">停止任务</el-tag>
-                    </el-button>
-                  </template>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item v-if="isSys || curUser == row.username" @click="showEditModal(row)">
+                      <el-icon><Edit /></el-icon>
+                      {{ row.run_name ? '查看任务' : '编辑任务' }}
+                    </el-dropdown-item>
+                    <el-dropdown-item @click="showCloneModal(row)">
+                      <el-icon><CopyDocument /></el-icon>
+                      克隆任务
+                    </el-dropdown-item>
+                    <el-dropdown-item v-if="isSys || curUser == row.username" :disabled="latestLogLoadingId === row.id"
+                      @click="viewLatestTrainLog(row)">
+                      <el-icon><View /></el-icon>
+                      查看日志
+                    </el-dropdown-item>
+                    <el-dropdown-item v-if="isSys || curUser == row.username" :disabled="configLoadingId === row.id"
+                      @click="viewTaskConfig(row)">
+                      <el-icon><Document /></el-icon>
+                      查看配置
+                    </el-dropdown-item>
+                    <template v-if="isSys || curUser == row.username">
+                      <el-dropdown-item v-if="row.run_name" @click="showTransModal(row)">
+                        <el-icon><Switch /></el-icon>
+                        模型转换
+                      </el-dropdown-item>
+                      <el-dropdown-item v-if="row.run_name" :disabled="row.val_state == 1"
+                        @click="showValModal(row, true)">
+                        <el-icon><CircleCheck /></el-icon>
+                        模型验证
+                      </el-dropdown-item>
+                      <el-dropdown-item v-if="row.run_name" :disabled="row.predict_state == 1"
+                        @click="showValModal(row, false)">
+                        <el-icon><Aim /></el-icon>
+                        模型预测
+                      </el-dropdown-item>
+                      <el-dropdown-item v-if="row.status == 2" @click="topTask(row)">
+                        <el-icon><Top /></el-icon>
+                        置顶任务
+                      </el-dropdown-item>
+                      <el-dropdown-item v-if="row.status == 2" @click="cancelTask(row)">
+                        <el-icon><Close /></el-icon>
+                        取消任务
+                      </el-dropdown-item>
+                    </template>
+                  </el-dropdown-menu>
                 </template>
-              </el-space>
+              </el-dropdown>
+
+              <template v-if="isSys || curUser == row.username">
+                <el-button v-if="row.run_name || row.status == 1 || row.status == 4 || row.status == 5" size="small"
+                  class="table-action-button table-action-button--danger" @click="delRecord(row)">
+                  删除
+                </el-button>
+                <el-button v-if="row.status == 3" size="small" class="table-action-button table-action-button--danger"
+                  :loading="stoppingTaskId === row.id" :disabled="row.status != 3 || stoppingTaskId !== null"
+                  @click="stopTask(row)">
+                  停止
+                </el-button>
+              </template>
             </div>
           </template>
         </el-table-column>
@@ -213,22 +220,44 @@
         @current-change="handleCurrentChange" @size-change="handleCurrentChange" />
     </div>
 
-    <div class="runner-status-footer">
-      <el-alert
-        :type="runnerHealthOk === true ? 'success' : (runnerHealthOk === false ? 'error' : 'info')"
-        :closable="false"
-        show-icon
+    <div class="runner-status-floating">
+      <el-popover
+        v-model:visible="runnerStatusPopoverVisible"
+        trigger="manual"
+        placement="bottom-end"
+        width="460"
+        popper-class="runner-status-popover"
       >
-        <template #title>
-          <span class="runner-status-title">MMDet 训练服务（Runner）</span>
+        <template #reference>
+          <el-tooltip :content="runnerHealthDetail" placement="left" :show-after="250">
+            <button
+              type="button"
+              class="runner-status-chip"
+              :class="'runner-status-chip--' + runnerStatusTone"
+              @click.stop="runnerStatusPopoverVisible = !runnerStatusPopoverVisible"
+            >
+              <span class="runner-status-chip__dot"></span>
+              <span class="runner-status-chip__main">
+                <span class="runner-status-chip__title">Runner</span>
+                <span class="runner-status-chip__summary">{{ runnerStatusSummary }}</span>
+              </span>
+              <span class="runner-status-chip__more">详情</span>
+            </button>
+          </el-tooltip>
         </template>
-        <div class="runner-status-row">
-          <el-text size="small" class="runner-status-text">{{ runnerHealthDetail }}</el-text>
-          <el-button type="primary" link size="small" @click="refreshRunnerHealth">刷新</el-button>
-          <el-button type="warning" link size="small" :loading="runnerDependencyLoading" @click="checkRunnerDependencies">检测依赖</el-button>
-          <el-button type="success" link size="small" :loading="runnerStartLoading" @click="startRunner">启动</el-button>
+        <div class="runner-status-popover-content">
+          <div class="runner-status-popover-title">
+            <span class="runner-status-chip__dot" :class="'runner-status-popover-dot--' + runnerStatusTone"></span>
+            <span>MMDet 训练服务（Runner）</span>
+          </div>
+          <div class="runner-status-popover-detail">{{ runnerHealthDetail }}</div>
+          <div class="runner-status-popover-actions">
+            <el-button type="primary" size="small" @click="refreshRunnerHealth">刷新</el-button>
+            <el-button type="warning" size="small" :loading="runnerDependencyLoading" @click="checkRunnerDependencies">检测依赖</el-button>
+            <el-button type="success" size="small" :loading="runnerStartLoading" @click="startRunner">启动</el-button>
+          </div>
         </div>
-      </el-alert>
+      </el-popover>
     </div>
 
   </div>
@@ -267,10 +296,14 @@
           </div>
           <div class="task-overview-item task-python-item">
             <div class="task-overview-label required-label">训练 Python</div>
-            <div class="task-overview-content">
+            <div class="task-overview-content task-python-content">
               <el-input v-model="trainingPythonPath" :disabled="isSee" placeholder="请选择训练环境的 python 可执行文件">
                 <template #append><el-button :disabled="isSee" @click="pickTrainingPython">选择</el-button></template>
               </el-input>
+              <div class="python-path-meta">
+                <el-tag size="small" :type="trainingPythonInfo.tagType">{{ trainingPythonInfo.type }}</el-tag>
+                <span class="python-path-desc">{{ trainingPythonInfo.desc }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -309,10 +342,14 @@
           </div>
           <div class="task-overview-item task-python-item">
             <div class="task-overview-label required-label">训练 Python</div>
-            <div class="task-overview-content">
+            <div class="task-overview-content task-python-content">
               <el-input v-model="trainingPythonPath" :disabled="isSee" placeholder="请选择训练环境的 python 可执行文件">
                 <template #append><el-button :disabled="isSee" @click="pickTrainingPython">选择</el-button></template>
               </el-input>
+              <div class="python-path-meta">
+                <el-tag size="small" :type="trainingPythonInfo.tagType">{{ trainingPythonInfo.type }}</el-tag>
+                <span class="python-path-desc">{{ trainingPythonInfo.desc }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -2251,6 +2288,7 @@ import { useRouter } from "vue-router";
 import { useUserStore } from "../../stores/index";
 import { FileService, EngineProjectService, EngineTaskService, TrainLabelService, TrainTaskService, TrainScriptService, TrainYoloService, ApiService, ModelTransService, trainService, transService , InstanceDatasetService } from "../../api/api";
 import { ElMessage, dayjs, ElMessageBox, ElMain, genFileId } from "element-plus";
+import { Aim, ArrowDown, CircleCheck, Close, CopyDocument, Document, Edit, Switch, Top, View } from '@element-plus/icons-vue';
 import { nextTick, onBeforeUnmount, onMounted, watchEffect } from "@vue/runtime-core";
 import { basePath_TASK, basePath_YOLO, basePath_TRAIN, basePath_WS_TASK, nginx_tensorboard, apiRequest } from "../../api/axios";
 import fileview from "../../components/fileview.vue";
@@ -2431,8 +2469,21 @@ const runnerHealthOk = ref(null)
 const runnerHealthDetail = ref('正在检测 Runner 服务…')
 const runnerStartLoading = ref(false)
 const runnerDependencyLoading = ref(false)
+const runnerStatusPopoverVisible = ref(false)
 let runnerHealthTimer = null
 const runnerBaseUrl = `${window.location.protocol}//${window.location.hostname}:8009`
+const runnerStatusTone = computed(() => {
+  if (runnerHealthOk.value === true) return 'success'
+  if (runnerHealthOk.value === false) return 'danger'
+  return 'info'
+})
+const runnerStatusSummary = computed(() => {
+  if (runnerStartLoading.value) return '启动中'
+  if (runnerDependencyLoading.value) return '检测中'
+  if (runnerHealthOk.value === true) return '正常'
+  if (runnerHealthOk.value === false) return '不可用'
+  return '检测中'
+})
 
 const refreshRunnerHealth = async () => {
   try {
@@ -2762,7 +2813,6 @@ const showAddModal = () => {
 const showEditModal = (row) => {
   editTaskMeta.value = { ...row }
   trainingPythonPath.value = ''
-  loadDefaultTrainingPython()
   isSee.value = row.run_name   //设置是否编辑
   //算法模版初始化
   templateAlgorithm.value = null
@@ -2892,6 +2942,7 @@ const showEditModal = (row) => {
   TrainTaskService.getExtQuery({ id: row.id }).then(res => {
     if (res.code === 0) {
       addForm.ext_params = res.data?.params || ""
+      applyStoredTrainingPythonParams(addForm.ext_params)
       if (algMap.value.get(row.type)?.cmd === 'mmdet' && res.data?.params) {
         try {
           applyStoredMmdetParams(JSON.parse(res.data.params))
@@ -3052,6 +3103,7 @@ const openCloneModal = (row1, flg) => {
   TrainTaskService.getExtQuery({ id: row.id }).then(res => {
     if (res.code === 0) {
       addForm.ext_params = res.data?.params || ""
+      applyStoredTrainingPythonParams(addForm.ext_params)
       addForm.ext_file_update = false
       extFileList.value = []
     }
@@ -4194,6 +4246,55 @@ const fixedRunnerParameter = reactive({
 })
 const trainingPythonPath = ref('')
 
+const classifyTrainingPythonPath = (value) => {
+  const raw = String(value || '').trim()
+  if (!raw) {
+    return { type: '未保存', desc: '该任务还没有保存训练 Python 路径', tagType: 'info' }
+  }
+  const normalized = raw.replace(/\\/g, '/')
+  const lower = normalized.toLowerCase()
+  const condaEnvMatch = normalized.match(/(?:^|\/)(?:miniconda3|anaconda3|\.conda)\/envs\/([^/]+)\/(?:scripts\/)?python(?:\.exe)?$/i)
+    || normalized.match(/\/envs\/([^/]+)\/(?:scripts\/)?python(?:\.exe)?$/i)
+  if (condaEnvMatch?.[1]) {
+    return { type: 'Conda 环境', desc: condaEnvMatch[1], tagType: 'success' }
+  }
+  if (/(?:miniconda3|anaconda3)\/(?:python(?:\.exe)?)$/i.test(normalized)) {
+    return { type: 'Conda base', desc: 'base 环境', tagType: 'warning' }
+  }
+  const venvMatch = normalized.match(/\/([^/]*(?:venv|env)[^/]*)\/scripts\/python(?:\.exe)?$/i)
+    || normalized.match(/\/([^/]*(?:venv|env)[^/]*)\/bin\/python$/i)
+  if (venvMatch?.[1]) {
+    return { type: '虚拟环境', desc: venvMatch[1], tagType: 'success' }
+  }
+  if (lower.endsWith('/python.exe') || lower.endsWith('/python')) {
+    return { type: '自定义 Python', desc: normalized.split('/').slice(-3).join('/'), tagType: 'primary' }
+  }
+  return { type: '自定义文件', desc: normalized.split('/').pop() || raw, tagType: 'primary' }
+}
+
+const trainingPythonInfo = computed(() => classifyTrainingPythonPath(trainingPythonPath.value))
+
+const applyStoredTrainingPythonParams = (payload) => {
+  if (!payload) return false
+  let p = payload
+  if (typeof payload === 'string') {
+    try {
+      p = JSON.parse(payload)
+    } catch (_) {
+      return false
+    }
+  }
+  const savedPath = p.training_python_path || p.fixed_python_path || p.python_path || ''
+  if (String(savedPath || '').trim()) {
+    trainingPythonPath.value = String(savedPath).trim()
+    if (p.fixed_python_path !== undefined && p.fixed_python_path !== null) {
+      fixedRunnerParameter.python_path = String(p.fixed_python_path)
+    }
+    return true
+  }
+  return false
+}
+
 const loadDefaultTrainingPython = async () => {
   if (String(trainingPythonPath.value || '').trim()) return
   try {
@@ -4463,8 +4564,7 @@ const availableBackboneNetworks = computed(() => {
 const applyStoredMmdetParams = (p) => {
   restoringMmdetParams.value = true
   addForm.temp = p.mmdetType || addForm.temp || 'CNN'
-  trainingPythonPath.value = p.training_python_path || p.fixed_python_path || ''
-  loadDefaultTrainingPython()
+  applyStoredTrainingPythonParams(p)
   if (p.runner_mode === 'fixed') {
     addForm.temp = 'fixed'
     if (p.fixed_python_path !== undefined && p.fixed_python_path !== null) fixedRunnerParameter.python_path = p.fixed_python_path
@@ -5383,6 +5483,7 @@ const labelsHandleClose = (val) => {
 <style scoped>
 .content-div {
   padding: 10px;
+  position: relative;
 }
 
 .train-task-table :deep(.el-table__row) {
@@ -5398,46 +5499,48 @@ const labelsHandleClose = (val) => {
   cursor: help;
 }
 
+.train-task-row-actions {
+  flex-wrap: nowrap !important;
+}
+
 .task-overview {
-  --task-label-width: 108px;
+  --task-label-width: 96px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 0 0 12px;
+  gap: 6px;
+  margin: 0 0 10px;
 }
 
 .task-overview-row {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  gap: 6px;
   width: 100%;
 }
 
 .task-overview-item {
   display: flex;
   min-width: 0;
-  min-height: 42px;
+  min-height: 36px;
   overflow: hidden;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 4px;
   background: var(--el-fill-color-blank);
 }
 
-.task-overview-primary .task-overview-item {
-  flex: 1 1 270px;
+.task-overview-primary {
+  grid-template-columns: minmax(300px, 1.35fr) minmax(210px, .72fr) minmax(210px, .72fr) minmax(430px, 1.45fr);
 }
 
 .task-overview-primary .task-name-item {
-  flex-grow: 1.55;
   min-width: 360px;
 }
 
-.task-overview-runtime .task-overview-item {
-  flex: 1 1 220px;
+.task-overview-runtime {
+  grid-template-columns: minmax(170px, .72fr) minmax(170px, .72fr) minmax(270px, 1fr) minmax(270px, 1fr);
 }
 
 .task-overview-runtime .task-time-item {
-  flex-grow: 1.35;
-  min-width: 300px;
+  min-width: 260px;
 }
 
 .task-overview-label {
@@ -5446,7 +5549,7 @@ const labelsHandleClose = (val) => {
   flex: 0 0 var(--task-label-width);
   align-items: center;
   width: var(--task-label-width);
-  padding: 8px 10px;
+  padding: 6px 9px;
   color: var(--el-text-color-regular);
   font-weight: 600;
   white-space: nowrap;
@@ -5465,11 +5568,35 @@ const labelsHandleClose = (val) => {
   flex: 1;
   min-width: 0;
   align-items: center;
-  padding: 5px 10px;
+  padding: 4px 8px;
 }
 
 .task-overview-content :deep(.el-select) {
   width: 100%;
+}
+
+.task-python-content {
+  align-items: stretch;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+.python-path-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.python-path-desc {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .task-remark-item {
@@ -5523,45 +5650,142 @@ const labelsHandleClose = (val) => {
 }
 
 @media (max-width: 1200px) {
-  .task-overview-row {
-    flex-wrap: wrap;
+  .task-overview-primary,
+  .task-overview-runtime {
+    grid-template-columns: repeat(2, minmax(320px, 1fr));
   }
 
-  .task-overview-primary .task-overview-item,
   .task-overview-primary .task-name-item,
-  .task-overview-runtime .task-overview-item,
   .task-overview-runtime .task-time-item {
-    flex: 1 1 calc(50% - 4px);
-    min-width: 360px;
+    min-width: 0;
   }
 }
 
-.runner-status-footer {
-  margin-top: 10px;
+.runner-status-floating {
+  position: fixed;
+  top: 7px;
+  right: 250px;
+  z-index: 1800;
+  pointer-events: none;
 }
 
-.runner-status-footer :deep(.el-alert) {
-  border-radius: 4px;
+.runner-status-chip {
+  pointer-events: auto;
+  width: 212px;
+  min-height: 42px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(12px);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 11px;
+  cursor: pointer;
+  color: #334155;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.runner-status-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.16);
+}
+
+.runner-status-chip__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  background: #909399;
+  box-shadow: 0 0 0 4px rgba(144, 147, 153, 0.14);
+}
+
+.runner-status-chip--success .runner-status-chip__dot,
+.runner-status-popover-dot--success {
+  background: #67c23a;
+  box-shadow: 0 0 0 4px rgba(103, 194, 58, 0.16);
+}
+
+.runner-status-chip--danger .runner-status-chip__dot,
+.runner-status-popover-dot--danger {
+  background: #f56c6c;
+  box-shadow: 0 0 0 4px rgba(245, 108, 108, 0.16);
+}
+
+.runner-status-chip--info .runner-status-chip__dot,
+.runner-status-popover-dot--info {
+  background: #909399;
+  box-shadow: 0 0 0 4px rgba(144, 147, 153, 0.14);
+}
+
+.runner-status-chip__main {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
   align-items: flex-start;
+  line-height: 1.15;
 }
 
-.runner-status-title {
-  font-weight: 500;
+.runner-status-chip__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #172033;
 }
 
-.runner-status-row {
+.runner-status-chip__summary {
+  margin-top: 2px;
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.runner-status-chip__more {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: #409eff;
+}
+
+.runner-status-popover-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.runner-status-popover-title {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 4px;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #172033;
 }
 
-.runner-status-text {
-  flex: 1;
-  min-width: 200px;
-  color: var(--el-text-color-regular);
+.runner-status-popover-detail {
+  max-height: 160px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.runner-status-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+:global(.runner-status-popover) {
+  border-radius: 14px !important;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.16) !important;
 }
 
 .mmdet-instance-dataset-block {

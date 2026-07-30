@@ -1,8 +1,35 @@
 <!-- instanceDatabase/create/index.vue -->
 <template>
-  <div class="content-div" :class="{ 'content-div--embed': embedMode }">
+  <div class="content-div app-list-page" :class="{ 'content-div--embed': embedMode }">
+    <div class="preprocess-page-toolbar app-list-toolbar flex-between">
+      <div class="filter-row-single preprocess-inline-filters">
+        <el-select v-model="filterConditions.sensorType" placeholder="传感器类型" size="small" clearable style="width: 120px;" @change="applyFilters">
+          <el-option v-for="type in sensorTypeOptions" :key="type" :label="type" :value="type"></el-option>
+        </el-select>
+        <el-select v-model="filterConditions.targetType" placeholder="目标类型" size="small" clearable style="width: 120px;" @change="applyFilters">
+          <el-option v-for="type in targetTypeOptions" :key="type" :label="type" :value="type"></el-option>
+        </el-select>
+        <el-select v-model="filterConditions.username" placeholder="创建用户" size="small" clearable style="width: 120px;" @change="applyFilters">
+          <el-option v-for="user in createUserList" :key="user" :label="user" :value="user"></el-option>
+        </el-select>
+        <el-button @click="resetFilters" size="small">重置筛选</el-button>
+      </div>
+      <el-button type="primary" size="small" @click="openCreateInstanceDialog">
+        创建实例数据集
+      </el-button>
+    </div>
+
+    <el-dialog
+      v-model="showCreateInstanceDialog"
+      title="创建实例数据集"
+      width="94vw"
+      class="preprocess-create-dialog"
+      align-center
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+    >
     <div class="create-interface">
-      <div class="create-header">
+      <div v-if="false" class="create-header">
       <!--
         <el-button @click="$router.push('/instanceDatabase/list')" size="small" type="primary" text>
           <el-icon><ArrowLeft /></el-icon>返回
@@ -178,27 +205,21 @@
             当前训练集 {{ trainRatioPercent }}%，测试集 {{ 100 - trainRatioPercent }}%。
           </div>
         </div>
+      </div>
+    </div>
+      <template #footer>
+        <el-button @click="showCreateInstanceDialog = false" size="small">取消</el-button>
+        <el-button type="primary" @click="confirmCreateInstanceDataset" size="small" :loading="createLoading">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <div class="create-interface preprocess-list-panel">
+      <div class="create-form">
         <!-- ========== 选择数据（中间实例数据集） =========== -->
         <div class="data-selection">
-          <h3 class="section-title">选择数据（中间实例数据集）</h3>
-          <!-- 筛选条件 -->
-          <div class="filter-section full-width">
-            <div class="filter-row-single">
-              <el-select v-model="filterConditions.sensorType" placeholder="传感器类型" size="small" clearable style="width: 120px;" @change="applyFilters">
-                <el-option v-for="type in sensorTypeOptions" :key="type" :label="type" :value="type"></el-option>
-              </el-select>
-              <el-select v-model="filterConditions.targetType" placeholder="目标类型" size="small" clearable style="width: 120px;" @change="applyFilters">
-                <el-option v-for="type in targetTypeOptions" :key="type" :label="type" :value="type"></el-option>
-              </el-select>
-              <el-select v-model="filterConditions.username" placeholder="创建用户" size="small" clearable style="width: 120px;" @change="applyFilters">
-                <el-option v-for="user in createUserList" :key="user" :label="user" :value="user"></el-option>
-              </el-select>
-              <el-button @click="resetFilters" size="small">重置筛选</el-button>
-            </div>
-          </div>
           <!-- 数据表格（表格区滚动，分页条固定在下方） -->
           <div class="selection-table-container">
-            <div class="selection-table-scroll">
+            <div class="selection-table-scroll app-list-table">
             <el-table 
               :data="paginatedSelectionData" 
               stripe 
@@ -210,6 +231,8 @@
               :row-key="row => row.id"
               class="selection-table"
               style="width: 100%"
+              :height="embedMode ? '100%' : undefined"
+              v-el-height-adaptive-table="{ bottomOffset: 110, isUse: !embedMode }"
             >
               <el-table-column type="selection" width="48" :reserve-selection="true"></el-table-column>
               <el-table-column type="index" label="序号" width="60" />
@@ -254,8 +277,8 @@
               </el-table-column>
             </el-table>
             </div>
-            <div class="selection-table-footer">
-            <div class="pagination-container flex-end" style="margin-top: 16px;">
+            <div class="selection-table-footer app-list-footer">
+            <div class="pagination-container flex-end">
               <el-pagination 
                 background 
                 size="small" 
@@ -270,109 +293,8 @@
             </div>
           </div>
         </div>
-        <div class="form-actions">
-          <el-button @click="$router.push('/instanceDatabase/list')" size="small">取消</el-button>
-          <el-button type="primary" @click="showCreateDialog" size="small" :loading="createLoading">创建</el-button>
-        </div>
       </div>
     </div>
-
-    <!-- 创建实例数据集对话框 -->
-    <el-dialog
-      v-model="showCreateInstanceDialog"
-      title="创建实例数据集"
-      width="600px"
-      :close-on-click-modal="false"
-    >
-      <el-form
-        ref="createFormRef"
-        :model="createForm"
-        :rules="createRules"
-        label-width="120px"
-      >
-        <el-form-item label="中间实例数据集" class="selection-info">
-          <div class="selected-info">
-            <el-alert
-              v-if="selectedTaskDatasets.length === 0"
-              title="未选择任务数据集"
-              type="warning"
-              :closable="false"
-              show-icon
-              style="width: 300px;"
-            />
-            <div v-else>
-            <!--
-              <el-alert
-                v-for="(dataset, index) in selectedTaskDatasets"
-                :key="index"
-                :title="`${dataset.name} (${getDataTypeLabel(dataset.type)})`"
-                type="success"
-                :closable="false"
-                show-icon
-                style="width: 300px; margin-bottom: 4px;"
-              />
-              -->
-              <el-alert
-                v-for="(dataset, index) in selectedTaskDatasets"
-                :key="index"
-                :title="`${dataset.name} `"
-                type="success"
-                :closable="false"
-                show-icon
-                style="width: 300px; margin-bottom: 4px;"
-              />
-            </div>
-          </div>
-        </el-form-item>
-        <el-form-item label="增强脚本" class="selection-info">
-          <div class="selected-info">
-            <el-alert
-              v-if="selectedEnhancementScript"
-              :title="`已选择: ${getScriptName(selectedEnhancementScript, enhancementScripts)} (ID: ${selectedEnhancementScript})`"
-              type="info"
-              :closable="false"
-              show-icon
-              style="width: 300px;"
-            />
-            <el-alert
-              v-else
-              title="不使用增强脚本"
-              type="info"
-              :closable="false"
-              show-icon
-              style="width: 300px;"
-            />
-          </div>
-        </el-form-item>
-        <el-form-item label="增广脚本" class="selection-info">
-          <div class="selected-info">
-            <el-alert
-              v-if="selectedAugmentationScript"
-              :title="`已选择: ${getScriptName(selectedAugmentationScript, augmentationScripts)} (ID: ${selectedAugmentationScript})`"
-              type="info"
-              :closable="false"
-              show-icon
-              style="width: 300px;"
-            />
-            <el-alert
-              v-else
-              title="不使用增广脚本"
-              type="info"
-              :closable="false"
-              show-icon
-              style="width: 300px;"
-            />
-          </div>
-        </el-form-item>
-        <el-form-item label="训测划分">
-          <el-tag type="success">训练集 {{ trainRatioPercent }}% / 测试集 {{ 100 - trainRatioPercent }}%</el-tag>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showCreateInstanceDialog = false" size="small">取消</el-button>
-        <el-button type="primary" @click="confirmCreateInstanceDataset" size="small" :loading="createLoading">确定创建</el-button>
-      </template>
-    </el-dialog>
 
    <!-- 上传脚本弹窗 -->
 <el-dialog
@@ -1068,19 +990,29 @@ const resetFilters = () => {
   selectionCurrentPage.value = 1
 }
 
-const showCreateDialog = () => {
+const openCreateInstanceDialog = () => {
   if (selectedTaskDatasets.value.length === 0) {
-    ElMessage.warning('请至少选择一个任务数据集')
+    ElMessage.warning('请至少选择一个中间实例数据集')
     return
   }
   createForm.description = ''
   showCreateInstanceDialog.value = true
 }
 
+const showCreateDialog = () => {
+  if (selectedTaskDatasets.value.length === 0) {
+    ElMessage.warning('请至少选择一个任务数据集')
+    return
+  }
+  createForm.description = ''
+  confirmCreateInstanceDataset()
+}
+
 const confirmCreateInstanceDataset = async () => {
-  if (!createFormRef.value) return;
-  await createFormRef.value.validate(async (valid) => {
-    if (valid) {
+  if (selectedTaskDatasets.value.length === 0) {
+    ElMessage.warning('请至少选择一个中间实例数据集')
+    return
+  }
       try {
         createLoading.value = true;
         const selectedAugScript = augmentationScripts.value.find(s => s.id == selectedAugmentationScript.value);
@@ -1207,8 +1139,6 @@ if (selectedAugmentationScript.value && selectedAugmentationScriptObj.value) {
       } finally {
         createLoading.value = false;
       }
-    }
-  });
 };
 
 const handleSelectionPageChange = () => {}
@@ -1312,19 +1242,81 @@ const openUploadDialog = () => {
 <style scoped>
 /* 完全保留原始样式（仅保留 create 相关） */
 .content-div {
-  padding: 16px;
+  padding: 0;
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   width: 100%;
   box-sizing: border-box;
 }
+
+.preprocess-page-toolbar {
+  width: 100%;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  margin-bottom: 8px;
+  min-height: 32px;
+  align-items: center;
+  gap: 8px 12px;
+  flex-wrap: nowrap;
+}
+
+.preprocess-inline-filters {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-bottom: 0 !important;
+}
+
+:deep(.preprocess-create-dialog) {
+  width: 94vw;
+  max-width: 1600px;
+  height: 90vh;
+  max-height: 90vh;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+:deep(.preprocess-create-dialog .el-dialog__header) {
+  flex: 0 0 auto;
+  margin-right: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+:deep(.preprocess-create-dialog .el-dialog__body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+:deep(.preprocess-create-dialog .el-dialog__footer) {
+  flex: 0 0 auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
 .create-interface {
   height: 100%;
   display: flex;
   flex-direction: column;
   width: 100%;
   box-sizing: border-box;
+}
+
+.preprocess-list-panel {
+  flex: 1 1 0;
+  min-height: 420px;
+  height: auto;
+  overflow: visible;
+}
+
+.preprocess-list-panel .create-form {
+  min-height: 420px;
+  overflow: visible;
 }
 .create-header {
   display: flex;
@@ -1341,16 +1333,16 @@ const openUploadDialog = () => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
   width: 100%;
   box-sizing: border-box;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 .augmentation-section {
-  background: #f8f9fa;
-  padding: 16px;
-  border-radius: 4px;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
   width: 100%;
   box-sizing: border-box;
 }
@@ -1407,11 +1399,11 @@ const openUploadDialog = () => {
   gap: 16px;
   width: 100%;
   box-sizing: border-box;
-  background: #f8f9fa;
-  padding: 16px;
-  border-radius: 4px;
-  min-height: 0;
-  overflow: hidden;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  min-height: 380px;
+  overflow: visible;
 }
 .section-title {
   margin: 0 0 12px 0;
@@ -1439,15 +1431,15 @@ const openUploadDialog = () => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
+  min-height: 320px;
+  overflow: visible;
   width: 100%;
   box-sizing: border-box;
 }
 
 .selection-table-scroll {
-  flex: 1 1 0;
-  min-height: 0;
+  flex: 1 1 auto;
+  min-height: 260px;
   width: 100%;
   overflow: auto;
 }

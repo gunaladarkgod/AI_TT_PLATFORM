@@ -1,7 +1,7 @@
 <template>
-  <div class="content" :class="{ 'content--embed': embedMode }">
+  <div class="content app-list-page" :class="{ 'content--embed': embedMode }">
     <el-card
-        class="original-dataset-panel"
+        class="original-dataset-panel app-list-panel"
         :class="{ 'original-dataset-panel--embed': embedMode }"
         shadow="never"
     >
@@ -9,7 +9,7 @@
           class="original-dataset-panel__main"
           :class="{ 'original-dataset-panel__main--embed': embedMode }"
       >
-        <div class="original-dataset-toolbar-row flex-between">
+        <div class="original-dataset-toolbar-row app-list-toolbar flex-between">
           <div class="flex-start gap-8">
             <el-button size="small" @click="clearTableColumnFilters">清除列筛选</el-button>
             <el-button size="small" @click="clearTableSort">清除列排序</el-button>
@@ -47,7 +47,7 @@
         <!-- 表格区域：Element Plus 表头筛选 + 自定义排序（与官方示例一致的风格） -->
         <div
             v-if="effectiveViewAsTable"
-            class="table-div"
+            class="table-div app-list-table"
             :class="{
         'table-div--embed-scroll': embedMode,
         'original-dataset-panel__scroll': embedMode
@@ -68,7 +68,7 @@
               @filter-change="onElTableFilterChange"
               @sort-change="onTableSortChange"
               @row-click="handleOriginalDatasetTableRowClick"
-              v-el-height-adaptive-table="{ bottomOffset: 120, isUse: !embedMode }"
+              v-el-height-adaptive-table="{ bottomOffset: 110, isUse: !embedMode }"
           >
             <!-- 序号 -->
             <el-table-column
@@ -340,7 +340,7 @@
       </div>
 
       <template #footer>
-        <div class="original-dataset-panel__footer">
+        <div class="original-dataset-panel__footer app-list-footer">
           <el-pagination
               v-if="effectiveViewAsTable"
               background

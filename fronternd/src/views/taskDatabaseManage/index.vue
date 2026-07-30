@@ -3,12 +3,12 @@
   统合页内嵌时去掉创建/映射/侧栏；映射相关操作跳转完整 dev 页。
 -->
 <template>
-  <div class="unified-task-panel" :class="{ 'unified-task-panel--embed': embedMode }">
+  <div class="unified-task-panel app-list-page" :class="{ 'unified-task-panel--embed': embedMode }">
     <div class="content" :class="{ 'content--embed': embedMode }">
-      <el-card class="original-dataset-panel" :class="{ 'original-dataset-panel--embed': embedMode }" shadow="never">
+      <el-card class="original-dataset-panel app-list-panel" :class="{ 'original-dataset-panel--embed': embedMode }" shadow="never">
         <div class="original-dataset-panel__main original-dataset-panel__main--embed">
-          <div class="original-dataset-toolbar-row flex-between">
-            <div class="flex-start gap-8">
+          <div class="original-dataset-toolbar-row app-list-toolbar flex-between">
+            <div class="flex-start gap-8 task-toolbar-left">
               <el-button size="small" @click="clearTaskTableFilters">清除列筛选</el-button>
               <el-button size="small" @click="clearTaskTableSort">清除列排序</el-button>
               <el-select
@@ -226,7 +226,7 @@
 
             <div
               v-else
-              class="table-div table-div--embed-scroll original-dataset-panel__scroll"
+              class="table-div app-list-table table-div--embed-scroll original-dataset-panel__scroll"
             >
             <el-table
               ref="taskListTableRef"
@@ -237,9 +237,9 @@
               class="task-list-table my-table"
               table-layout="fixed"
               style="width: 100%"
-              :height="'100%'"
+              :height="embedMode ? '100%' : undefined"
               scrollbar-always-on
-              v-el-height-adaptive-table="{ bottomOffset: 120, isUse: false }"
+              v-el-height-adaptive-table="{ bottomOffset: 110, isUse: !embedMode }"
               @sort-change="onTaskTableSortChange"
               @filter-change="onTaskTableFilterChange"
               @row-click="handleTaskTableRowClick"
@@ -459,7 +459,7 @@
             </div>
         </div>
         <template #footer>
-          <div class="original-dataset-panel__footer">
+          <div class="original-dataset-panel__footer app-list-footer">
             <el-pagination
               v-if="viewAsTable"
               background
@@ -2598,17 +2598,19 @@ onUnmounted(() => {
 
 /* 独立“任务管理”页：给原内嵌面板补齐页面外壳和高度，避免表格区域塌陷 */
 .unified-task-panel:not(.unified-task-panel--embed) {
-  padding: 10px;
-  background: #f5f7fa;
+  padding: 0;
+  background: transparent;
   min-height: calc(100vh - 50px);
   box-sizing: border-box;
 }
 
 .unified-task-panel:not(.unified-task-panel--embed) .content {
-  height: calc(100vh - 70px);
+  height: calc(100vh - 128px);
   min-height: 560px;
   display: flex;
   flex-direction: column;
+  padding: 0;
+  background: transparent;
 }
 
 .unified-task-panel:not(.unified-task-panel--embed) .original-dataset-panel {
@@ -3482,17 +3484,25 @@ onUnmounted(() => {
 
 .original-dataset-toolbar-row {
   margin-bottom: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.task-toolbar-left {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
 }
 
 .original-dataset-toolbar-row__right {
-  flex-shrink: 0;
+  flex: 0 0 auto;
   align-items: center;
 }
 
 .original-dataset-toolbar-search {
-  width: 220px;
+  width: 280px;
 }
 
 .flex-between {

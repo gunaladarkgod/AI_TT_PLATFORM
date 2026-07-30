@@ -183,14 +183,144 @@ body {
 } */
 .content-div {
   height: calc(100% - 16px - 24px);
-  background-color: #fff;
-  border-radius: 3px;
-  box-shadow: 0px 0px 12px rgba(0, 0, 0, 0.12);
-  padding: 20px !important;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0 !important;
 }
 
-.page-content {
-  padding: 0 15px 15px !important;
+/*
+ * 当前主列表页统一以“模型训练”为基准。
+ * 页面组件通过 app-list-* 类明确接入，避免不同页面各自维护一套间距。
+ */
+.app-list-page {
+  box-sizing: border-box;
+  width: 100%;
+  height: calc(100% - 16px - 24px);
+  min-height: 0;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.app-list-page:not(.content--embed):not(.content-div--embed) {
+  display: block !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+}
+
+.app-list-page .app-list-panel {
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-list-page:not(.content--embed):not(.content-div--embed) .app-list-panel {
+  display: block !important;
+  flex: none !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+
+.app-list-page:not(.content--embed):not(.content-div--embed) .app-list-panel > .el-card__body,
+.app-list-page:not(.content--embed):not(.content-div--embed) .app-list-panel > .el-card__footer {
+  display: block !important;
+  flex: none !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+}
+
+.app-list-page .app-list-panel > .el-card__body,
+.app-list-page .app-list-panel > .el-card__footer {
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.app-list-toolbar {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 32px;
+  margin: 0 !important;
+  padding: 0 !important;
+  align-items: center;
+}
+
+.app-list-table {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0 !important;
+  padding: 8px 0 !important;
+  overflow: visible !important;
+}
+
+.app-list-table > .el-table,
+.app-list-table .el-table {
+  border-radius: 4px !important;
+  box-shadow: none !important;
+  overflow: hidden;
+}
+
+.app-list-footer {
+  box-sizing: border-box;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  width: 100%;
+  min-height: 24px !important;
+  height: 24px;
+  margin: 0 !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+
+.app-list-page:not(.content--embed):not(.content-div--embed) .original-dataset-panel__main,
+.app-list-page:not(.content--embed):not(.content-div--embed) .original-dataset-panel__main--embed,
+.app-list-page:not(.content--embed):not(.content-div--embed) .preprocess-list-panel,
+.app-list-page:not(.content--embed):not(.content-div--embed) .preprocess-list-panel .create-form,
+.app-list-page:not(.content--embed):not(.content-div--embed) .data-selection,
+.app-list-page:not(.content--embed):not(.content-div--embed) .selection-table-container,
+.app-list-page:not(.content--embed):not(.content-div--embed) .selection-table-scroll {
+  display: block !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+}
+
+.app-list-page:not(.content--embed):not(.content-div--embed) .app-list-table {
+  flex: none !important;
+}
+
+.app-list-page:not(.content--embed):not(.content-div--embed) .split-layout {
+  height: auto !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  overflow: visible !important;
+}
+
+.app-list-page.unified-task-panel:not(.unified-task-panel--embed) > .content {
+  display: block !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+.page-content:not(.page-content--unified) {
+  padding: 0 !important;
 }
 
 /* 全局样式或组件样式文件中 */
@@ -214,6 +344,83 @@ body {
 .linkDelete {
   color: red;
   vertical-align: baseline !important;
+}
+
+/* 列表操作按钮统一风格：窄版实心按钮 */
+.el-table .table-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.el-table .el-button.table-action-button,
+.el-table .el-button--small:not(.is-link) {
+  min-width: 58px;
+  height: 28px;
+  padding: 4px 10px;
+  color: #fff;
+  background: var(--el-color-primary);
+  border: 1px solid var(--el-color-primary);
+  border-radius: 4px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.el-table .el-button.table-action-button:hover,
+.el-table .el-button--small:not(.is-link):hover {
+  color: #fff;
+  background: var(--el-color-primary-light-3);
+  border-color: var(--el-color-primary-light-3);
+}
+
+.el-table .el-button.table-action-button:focus,
+.el-table .el-button--small:not(.is-link):focus {
+  color: #fff;
+  background: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+}
+
+.el-table .table-action-dropdown-button {
+  min-width: 68px;
+}
+
+.el-table .el-button.table-action-button--success {
+  color: #fff;
+  background: var(--el-color-success);
+  border-color: var(--el-color-success);
+}
+
+.el-table .el-button.table-action-button--success:hover,
+.el-table .el-button.table-action-button--success:focus {
+  color: #fff;
+  background: var(--el-color-success-light-3);
+  border-color: var(--el-color-success-light-3);
+}
+
+.el-table .el-button.table-action-button--danger,
+.el-table .el-button--small.el-button--danger:not(.is-link) {
+  color: #fff;
+  background: var(--el-color-danger);
+  border-color: var(--el-color-danger);
+}
+
+.el-table .el-button.table-action-button--danger:hover,
+.el-table .el-button.table-action-button--danger:focus,
+.el-table .el-button--small.el-button--danger:not(.is-link):hover,
+.el-table .el-button--small.el-button--danger:not(.is-link):focus {
+  color: #fff;
+  background: var(--el-color-danger-light-3);
+  border-color: var(--el-color-danger-light-3);
+}
+
+.el-table .el-button.table-action-button.is-disabled,
+.el-table .el-button.table-action-button.is-disabled:hover,
+.el-table .el-button--small.is-disabled:not(.is-link),
+.el-table .el-button--small.is-disabled:not(.is-link):hover {
+  color: #fff;
+  opacity: .55;
 }
 
 .btnSpan {

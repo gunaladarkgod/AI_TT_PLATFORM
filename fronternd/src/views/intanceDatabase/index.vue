@@ -1,13 +1,13 @@
 ﻿<template>
-  <div class="content" :class="{ 'content--embed': embedMode }">
+  <div class="content app-list-page" :class="{ 'content--embed': embedMode }">
     <!-- 统合内嵌：与「原始数据集」同构 — el-card 内工具行 + 可滚动主区域，分页在 card footer -->
     <el-card
       v-if="useInstanceUnifiedPanel"
-      class="original-dataset-panel original-dataset-panel--embed instance-embed-outer-card"
+      class="original-dataset-panel original-dataset-panel--embed instance-embed-outer-card app-list-panel"
       shadow="never"
     >
       <div class="original-dataset-panel__main original-dataset-panel__main--embed">
-        <div class="original-dataset-toolbar-row flex-between">
+        <div class="original-dataset-toolbar-row app-list-toolbar flex-between">
           <div class="flex-start gap-8">
             <el-button size="small" @click="clearInstanceToolbarFilters">清除列筛选</el-button>
             <el-button size="small" @click="clearInstanceToolbarSort">清除列排序</el-button>
@@ -25,7 +25,7 @@
         <div class="split-layout__main instance-embed-card-scroll">
           <div
             v-if="effectiveTaskViewAsTable"
-            class="table-div table-div--embed-scroll original-dataset-panel__scroll"
+            class="table-div app-list-table table-div--embed-scroll original-dataset-panel__scroll"
           >
             <el-table
               ref="instanceTaskTableRef"
@@ -159,7 +159,7 @@
         </div>
       </div>
       <template #footer>
-        <div class="original-dataset-panel__footer">
+        <div class="original-dataset-panel__footer app-list-footer">
           <el-pagination
             v-if="effectiveTaskViewAsTable"
             background
@@ -195,19 +195,23 @@
         'split-layout--embed': embedMode
       }"
     >
-      <div v-if="!embedUnifiedToolbar" class="task-title-row split-layout__toolbar">
-<!--        <h4 class="panel-title">任务数据集（请点选）</h4>-->
-        <div class="task-title-toolbar">
-          <el-switch
-            v-model="effectiveTaskViewAsTable"
-            inline-prompt
-            active-text="列表"
-            inactive-text="卡片"
+      <div v-if="!embedUnifiedToolbar" class="original-dataset-toolbar-row app-list-toolbar flex-between">
+        <div class="flex-start gap-8">
+          <el-button size="small" @click="clearInstanceToolbarFilters">清除列筛选</el-button>
+          <el-button size="small" @click="clearInstanceToolbarSort">清除列排序</el-button>
+        </div>
+        <div class="flex-start gap-8 original-dataset-toolbar-row__right">
+          <el-input
+            v-model="instanceToolbarSearch"
+            size="small"
+            clearable
+            placeholder="Type to search"
+            class="original-dataset-toolbar-search"
           />
         </div>
       </div>
       <div class="split-layout__main">
-        <div v-if="effectiveTaskViewAsTable" class="table-div table-div--embed-scroll">
+        <div v-if="effectiveTaskViewAsTable" class="table-div app-list-table table-div--embed-scroll">
           <el-table
               ref="instanceTaskTableRef"
               class="my-table instance-tree-table"
@@ -223,7 +227,7 @@
               @filter-change="onInstanceTableFilterChange"
               @row-click="handleTaskRowClick"
               :row-class-name="getTreeRowClassName"
-              v-el-height-adaptive-table="{ bottomOffset: 70, isUse: !embedMode }"
+              v-el-height-adaptive-table="{ bottomOffset: 110, isUse: !embedMode }"
             >
               <el-table-column label="序号" width="72" align="center" fixed="left">
                 <template #default="{ row }">
@@ -338,7 +342,7 @@
           </el-card>
         </div>
       </div>
-      <div class="split-layout__pager">
+      <div class="split-layout__pager app-list-footer">
         <el-pagination
           background
           size="small"
@@ -1438,17 +1442,19 @@ onMounted(() => {
 
 .original-dataset-toolbar-row {
   margin-bottom: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px 12px;
+  width: 100%;
+  min-width: 0;
 }
 
 .original-dataset-toolbar-row__right {
-  flex-shrink: 0;
+  flex: 0 0 auto;
   align-items: center;
 }
 
 .original-dataset-toolbar-search {
-  width: 220px;
+  width: 280px;
 }
 
 .flex-between {

@@ -133,9 +133,16 @@
               titleStore.title
             }}</el-text>
           </el-space></el-header>
-        <el-main class="page-content">
-          <!-- <suspense><router-view :msg="msgTime" /></suspense> -->
-          <router-view :msg="msgTime" />
+        <el-main :class="['page-content', unifiedRouteClass, { 'page-content--unified': showUnifiedPageShell }]">
+          <div v-if="showUnifiedPageShell" :class="['unified-page-shell', unifiedRouteShellClass]">
+            <div class="unified-page-title-row">
+              <h1 class="unified-page-title">{{ unifiedPageTitle }}</h1>
+            </div>
+            <div :class="['unified-page-card', unifiedRouteCardClass]">
+              <router-view :msg="msgTime" />
+            </div>
+          </div>
+          <router-view v-else :msg="msgTime" />
         </el-main>
         <!-- <el-footer class="flex-center main-footer"
           ><el-text class="foot-text">版权所有</el-text></el-footer
@@ -201,8 +208,43 @@ const changeMenuMode = () => {
   });
 }
 
+const unifiedPageRouteNames = new Set([
+  'originalDatasetManage',
+  'taskDatabaseManage',
+  'preprocess',
+  'intanceDatabase',
+  'trainTask',
+  'resultQuery',
+  'datasetManageUnified',
+  'taskDatasetManageDev',
+])
+
+const showUnifiedPageShell = computed(
+  () => unifiedPageRouteNames.has(String(route.name || ''))
+)
+
+const unifiedPageTitle = computed(
+  () => String(route.meta?.title || titleStore.title || '')
+)
+
+const unifiedRouteName = computed(
+  () => String(route.name || '').replace(/[^a-zA-Z0-9_-]/g, '-')
+)
+
+const unifiedRouteClass = computed(
+  () => showUnifiedPageShell.value ? `page-content--route-${unifiedRouteName.value}` : ''
+)
+
+const unifiedRouteShellClass = computed(
+  () => showUnifiedPageShell.value ? `unified-page-shell--route-${unifiedRouteName.value}` : ''
+)
+
+const unifiedRouteCardClass = computed(
+  () => showUnifiedPageShell.value ? `unified-page-card--route-${unifiedRouteName.value}` : ''
+)
+
 const showPageTitleBar = computed(
-  () => !['taskDatabaseManage', 'taskDatasetManageDev', 'datasetManageUnified'].includes(String(route.name || ''))
+  () => !showUnifiedPageShell.value
 )
 
 
@@ -472,7 +514,7 @@ onBeforeUnmount(() => {
 
 .right-container {
   /* background: #dedede; */
-  background: rgb(241, 239, 239);
+  background: #fff;
 }
 
 .main-header {
@@ -481,6 +523,97 @@ onBeforeUnmount(() => {
 
 .main-footer {
   height: 20px;
+}
+
+.page-content--unified {
+  background:
+    radial-gradient(circle at 0 0, rgba(64, 158, 255, 0.10), transparent 32%),
+    linear-gradient(180deg, #f7faff 0%, #eef3f9 100%);
+  padding: 20px 24px 24px !important;
+  overflow: auto;
+}
+
+.unified-page-shell {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.unified-page-title-row {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+}
+
+.unified-page-title {
+  margin: 0;
+  color: #172033;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: 0.5px;
+}
+
+.unified-page-card {
+  box-sizing: border-box;
+  width: 100%;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 18px;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(10px);
+}
+
+.unified-page-card :deep(.content),
+.unified-page-card :deep(.content-div),
+.unified-page-card :deep(.page-shell),
+.unified-page-card :deep(.unified-task-panel) {
+  height: 100%;
+  min-height: 0;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+.unified-page-card :deep(.content > .el-card),
+.unified-page-card :deep(.content-div > .el-card),
+.unified-page-card :deep(.original-dataset-panel) {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.unified-page-card :deep(.content > .el-card > .el-card__body),
+.unified-page-card :deep(.content-div > .el-card > .el-card__body),
+.unified-page-card :deep(.original-dataset-panel > .el-card__body) {
+  padding: 0 !important;
+}
+
+.unified-page-card :deep(.content > .el-card:not(.app-list-panel) > .el-card__footer),
+.unified-page-card :deep(.content-div > .el-card:not(.app-list-panel) > .el-card__footer),
+.unified-page-card :deep(.original-dataset-panel:not(.app-list-panel) > .el-card__footer) {
+  padding: 12px 0 0 !important;
+  border-top: none !important;
+  background: transparent !important;
+}
+
+.unified-page-card :deep(.app-list-panel > .el-card__body),
+.unified-page-card :deep(.app-list-panel > .el-card__footer) {
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.page-content--route-datasetManageUnified .unified-page-card {
+  padding: 0;
 }
 
 .foot-text {
