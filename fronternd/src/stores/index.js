@@ -1,8 +1,9 @@
-import { defineStore } from 'pinia'
+﻿import { defineStore } from 'pinia'
 import router from '@/router'
 import { transformRoutes,buildMenuTree} from '@/utils/routeUtils'
 import {MenuService} from '@/api/api'
 import {apiRequest} from '@/api/axios'
+import { ensureTopNavigationMenus } from '@/config/topNavigation'
 
 function injectDevTaskDatasetMenu(menuList = []) {
   const list = Array.isArray(menuList) ? [...menuList] : []
@@ -35,19 +36,16 @@ function injectDevTaskDatasetMenu(menuList = []) {
   }
   return list
 }
-
-/** 在顶级菜单「模型训练」旁插入「模型训练（dev）」（ClearML 监控等）。 */
-function injectDevTrainTaskClearMLMenu(menuList = []) {
+function injectOldTaskDatabaseMenu(menuList = []) {
   const list = Array.isArray(menuList) ? [...menuList] : []
-  if (list.some(item => item && item.url === 'trainTaskClearML')) {
-    return list
-  }
-  const trainMenu = list.find(item => item && item.url === 'trainTask')
-  const orderNum = trainMenu ? Number(trainMenu.order_num || 0) + 0.05 : 205
+  if (list.some(item => item && item.url === 'taskDatabaseManageOld')) return list
+  const taskMenu = list.find(item => item && (item.url === 'taskDatabaseManage' || item.url === 'taskDatasetbaseManage'))
+  const orderNum = taskMenu ? Number(taskMenu.order_num || 0) + 0.06 : 106
   list.push({
-    id: 99993,
-    url: 'trainTaskClearML',
-    name: '模型训练（dev）',
+    id: 99994,
+    url: 'taskDatabaseManageOld',
+    name: '任务管理（old）',
+    component: 'old_views/taskDatabaseManageOld/index.vue',
     order_num: orderNum,
     is_hidden: 0,
     parent_id: 0
@@ -132,7 +130,8 @@ export const useMenuStore=defineStore({
         // 从接口获取菜单数据
         const  data = await apiRequest(MenuService.queryList)
         let withDevMenu = injectDevTaskDatasetMenu(data)
-        withDevMenu = injectDevTrainTaskClearMLMenu(withDevMenu)
+        withDevMenu = injectOldTaskDatabaseMenu(withDevMenu)
+        withDevMenu = ensureTopNavigationMenus(withDevMenu)
         this.menuList = withDevMenu
         this.menuRenderList = buildMenuTree(withDevMenu)
       } catch (error) {
@@ -173,5 +172,4 @@ export const useMenuStore=defineStore({
     }
   },
 })
-
 

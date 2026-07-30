@@ -61,10 +61,6 @@
   content: "\e628";
 }
 
-.icon-trainTaskClearML:before {
-  content: "\e628";
-}
-
 .icon-shouquan:before {
   content: "\e620";
 }
@@ -380,4 +376,3 @@
 .icon-xitonggailan:before {
   content: "\e6e3";
 }
-

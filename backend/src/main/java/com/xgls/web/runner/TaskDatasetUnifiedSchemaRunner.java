@@ -11,6 +11,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import com.xgls.web.utils.WorkspacePathUtil;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -26,7 +27,7 @@ public class TaskDatasetUnifiedSchemaRunner implements ApplicationRunner {
 
     private final JdbcTemplate jdbcTemplate;
 
-    @Value("${sys.task-dataset-dev-file:/home/omen1/AI_TT_Platform/data/task_dataset_dev/tasks.json}")
+    @Value("${sys.task-dataset-dev-file:data/task_dataset_dev/tasks.json}")
     private String taskDatasetDevFile;
 
     public TaskDatasetUnifiedSchemaRunner(JdbcTemplate jdbcTemplate) {
@@ -57,7 +58,8 @@ public class TaskDatasetUnifiedSchemaRunner implements ApplicationRunner {
     }
 
     private void mergeLegacyDevJsonToTaskDataset() {
-        Path file = Paths.get(taskDatasetDevFile).normalize();
+        Path file = WorkspacePathUtil.resolveConfiguredPath(
+                taskDatasetDevFile, "data/task_dataset_dev/tasks.json");
         if (!Files.exists(file)) {
             return;
         }

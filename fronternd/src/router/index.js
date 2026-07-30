@@ -1,10 +1,10 @@
-import { createRouter, createWebHistory,createWebHashHistory } from 'vue-router'
+﻿import { createRouter, createWebHistory,createWebHashHistory } from 'vue-router'
 
 import { useLoginStore ,useUserStore,useMenuStore} from '@/stores/index'
 import Layout from '../components/layout/index.vue'
 import Login from '../views/login.vue'
-import EngineProject from '../views/engineProject/index.vue'
-import TaskDatasetManageDev from '../views/taskDatasetManageDev/index.vue'
+import EngineProject from '../views/old_views/engineProject/index.vue'
+import TaskDatasetManageDev from '../views/old_views/taskDatasetManageDev/index.vue'
 import DatasetManageUnified from '../views/datasetManageUnified/index.vue'
 
 const routes=[

@@ -11,11 +11,16 @@ import com.xgls.web.entity.OriginalDataset;
 import com.xgls.web.entity.TaskDataset;
 import com.xgls.web.entity.User;
 import com.xgls.web.utils.SessionUtil;
+import com.xgls.web.utils.WorkspacePathUtil;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.awt.Desktop;
+import java.awt.GraphicsEnvironment;
+import java.awt.image.BufferedImage;
+import javax.imageio.ImageIO;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -23,19 +28,18 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.FileVisitResult;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.net.URLEncoder;
 import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
 public class TaskDatasetDevService {
 
-    @Value("${sys.original-dataset-root:/home/omen1/AI_TT_Platform/data/original_dataset}")
+    @Value("${sys.original-dataset-root:data/original_dataset}")
     private String originalDatasetRoot;
-    @Value("${sys.instancecfg.instancedata-mid-root:/home/omen1/AI_TT_Platform/data/instance_dataset_mid/}")
-    private String instanceDatasetMidRoot;
-
     private final TaskDataset1Service taskDatasetService;
     private final OriginalDataset1Service originalDatasetService;
     private final InstanceDatasetMidService instanceDatasetMidService;
@@ -181,16 +185,10 @@ public class TaskDatasetDevService {
             if (!sources.isEmpty()) {
                 int exported = exportFromDatasetSources(name, one, sources);
                 if (exported <= 0) {
-                    return AjaxResult.error("导出失败：已定位到数据集路径，但未找到可复制的数据内容，请检查 images/annotations 目录结构。");
+                    return AjaxResult.error("导出失败：没有找到包含已映射类别的图片和标注，请检查映射关系及 images/annotations 内容。");
                 }
             } else {
-                TaskDataset taskDataset = findTaskDatasetForExport(name, one);
-                if (taskDataset == null) {
-                    return AjaxResult.error("未找到可匹配的任务数据集，且未解析到测试数据集路径。请确认外部导入记录存在，或先在原任务数据集页面完成“训测划分”。");
-                }
-                List<String> testPlan = buildDefaultTestPlan(taskDataset);
-                List<String> trainOriginalIds = splitIds(taskDataset.getSupId());
-                taskDatasetService.processTestPlan(taskDataset, testPlan, trainOriginalIds, 1);
+                return AjaxResult.error("导出失败：无法读取所选原始数据集目录。请在原始数据集管理中重新导入或修正路径后再导出；已停止使用会生成 train/test 且无法严格应用映射的旧导出方式。");
             }
 
             one.set("last_export_time", LocalDateTime.now().toString());
@@ -224,6 +222,14 @@ public class TaskDatasetDevService {
                 root.set(name, one);
                 writeTaskRoot(root);
             }
+            // MyBatis updateById 默认忽略 null 字段，必须显式 SET NULL，否则清除后仍会被判定为已导出。
+            taskDatasetService.lambdaUpdate()
+                    .eq(TaskDataset::getName, name)
+                    .set(TaskDataset::getLastExportTime, null)
+                    .set(TaskDataset::getLastExportSourceUpdatedTime, null)
+                    .set(TaskDataset::getLastExportBy, null)
+                    .set(TaskDataset::getLastExportMidCount, 0)
+                    .update();
             return AjaxResult.success(readTasksAsList());
         } catch (Exception e) {
             return AjaxResult.error("清除失败: " + e.getMessage());
@@ -240,17 +246,342 @@ public class TaskDatasetDevService {
                 return AjaxResult.error("任务不存在");
             }
             JSONObject one = root.getJSONObject(name);
-            one.set("mapping_rules", normalizeMappingRules(mappingRules));
-            one.set("updated_time", LocalDateTime.now().toString());
-            String username = currentUsername();
-            if (StrUtil.isNotBlank(username)) {
-                one.set("updated_by", username);
+            JSONObject normalized = normalizeMappingRules(mappingRules);
+            JSONObject previous = normalizeMappingRules(one.get("mapping_rules"));
+            boolean mappingChanged = !Objects.equals(previous, normalized);
+            one.set("mapping_rules", normalized);
+            // 只有映射内容真的发生变化才使已导出数据变为 stale；重复保存不破坏“已最新”。
+            if (mappingChanged) {
+                one.set("updated_time", LocalDateTime.now().toString());
+                String username = currentUsername();
+                if (StrUtil.isNotBlank(username)) {
+                    one.set("updated_by", username);
+                }
             }
             root.set(name, one);
             writeTaskRoot(root);
             return AjaxResult.success(readTasksAsList());
         } catch (Exception e) {
             return AjaxResult.error("保存映射规则失败: " + e.getMessage());
+        }
+    }
+
+    public AjaxResult openTaskPath(Map<String, Object> req) {
+        String name = trim(req != null ? req.get("name") : null);
+        if (StrUtil.isBlank(name)) return AjaxResult.error("缺少任务名称");
+        try {
+            JSONObject root = readTaskRoot();
+            if (!root.containsKey(name)) return AjaxResult.error("任务不存在");
+            Path path = resolveExportedTaskDirectory(name, true);
+            if (path == null) {
+                return AjaxResult.error("该任务还没有已导出的本地中间实例数据集，无法打开路径");
+            }
+            openDirectory(path);
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("path", path.toAbsolutePath().normalize().toString());
+            return AjaxResult.success(result);
+        } catch (Exception e) {
+            return AjaxResult.error("打开路径失败: " + e.getMessage());
+        }
+    }
+
+    public AjaxResult previewTask(String name, int requestedPerLabel) {
+        return previewTask(name, requestedPerLabel, null);
+    }
+
+    public AjaxResult previewTask(String name, int requestedPerLabel, String baseUrl) {
+        if (StrUtil.isBlank(name)) return AjaxResult.error("缺少任务名称");
+        int perLabel = Math.max(1, Math.min(requestedPerLabel, 12));
+        Path taskRoot = WorkspacePathUtil.instanceDatasetMidRoot().resolve(name).normalize();
+        Path imagesDir = taskRoot.resolve("images").normalize();
+        Path cocoFile = taskRoot.resolve("annotations").resolve("instances.json");
+        JSONObject debug = buildPreviewDebug(taskRoot, imagesDir, cocoFile);
+        if (!Files.isRegularFile(cocoFile)) {
+            JSONObject result = new JSONObject();
+            result.set("task_name", name);
+            result.set("debug", debug);
+            return AjaxResult.error("该任务尚未导出，或缺少 COCO 标注文件：" + cocoFile.toAbsolutePath());
+        }
+        try {
+            JSONObject coco = JSONUtil.parseObj(Files.readString(cocoFile, StandardCharsets.UTF_8));
+            JSONArray categories = coco.getJSONArray("categories");
+            JSONArray images = coco.getJSONArray("images");
+            JSONArray annotations = coco.getJSONArray("annotations");
+            Map<Integer, String> categoryNames = new LinkedHashMap<>();
+            Map<Long, String> imageFiles = new HashMap<>();
+            Map<Long, JSONObject> imageInfoById = new HashMap<>();
+            if (categories != null) {
+                for (Object value : categories) {
+                    if (value instanceof JSONObject category && category.getInt("id") != null) {
+                        categoryNames.put(category.getInt("id"), category.getStr("name", ""));
+                    }
+                }
+            }
+            if (images != null) {
+                for (Object value : images) {
+                    if (value instanceof JSONObject image && image.getLong("id") != null) {
+                        imageFiles.put(image.getLong("id"), image.getStr("file_name", ""));
+                        imageInfoById.put(image.getLong("id"), image);
+                    }
+                }
+            }
+            Map<Integer, LinkedHashSet<Long>> imageIdsByCategory = new LinkedHashMap<>();
+            Map<Long, JSONArray> objectsByImage = new HashMap<>();
+            categoryNames.keySet().forEach(id -> imageIdsByCategory.put(id, new LinkedHashSet<>()));
+            if (annotations != null) {
+                List<Object> shuffled = new ArrayList<>(annotations);
+                Collections.shuffle(shuffled);
+                for (Object value : shuffled) {
+                    if (!(value instanceof JSONObject annotation)) continue;
+                    Integer categoryId = annotation.getInt("category_id");
+                    Long imageId = annotation.getLong("image_id");
+                    if (categoryId != null && imageId != null && imageFiles.containsKey(imageId)) {
+                        imageIdsByCategory.computeIfAbsent(categoryId, ignored -> new LinkedHashSet<>()).add(imageId);
+                    }
+                }
+                for (Object value : annotations) {
+                    if (!(value instanceof JSONObject annotation)) continue;
+                    Long imageId = annotation.getLong("image_id");
+                    Integer categoryId = annotation.getInt("category_id");
+                    if (imageId == null || categoryId == null || !imageFiles.containsKey(imageId)) continue;
+                    JSONObject object = cocoAnnotationToPreviewObject(annotation, categoryNames.get(categoryId));
+                    if (object == null) continue;
+                    objectsByImage.computeIfAbsent(imageId, ignored -> new JSONArray()).add(object);
+                }
+            }
+
+            JSONArray items = new JSONArray();
+            for (Map.Entry<Integer, String> category : categoryNames.entrySet()) {
+                JSONArray selected = new JSONArray();
+                for (Long imageId : imageIdsByCategory.getOrDefault(category.getKey(), new LinkedHashSet<>())) {
+                    String fileName = imageFiles.get(imageId);
+                    if (StrUtil.isBlank(fileName)) continue;
+                    JSONObject image = new JSONObject();
+                    image.set("file_name", fileName);
+                    String relUrl = "/taskDatasetDev/tasks/preview/image?name="
+                            + URLEncoder.encode(name, StandardCharsets.UTF_8)
+                            + "&file=" + URLEncoder.encode(fileName, StandardCharsets.UTF_8);
+                    image.set("url", StrUtil.isBlank(baseUrl) ? relUrl : baseUrl + relUrl);
+                    JSONObject imageInfo = imageInfoById.get(imageId);
+                    int width = imageInfo != null ? imageInfo.getInt("width", 0) : 0;
+                    int height = imageInfo != null ? imageInfo.getInt("height", 0) : 0;
+                    if (width <= 0 || height <= 0) {
+                        int[] wh = readPreviewImageSize(name, fileName);
+                        width = wh[0];
+                        height = wh[1];
+                    }
+                    image.set("width", width);
+                    image.set("height", height);
+                    image.set("objects", objectsByImage.getOrDefault(imageId, new JSONArray()));
+                    selected.add(image);
+                    if (selected.size() >= perLabel) break;
+                }
+                if (selected.isEmpty() && images != null) {
+                    for (Object value : images) {
+                        if (!(value instanceof JSONObject imageInfo)) continue;
+                        Long imageId = imageInfo.getLong("id");
+                        String fileName = imageInfo.getStr("file_name", "");
+                        if (imageId == null || StrUtil.isBlank(fileName)) continue;
+                        Path imagePath = resolvePreviewImage(name, fileName);
+                        if (imagePath == null) continue;
+                        JSONObject image = new JSONObject();
+                        image.set("file_name", fileName);
+                        String relUrl = "/taskDatasetDev/tasks/preview/image?name="
+                                + URLEncoder.encode(name, StandardCharsets.UTF_8)
+                                + "&file=" + URLEncoder.encode(fileName, StandardCharsets.UTF_8);
+                        image.set("url", StrUtil.isBlank(baseUrl) ? relUrl : baseUrl + relUrl);
+                        int width = imageInfo.getInt("width", 0);
+                        int height = imageInfo.getInt("height", 0);
+                        if (width <= 0 || height <= 0) {
+                            int[] wh = readPreviewImageSize(name, fileName);
+                            width = wh[0];
+                            height = wh[1];
+                        }
+                        image.set("width", width);
+                        image.set("height", height);
+                        image.set("objects", objectsByImage.getOrDefault(imageId, new JSONArray()));
+                        image.set("fallback", true);
+                        selected.add(image);
+                        if (selected.size() >= perLabel) break;
+                    }
+                }
+                JSONObject item = new JSONObject();
+                item.set("label", category.getValue());
+                item.set("images", selected);
+                item.set("count", Math.max(imageIdsByCategory.getOrDefault(category.getKey(), new LinkedHashSet<>()).size(), selected.size()));
+                items.add(item);
+            }
+            debug.set("coco_image_count", images == null ? 0 : images.size());
+            debug.set("coco_annotation_count", annotations == null ? 0 : annotations.size());
+            debug.set("coco_category_count", categories == null ? 0 : categories.size());
+            JSONObject result = new JSONObject();
+            result.set("task_name", name);
+            result.set("per_label", perLabel);
+            result.set("debug", debug);
+            result.set("items", items);
+            return AjaxResult.success(result);
+        } catch (Exception e) {
+            return AjaxResult.error("读取示例失败: " + e.getMessage());
+        }
+    }
+
+    public AjaxResult previewObjects(String name, String fileName) {
+        if (StrUtil.isBlank(name) || StrUtil.isBlank(fileName)) return AjaxResult.error("缺少任务名称或图片文件名");
+        Path taskRoot = WorkspacePathUtil.instanceDatasetMidRoot().resolve(name).normalize();
+        Path imagesDir = taskRoot.resolve("images").normalize();
+        Path cocoFile = taskRoot.resolve("annotations").resolve("instances.json");
+        JSONObject debug = buildPreviewDebug(taskRoot, imagesDir, cocoFile);
+        Path image = resolvePreviewImage(name, fileName);
+        if (image == null) {
+            debug.set("requested_file", fileName);
+            return AjaxResult.error("图片文件不存在或路径非法：" + fileName);
+        }
+        try {
+            JSONObject coco = JSONUtil.parseObj(Files.readString(cocoFile, StandardCharsets.UTF_8));
+            JSONArray categories = coco.getJSONArray("categories");
+            JSONArray images = coco.getJSONArray("images");
+            JSONArray annotations = coco.getJSONArray("annotations");
+            Map<Integer, String> categoryNames = new LinkedHashMap<>();
+            if (categories != null) {
+                for (Object value : categories) {
+                    if (value instanceof JSONObject category && category.getInt("id") != null) {
+                        categoryNames.put(category.getInt("id"), category.getStr("name", ""));
+                    }
+                }
+            }
+            Set<Long> imageIds = new LinkedHashSet<>();
+            String requested = fileName.replace("\\", "/");
+            String requestedBase = baseName(requested);
+            JSONObject matchedImage = null;
+            if (images != null) {
+                for (Object value : images) {
+                    if (!(value instanceof JSONObject img)) continue;
+                    Long id = img.getLong("id");
+                    String one = img.getStr("file_name", "").replace("\\", "/");
+                    if (id == null || StrUtil.isBlank(one)) continue;
+                    String oneName = Paths.get(one).getFileName().toString();
+                    if (one.equals(requested) || oneName.equals(Paths.get(requested).getFileName().toString()) || baseName(oneName).equals(requestedBase)) {
+                        imageIds.add(id);
+                        matchedImage = img;
+                    }
+                }
+            }
+            JSONArray objects = new JSONArray();
+            if (annotations != null) {
+                for (Object value : annotations) {
+                    if (!(value instanceof JSONObject annotation)) continue;
+                    Long imageId = annotation.getLong("image_id");
+                    Integer categoryId = annotation.getInt("category_id");
+                    if (imageId == null || !imageIds.contains(imageId)) continue;
+                    JSONObject object = cocoAnnotationToPreviewObject(annotation, categoryNames.get(categoryId));
+                    if (object != null) objects.add(object);
+                }
+            }
+            int width = matchedImage != null ? matchedImage.getInt("width", 0) : 0;
+            int height = matchedImage != null ? matchedImage.getInt("height", 0) : 0;
+            if (width <= 0 || height <= 0) {
+                int[] wh = readPreviewImageSize(name, fileName);
+                width = wh[0];
+                height = wh[1];
+            }
+            JSONObject result = new JSONObject();
+            result.set("width", width);
+            result.set("height", height);
+            result.set("objects", objects);
+            result.set("debug", debug);
+            return AjaxResult.success(result);
+        } catch (Exception e) {
+            return AjaxResult.error("读取任务图片标注失败：" + e.getMessage());
+        }
+    }
+
+    private String baseName(String fileName) {
+        if (fileName == null) return "";
+        String n = Paths.get(fileName.replace("\\", "/")).getFileName().toString();
+        int dot = n.lastIndexOf('.');
+        return dot > 0 ? n.substring(0, dot) : n;
+    }
+    private JSONObject buildPreviewDebug(Path taskRoot, Path imagesDir, Path cocoFile) {
+        JSONObject debug = new JSONObject();
+        debug.set("task_root", taskRoot.toAbsolutePath().toString());
+        debug.set("task_root_exists", Files.isDirectory(taskRoot));
+        debug.set("images_dir", imagesDir.toAbsolutePath().toString());
+        debug.set("images_dir_exists", Files.isDirectory(imagesDir));
+        debug.set("annotation_file", cocoFile.toAbsolutePath().toString());
+        debug.set("annotation_file_exists", Files.isRegularFile(cocoFile));
+        return debug;
+    }
+    public Path resolvePreviewImage(String name, String fileName) {
+        if (StrUtil.isBlank(name) || StrUtil.isBlank(fileName)) return null;
+        Path images = WorkspacePathUtil.instanceDatasetMidRoot().resolve(name).resolve("images").normalize();
+        String safeFile = fileName.replace("\\", "/");
+        while (safeFile.startsWith("/")) safeFile = safeFile.substring(1);
+        if (safeFile.contains("..")) return null;
+        Path candidate = images.resolve(safeFile).normalize();
+        if (!candidate.startsWith(images) || !Files.isRegularFile(candidate)) return null;
+        return candidate;
+    }
+
+    private int[] readPreviewImageSize(String name, String fileName) {
+        Path image = resolvePreviewImage(name, fileName);
+        if (image == null) return new int[]{0, 0};
+        try {
+            BufferedImage bi = ImageIO.read(image.toFile());
+            if (bi != null) return new int[]{bi.getWidth(), bi.getHeight()};
+        } catch (Exception ignore) {}
+        return new int[]{0, 0};
+    }
+
+    private JSONObject cocoAnnotationToPreviewObject(JSONObject annotation, String label) {
+        if (annotation == null) return null;
+        JSONArray points = null;
+        JSONArray segmentation = annotation.getJSONArray("segmentation");
+        if (segmentation != null && !segmentation.isEmpty()) {
+            Object first = segmentation.get(0);
+            JSONArray polygon = first instanceof JSONArray ? (JSONArray) first : segmentation;
+            if (polygon != null && polygon.size() >= 6) {
+                points = new JSONArray();
+                for (int i = 0; i + 1 < polygon.size(); i += 2) {
+                    JSONArray point = new JSONArray();
+                    point.add(toDouble(polygon.get(i)));
+                    point.add(toDouble(polygon.get(i + 1)));
+                    points.add(point);
+                }
+            }
+        }
+        if (points == null || points.isEmpty()) {
+            JSONArray bbox = annotation.getJSONArray("bbox");
+            if (bbox == null || bbox.size() < 4) return null;
+            double x = toDouble(bbox.get(0));
+            double y = toDouble(bbox.get(1));
+            double w = Math.max(0d, toDouble(bbox.get(2)));
+            double h = Math.max(0d, toDouble(bbox.get(3)));
+            points = new JSONArray();
+            points.add(point(x, y));
+            points.add(point(x + w, y));
+            points.add(point(x + w, y + h));
+            points.add(point(x, y + h));
+        }
+        JSONObject object = new JSONObject();
+        object.set("label", StrUtil.blankToDefault(label, "unknown"));
+        object.set("name", StrUtil.blankToDefault(label, "unknown"));
+        object.set("points", points);
+        return object;
+    }
+
+    private JSONArray point(double x, double y) {
+        JSONArray p = new JSONArray();
+        p.add(x);
+        p.add(y);
+        return p;
+    }
+
+    private double toDouble(Object value) {
+        if (value instanceof Number number) return number.doubleValue();
+        try {
+            return Double.parseDouble(String.valueOf(value));
+        } catch (Exception e) {
+            return 0d;
         }
     }
 
@@ -270,7 +601,17 @@ public class TaskDatasetDevService {
             row.put("last_export_time", one.getStr("last_export_time", ""));
             row.put("last_export_by", one.getStr("last_export_by", ""));
             row.put("last_export_mid_count", one.getInt("last_export_mid_count", 0));
-            String statusCode = resolveExportStatusCode(one);
+            Path exportedDir = resolveExportedTaskDirectory(key, true);
+            boolean hasExportedDataset = exportedDir != null;
+            boolean currentExportFormat = hasExportedDataset
+                    && Files.isDirectory(exportedDir.resolve("images"))
+                    && Files.isRegularFile(exportedDir.resolve("annotations").resolve("instances.json"));
+            row.put("has_exported_dataset", hasExportedDataset);
+            row.put("export_format_current", currentExportFormat);
+            row.put("export_path", hasExportedDataset ? exportedDir.toAbsolutePath().normalize().toString() : "");
+            String statusCode = hasExportedDataset && !currentExportFormat
+                    ? "stale"
+                    : resolveExportStatusCode(one, hasExportedDataset);
             row.put("status_code", statusCode);
             row.put("status_text", statusText(statusCode));
             MappingStatus mappingStatus = assessMappingStatus(one);
@@ -531,18 +872,18 @@ public class TaskDatasetDevService {
         dst.set("last_export_mid_count", src.getInt("last_export_mid_count", 0));
     }
 
-    private String resolveExportStatusCode(JSONObject task) {
+    private String resolveExportStatusCode(JSONObject task, boolean hasExportedDataset) {
         String updated = task.getStr("updated_time", "");
         String lastExportTime = task.getStr("last_export_time", "");
         String exportSnapshot = task.getStr("last_export_source_updated_time", "");
-        if (StrUtil.isBlank(lastExportTime)) return "never_exported";
+        if (StrUtil.isBlank(lastExportTime) || !hasExportedDataset) return "never_exported";
         if (!StrUtil.equals(updated, exportSnapshot)) return "stale";
         return "ready";
     }
 
     private String statusText(String code) {
-        if (StrUtil.equals(code, "ready")) return "已就绪";
-        if (StrUtil.equals(code, "stale")) return "未更新";
+        if (StrUtil.equals(code, "ready")) return "已最新";
+        if (StrUtil.equals(code, "stale")) return "待更新";
         return "未导出";
     }
 
@@ -745,17 +1086,17 @@ public class TaskDatasetDevService {
     private List<DatasetSource> resolveDatasetSources(List<String> datasetNames) {
         List<DatasetSource> out = new ArrayList<>();
         if (datasetNames == null || datasetNames.isEmpty()) return out;
-        Map<String, String> externalMap = readExternalRegistryMap();
+        Map<String, ExternalRegistrySource> externalMap = readExternalRegistryMap();
         List<OriginalDataset> allOriginals = originalDatasetService.getAllOriginalDatasets();
 
         for (String name : datasetNames) {
             String n = trim(name);
             if (StrUtil.isBlank(n)) continue;
-            String ext = externalMap.get(n);
-            if (StrUtil.isNotBlank(ext)) {
-                Path root = normalizeDatasetRoot(Paths.get(ext));
+            ExternalRegistrySource ext = externalMap.get(n);
+            if (ext != null && StrUtil.isNotBlank(ext.path)) {
+                Path root = normalizeDatasetRoot(Paths.get(ext.path));
                 if (root != null) {
-                    out.add(new DatasetSource(n, root));
+                    out.add(new DatasetSource(n, root, ext.annotationDir));
                     continue;
                 }
             }
@@ -770,10 +1111,11 @@ public class TaskDatasetDevService {
         return out;
     }
 
-    private Map<String, String> readExternalRegistryMap() {
-        Map<String, String> out = new LinkedHashMap<>();
+    private Map<String, ExternalRegistrySource> readExternalRegistryMap() {
+        Map<String, ExternalRegistrySource> out = new LinkedHashMap<>();
         try {
-            Path file = Paths.get(originalDatasetRoot).normalize().resolve("external_dataset_registry.json");
+            Path file = WorkspacePathUtil.resolveConfiguredPath(originalDatasetRoot, "data/original_dataset")
+                    .resolve("external_dataset_registry.json");
             if (!Files.exists(file)) return out;
             String txt = Files.readString(file, StandardCharsets.UTF_8);
             if (StrUtil.isBlank(txt)) return out;
@@ -785,7 +1127,7 @@ public class TaskDatasetDevService {
                 String name = trim(jo.get("name"));
                 String path = trim(jo.get("path"));
                 if (StrUtil.isNotBlank(name) && StrUtil.isNotBlank(path)) {
-                    out.put(name, path);
+                    out.put(name, new ExternalRegistrySource(path, trim(jo.get("annotationDir"))));
                 }
             }
         } catch (Exception ignored) {
@@ -834,26 +1176,18 @@ public class TaskDatasetDevService {
         for (String one : target) {
             if (StrUtil.isNotBlank(one)) mappedTargetCounts.put(one, 0L);
         }
-        int exportedCount = 0;
         String exportName = taskName;
-        Path outRoot = Paths.get(instanceDatasetMidRoot.trim().replaceAll("/+$", ""), exportName).normalize();
+        Path outRoot = WorkspacePathUtil.instanceDatasetMidRoot().resolve(exportName).normalize();
         clearExportedMidByTask(taskName);
-        Files.createDirectories(outRoot);
-        Path outTrainImg = outRoot.resolve("train").resolve("images");
-        Path outTrainAnno = outRoot.resolve("train").resolve("anno");
-        Path outTestImg = outRoot.resolve("test").resolve("images");
-        Path outTestAnno = outRoot.resolve("test").resolve("anno");
-        Files.createDirectories(outTrainImg);
-        Files.createDirectories(outTrainAnno);
-        Files.createDirectories(outTestImg);
-        Files.createDirectories(outTestAnno);
+        Path outImages = outRoot.resolve("images");
+        Path outAnnotations = outRoot.resolve("annotations");
+        Files.createDirectories(outImages);
+        Files.createDirectories(outAnnotations);
 
-        int trainImgCnt = 0;
-        int trainAnnoCnt = 0;
-        int testImgCnt = 0;
-        int testAnnoCnt = 0;
+        CocoExportAccumulator acc = new CocoExportAccumulator(target, outImages, outAnnotations, mappedTargetCounts);
+        int exportedSourceCount = 0;
         for (DatasetSource source : sources) {
-            ResolvedExportPaths paths = resolveExportPaths(source.root);
+            ResolvedExportPaths paths = resolveExportPaths(source.root, source.annotationDir);
             if (paths == null) continue;
             JSONObject oneMap = mappingRules != null ? mappingRules.getJSONObject(source.datasetName) : null;
             Map<String, String> labelMap = new LinkedHashMap<>();
@@ -867,17 +1201,18 @@ public class TaskDatasetDevService {
             if (labelMap.isEmpty()) {
                 continue;
             }
-            ExportStat trainStat = exportSplitByMappedLabels(paths.trainImages, paths.trainAnnos, outTrainImg, outTrainAnno, labelMap, mappedTargetCounts);
-            ExportStat testStat = exportSplitByMappedLabels(paths.testImages, paths.testAnnos, outTestImg, outTestAnno, labelMap, mappedTargetCounts);
-            trainImgCnt += trainStat.imageCount;
-            trainAnnoCnt += trainStat.annoCount;
-            testImgCnt += testStat.imageCount;
-            testAnnoCnt += testStat.annoCount;
-            if (trainStat.imageCount + testStat.imageCount > 0) {
-                exportedCount++;
+            int before = acc.imageCount();
+            exportSplitToCoco(source.datasetName, "train", paths.trainImages, paths.trainAnnos, labelMap, acc);
+            exportSplitToCoco(source.datasetName, "test", paths.testImages, paths.testAnnos, labelMap, acc);
+            if (acc.imageCount() > before) {
+                exportedSourceCount++;
             }
         }
-        if (exportedCount > 0) {
+        if (acc.imageCount() > 0) {
+            validatePairedMidExport(outImages, outAnnotations);
+            Path cocoFile = outAnnotations.resolve("instances.json");
+            Files.writeString(cocoFile, JSONUtil.toJsonPrettyStr(acc.toCoco()), StandardCharsets.UTF_8);
+
             InstanceDatasetMid mid = new InstanceDatasetMid();
             mid.setFatherName(taskName);
             mid.setName(exportName);
@@ -886,19 +1221,212 @@ public class TaskDatasetDevService {
             mid.setDataFormat(0);
             mid.setClassList(JSONUtil.toJsonStr(mappedTargetCounts));
             mid.setClassNum(target.size());
-            int imgTotal = trainImgCnt + testImgCnt;
-            mid.setImgNum(imgTotal);
-            mid.setAnnoNum(trainAnnoCnt + testAnnoCnt);
-            mid.setTrainImagePath(toPosix(outTrainImg));
-            mid.setTrainAnnoPath(toPosix(outTrainAnno));
-            mid.setTestImagePath(toPosix(outTestImg));
-            mid.setTestAnnoPath(toPosix(outTestAnno));
+            mid.setImgNum(acc.imageCount());
+            mid.setAnnoNum(acc.annotationCount());
+            // 中间数据集不再区分 train/test；为兼容现有四路径字段，二者都指向同一平铺目录。
+            mid.setTrainImagePath(toPosix(outImages));
+            mid.setTrainAnnoPath(toPosix(outAnnotations));
+            mid.setTestImagePath(toPosix(outImages));
+            mid.setTestAnnoPath(toPosix(outAnnotations));
             mid.setUsername(currentUsername());
             mid.setCreatedTime(LocalDateTime.now());
             mid.setUpdatedTime(LocalDateTime.now());
             saveMidRecord(mid);
+        } else {
+            deleteDirectoryRecursively(outRoot);
         }
-        return exportedCount;
+        return exportedSourceCount;
+    }
+
+    private void validatePairedMidExport(Path imagesDir, Path annotationsDir) throws IOException {
+        List<Path> images = new ArrayList<>();
+        try (var walk = Files.walk(imagesDir)) {
+            walk.filter(Files::isRegularFile).forEach(images::add);
+        }
+        if (images.isEmpty()) throw new IllegalStateException("标签映射后没有可导出的图片");
+        List<String> missing = new ArrayList<>();
+        for (Path image : images) {
+            String fileName = image.getFileName().toString();
+            int dot = fileName.lastIndexOf('.');
+            String stem = dot > 0 ? fileName.substring(0, dot) : fileName;
+            Path annotation = annotationsDir.resolve(stem + ".txt");
+            if (!Files.isRegularFile(annotation) || Files.size(annotation) == 0L) missing.add(fileName);
+        }
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException("中间实例数据集导出不完整，图片缺少映射后的同名标注: "
+                    + String.join(", ", missing.subList(0, Math.min(10, missing.size()))));
+        }
+    }
+
+    private void exportSplitToCoco(String datasetName, String split, Path imageDir, Path annoDir,
+                                   Map<String, String> labelMap, CocoExportAccumulator acc) throws IOException {
+        if (imageDir == null || annoDir == null || !Files.isDirectory(imageDir) || !Files.isDirectory(annoDir)) return;
+        List<Path> jsonFiles = new ArrayList<>();
+        collectFilesBySuffix(annoDir, ".json", jsonFiles);
+        boolean parsedCoco = false;
+        for (Path json : jsonFiles) {
+            parsedCoco |= exportOneCocoFile(datasetName, split, imageDir, json, labelMap, acc);
+        }
+        // COCO 与 TXT 不重复处理；没有有效 COCO 时再自动识别 DOTA/YOLO TXT。
+        if (!parsedCoco) {
+            exportTxtAnnotations(datasetName, split, imageDir, annoDir, labelMap, acc);
+        }
+    }
+
+    private boolean exportOneCocoFile(String datasetName, String split, Path imageDir, Path jsonPath,
+                                      Map<String, String> labelMap, CocoExportAccumulator acc) {
+        try {
+            JSONObject root = JSONUtil.parseObj(Files.readString(jsonPath, StandardCharsets.UTF_8));
+            JSONArray images = root.getJSONArray("images");
+            JSONArray annotations = root.getJSONArray("annotations");
+            JSONArray categories = root.getJSONArray("categories");
+            if (images == null || annotations == null || categories == null) return false;
+
+            Map<Integer, String> oldCategoryToTarget = new HashMap<>();
+            for (Object value : categories) {
+                if (!(value instanceof JSONObject category)) continue;
+                Integer id = category.getInt("id");
+                String target = mappedTarget(labelMap, category.getStr("name", ""));
+                if (id != null && StrUtil.isNotBlank(target)) oldCategoryToTarget.put(id, target);
+            }
+            if (oldCategoryToTarget.isEmpty()) return true;
+
+            Map<Long, List<JSONObject>> annByImage = new LinkedHashMap<>();
+            for (Object value : annotations) {
+                if (!(value instanceof JSONObject annotation)) continue;
+                Integer oldCategory = annotation.getInt("category_id");
+                Long imageId = annotation.getLong("image_id");
+                if (imageId == null || oldCategory == null || !oldCategoryToTarget.containsKey(oldCategory)) continue;
+                JSONObject copy = JSONUtil.parseObj(annotation);
+                copy.set("_target_name", oldCategoryToTarget.get(oldCategory));
+                annByImage.computeIfAbsent(imageId, ignored -> new ArrayList<>()).add(copy);
+            }
+            if (annByImage.isEmpty()) return true;
+
+            for (Object value : images) {
+                if (!(value instanceof JSONObject image)) continue;
+                Long oldImageId = image.getLong("id");
+                List<JSONObject> mapped = oldImageId == null ? null : annByImage.get(oldImageId);
+                if (mapped == null || mapped.isEmpty()) continue;
+                String fileName = image.getStr("file_name", "");
+                Path sourceImage = findImage(imageDir, fileName);
+                if (sourceImage == null) continue;
+                int width = image.getInt("width", 0);
+                int height = image.getInt("height", 0);
+                long newImageId = acc.addImage(datasetName, split, sourceImage, width, height);
+                if (newImageId <= 0) continue;
+                for (JSONObject annotation : mapped) {
+                    String target = annotation.getStr("_target_name", "");
+                    annotation.remove("_target_name");
+                    acc.addCocoAnnotation(newImageId, target, annotation);
+                }
+            }
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private void exportTxtAnnotations(String datasetName, String split, Path imageDir, Path annoDir,
+                                      Map<String, String> labelMap, CocoExportAccumulator acc) throws IOException {
+        List<Path> txtFiles = new ArrayList<>();
+        collectFilesBySuffix(annoDir, ".txt", txtFiles);
+        for (Path txt : txtFiles) {
+            String name = txt.getFileName().toString();
+            String stem = name.substring(0, name.length() - 4);
+            Path image = findImage(imageDir, stem);
+            if (image == null) continue;
+            BufferedImage buffered = ImageIO.read(image.toFile());
+            if (buffered == null) continue;
+            int width = buffered.getWidth();
+            int height = buffered.getHeight();
+            List<MappedAnnotation> mapped = new ArrayList<>();
+            for (String raw : Files.readAllLines(txt, StandardCharsets.UTF_8)) {
+                MappedAnnotation one = parseTxtAnnotation(raw, width, height, labelMap);
+                if (one != null) mapped.add(one);
+            }
+            if (mapped.isEmpty()) continue;
+            long imageId = acc.addImage(datasetName, split, image, width, height);
+            if (imageId <= 0) continue;
+            for (MappedAnnotation one : mapped) acc.addMappedAnnotation(imageId, one);
+        }
+    }
+
+    private MappedAnnotation parseTxtAnnotation(String raw, int imageWidth, int imageHeight,
+                                                Map<String, String> labelMap) {
+        String line = StrUtil.trim(raw);
+        if (StrUtil.isBlank(line)) return null;
+        String[] p = line.split("\\s+");
+        try {
+            if (p.length >= 9) {
+                String target = mappedTarget(labelMap, p[8]);
+                if (StrUtil.isBlank(target)) return null;
+                List<Double> polygon = new ArrayList<>();
+                double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE;
+                double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+                for (int i = 0; i < 8; i += 2) {
+                    double x = Double.parseDouble(p[i]);
+                    double y = Double.parseDouble(p[i + 1]);
+                    polygon.add(x); polygon.add(y);
+                    minX = Math.min(minX, x); minY = Math.min(minY, y);
+                    maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+                }
+                return new MappedAnnotation(target, minX, minY, maxX - minX, maxY - minY, polygon);
+            }
+            if (p.length == 5) {
+                String target = mappedTarget(labelMap, p[0]);
+                if (StrUtil.isBlank(target)) target = mappedTarget(labelMap, "class_" + p[0]);
+                if (StrUtil.isBlank(target)) return null;
+                double a = Double.parseDouble(p[1]);
+                double b = Double.parseDouble(p[2]);
+                double c = Double.parseDouble(p[3]);
+                double d = Double.parseDouble(p[4]);
+                double x, y, w, h;
+                if (a >= 0 && a <= 1 && b >= 0 && b <= 1 && c >= 0 && c <= 1 && d >= 0 && d <= 1) {
+                    w = c * imageWidth; h = d * imageHeight;
+                    x = a * imageWidth - w / 2.0; y = b * imageHeight - h / 2.0;
+                } else {
+                    x = Math.min(a, c); y = Math.min(b, d);
+                    w = Math.abs(c - a); h = Math.abs(d - b);
+                }
+                return new MappedAnnotation(target, Math.max(0, x), Math.max(0, y), w, h, null);
+            }
+        } catch (NumberFormatException ignored) {
+        }
+        return null;
+    }
+
+    private String mappedTarget(Map<String, String> labelMap, String sourceLabel) {
+        if (StrUtil.isBlank(sourceLabel)) return null;
+        String exact = labelMap.get(sourceLabel);
+        if (StrUtil.isNotBlank(exact)) return exact;
+        for (Map.Entry<String, String> entry : labelMap.entrySet()) {
+            if (entry.getKey().equalsIgnoreCase(sourceLabel)) return entry.getValue();
+        }
+        return null;
+    }
+
+    private Path findImage(Path imageDir, String fileNameOrStem) throws IOException {
+        if (imageDir == null || StrUtil.isBlank(fileNameOrStem)) return null;
+        Path direct = imageDir.resolve(fileNameOrStem).normalize();
+        if (direct.startsWith(imageDir.normalize()) && Files.isRegularFile(direct)) return direct;
+        String rawName = Paths.get(fileNameOrStem).getFileName().toString();
+        int dot = rawName.lastIndexOf('.');
+        String stem = dot > 0 ? rawName.substring(0, dot) : rawName;
+        String[] extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"};
+        for (String ext : extensions) {
+            Path candidate = imageDir.resolve(stem + ext);
+            if (Files.isRegularFile(candidate)) return candidate;
+        }
+        try (var files = Files.walk(imageDir)) {
+            return files.filter(Files::isRegularFile)
+                    .filter(path -> {
+                        String n = path.getFileName().toString();
+                        int d = n.lastIndexOf('.');
+                        return (d > 0 ? n.substring(0, d) : n).equalsIgnoreCase(stem);
+                    })
+                    .findFirst().orElse(null);
+        }
     }
 
     private ExportStat exportSplitByMappedLabels(
@@ -1073,9 +1601,16 @@ public class TaskDatasetDevService {
     }
 
     private ResolvedExportPaths resolveExportPaths(Path datasetRoot) {
+        return resolveExportPaths(datasetRoot, null);
+    }
+
+    private ResolvedExportPaths resolveExportPaths(Path datasetRoot, String selectedAnnotationDir) {
         if (datasetRoot == null || !Files.isDirectory(datasetRoot)) return null;
         Path images = datasetRoot.resolve("images");
-        Path annos = datasetRoot.resolve("annotations");
+        String annName = StrUtil.blankToDefault(selectedAnnotationDir, "annotations");
+        if (annName.contains("/") || annName.contains("\\") || annName.contains("..")) return null;
+        Path annos = datasetRoot.resolve(annName).normalize();
+        if (annos.getParent() == null || !annos.getParent().equals(datasetRoot)) return null;
         Path trainImages = datasetRoot.resolve("train").resolve("images");
         Path trainAnnos = datasetRoot.resolve("train").resolve("anno");
         Path testImages = datasetRoot.resolve("test").resolve("images");
@@ -1126,7 +1661,7 @@ public class TaskDatasetDevService {
     private boolean hasExportedMidArtifacts(String taskName) throws IOException {
         if (StrUtil.isBlank(taskName)) return false;
         if (countMidByFatherName(taskName) > 0) return true;
-        Path root = Paths.get(instanceDatasetMidRoot.trim().replaceAll("/+$", "")).normalize();
+        Path root = WorkspacePathUtil.instanceDatasetMidRoot();
         if (!Files.isDirectory(root)) return false;
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(root)) {
             for (Path child : stream) {
@@ -1140,13 +1675,76 @@ public class TaskDatasetDevService {
         return false;
     }
 
+    /**
+     * 定位任务对应的中间实例数据集目录。requireData=true 时至少包含一个实际文件，
+     * 防止导出失败后遗留的空目录被误判为“已最新”。
+     */
+    private Path resolveExportedTaskDirectory(String taskName, boolean requireData) throws IOException {
+        if (StrUtil.isBlank(taskName)) return null;
+        Path root = WorkspacePathUtil.instanceDatasetMidRoot().toAbsolutePath().normalize();
+        if (!Files.isDirectory(root)) return null;
+
+        Path exact = root.resolve(taskName).normalize();
+        if (exact.startsWith(root) && Files.isDirectory(exact)
+                && (!requireData || directoryContainsFile(exact))) {
+            return exact;
+        }
+
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(root)) {
+            for (Path child : stream) {
+                if (!Files.isDirectory(child)) continue;
+                String folder = child.getFileName().toString();
+                Path normalized = child.toAbsolutePath().normalize();
+                if (normalized.startsWith(root)
+                        && folder.startsWith(taskName + "_")
+                        && (!requireData || directoryContainsFile(normalized))) {
+                    return normalized;
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean directoryContainsFile(Path dir) throws IOException {
+        if (dir == null || !Files.isDirectory(dir)) return false;
+        try (var files = Files.walk(dir)) {
+            return files.anyMatch(Files::isRegularFile);
+        }
+    }
+
+    private void openDirectory(Path path) throws IOException {
+        Path normalized = path.toAbsolutePath().normalize();
+        if (!Files.isDirectory(normalized)) {
+            throw new IOException("目录不存在: " + normalized);
+        }
+        if (!GraphicsEnvironment.isHeadless() && Desktop.isDesktopSupported()
+                && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+            try {
+                Desktop.getDesktop().open(normalized.toFile());
+                return;
+            } catch (IOException | UnsupportedOperationException ignored) {
+                // 某些 Windows/JDK 组合 Desktop.open 会返回不明确错误，继续使用 explorer.exe。
+            }
+        }
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        ProcessBuilder builder;
+        if (os.contains("win")) {
+            builder = new ProcessBuilder("explorer.exe", "/e,", normalized.toString());
+        } else if (os.contains("mac")) {
+            builder = new ProcessBuilder("open", normalized.toString());
+        } else {
+            builder = new ProcessBuilder("xdg-open", normalized.toString());
+        }
+        builder.start();
+    }
+
     private void clearExportedMidByTask(String taskName) throws IOException {
         if (StrUtil.isBlank(taskName)) return;
         String table = resolveMidTableName();
         if (StrUtil.isNotBlank(table)) {
             jdbcTemplate.update("DELETE FROM " + table + " WHERE father_name = ?", taskName);
         }
-        Path root = Paths.get(instanceDatasetMidRoot.trim().replaceAll("/+$", "")).normalize();
+        Path root = WorkspacePathUtil.instanceDatasetMidRoot();
         if (!Files.isDirectory(root)) return;
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(root)) {
             for (Path child : stream) {
@@ -1232,13 +1830,211 @@ public class TaskDatasetDevService {
         }
     }
 
+    private static class MappedAnnotation {
+        final String target;
+        final double x;
+        final double y;
+        final double width;
+        final double height;
+        final List<Double> polygon;
+
+        MappedAnnotation(String target, double x, double y, double width, double height, List<Double> polygon) {
+            this.target = target;
+            this.x = x;
+            this.y = y;
+            this.width = Math.max(0, width);
+            this.height = Math.max(0, height);
+            this.polygon = polygon;
+        }
+    }
+
+    private static class CocoExportAccumulator {
+        private final JSONArray images = new JSONArray();
+        private final JSONArray annotations = new JSONArray();
+        private final JSONArray categories = new JSONArray();
+        private final Map<String, Integer> categoryIds = new LinkedHashMap<>();
+        private final Map<Path, Long> sourceImageIds = new HashMap<>();
+        private final Map<Long, String> outputImageNames = new HashMap<>();
+        private final Path outputImages;
+        private final Path outputAnnotations;
+        private final Map<String, Long> targetCounts;
+        private long nextImageId = 1;
+        private long nextAnnotationId = 1;
+
+        CocoExportAccumulator(List<String> targets, Path outputImages, Path outputAnnotations,
+                              Map<String, Long> targetCounts) {
+            this.outputImages = outputImages;
+            this.outputAnnotations = outputAnnotations;
+            this.targetCounts = targetCounts;
+            for (String target : targets) {
+                if (StrUtil.isBlank(target) || categoryIds.containsKey(target)) continue;
+                int id = categoryIds.size() + 1;
+                categoryIds.put(target, id);
+                JSONObject category = new JSONObject();
+                category.set("id", id);
+                category.set("name", target);
+                category.set("supercategory", "object");
+                categories.add(category);
+            }
+        }
+
+        int imageCount() {
+            return images.size();
+        }
+
+        int annotationCount() {
+            return annotations.size();
+        }
+
+        long addImage(String datasetName, String split, Path source, int width, int height) throws IOException {
+            Path key = source.toAbsolutePath().normalize();
+            Long existing = sourceImageIds.get(key);
+            if (existing != null) return existing;
+            if (width <= 0 || height <= 0) {
+                BufferedImage image = ImageIO.read(source.toFile());
+                if (image == null) return -1;
+                width = image.getWidth();
+                height = image.getHeight();
+            }
+            String original = source.getFileName().toString();
+            String prefix = safeName(datasetName) + "_" + safeName(split) + "_" + nextImageId + "_";
+            String outputName = prefix + safeName(original);
+            Path output = outputImages.resolve(outputName).normalize();
+            Files.copy(source, output, StandardCopyOption.REPLACE_EXISTING);
+
+            long id = nextImageId++;
+            JSONObject image = new JSONObject();
+            image.set("id", id);
+            image.set("file_name", outputName);
+            image.set("width", width);
+            image.set("height", height);
+            images.add(image);
+            sourceImageIds.put(key, id);
+            outputImageNames.put(id, outputName);
+            return id;
+        }
+
+        void addCocoAnnotation(long imageId, String target, JSONObject source) {
+            Integer categoryId = categoryIds.get(target);
+            if (categoryId == null) return;
+            JSONObject out = JSONUtil.parseObj(source);
+            out.set("id", nextAnnotationId++);
+            out.set("image_id", imageId);
+            out.set("category_id", categoryId);
+            out.set("iscrowd", out.getInt("iscrowd", 0));
+            if (out.get("area") == null && out.getJSONArray("bbox") != null && out.getJSONArray("bbox").size() >= 4) {
+                JSONArray bbox = out.getJSONArray("bbox");
+                Double width = bbox.getDouble(2);
+                Double height = bbox.getDouble(3);
+                out.set("area", Math.max(0D, width == null ? 0D : width)
+                        * Math.max(0D, height == null ? 0D : height));
+            }
+            annotations.add(out);
+            appendDotaAnnotation(imageId, target, polygonFromCoco(out));
+            targetCounts.computeIfPresent(target, (ignored, count) -> count + 1);
+        }
+
+        void addMappedAnnotation(long imageId, MappedAnnotation source) {
+            Integer categoryId = categoryIds.get(source.target);
+            if (categoryId == null || source.width <= 0 || source.height <= 0) return;
+            JSONObject out = new JSONObject();
+            out.set("id", nextAnnotationId++);
+            out.set("image_id", imageId);
+            out.set("category_id", categoryId);
+            out.set("bbox", List.of(source.x, source.y, source.width, source.height));
+            out.set("area", source.width * source.height);
+            out.set("iscrowd", 0);
+            if (source.polygon != null && source.polygon.size() >= 6) {
+                out.set("segmentation", List.of(source.polygon));
+            } else {
+                out.set("segmentation", new JSONArray());
+            }
+            annotations.add(out);
+            appendDotaAnnotation(imageId, source.target, polygonFromMapped(source));
+            targetCounts.computeIfPresent(source.target, (ignored, count) -> count + 1);
+        }
+
+        private List<Double> polygonFromCoco(JSONObject annotation) {
+            JSONArray segmentation = annotation.getJSONArray("segmentation");
+            if (segmentation != null && !segmentation.isEmpty()) {
+                Object first = segmentation.get(0);
+                if (first instanceof JSONArray arr && arr.size() >= 8) {
+                    List<Double> points = new ArrayList<>();
+                    for (int i = 0; i < 8; i++) points.add(arr.getDouble(i));
+                    return points;
+                }
+            }
+            JSONArray bbox = annotation.getJSONArray("bbox");
+            if (bbox == null || bbox.size() < 4) return Collections.emptyList();
+            double x = bbox.getDouble(0, 0D), y = bbox.getDouble(1, 0D);
+            double w = bbox.getDouble(2, 0D), h = bbox.getDouble(3, 0D);
+            return List.of(x, y, x + w, y, x + w, y + h, x, y + h);
+        }
+
+        private List<Double> polygonFromMapped(MappedAnnotation source) {
+            if (source.polygon != null && source.polygon.size() >= 8) return source.polygon.subList(0, 8);
+            return List.of(source.x, source.y, source.x + source.width, source.y,
+                    source.x + source.width, source.y + source.height, source.x, source.y + source.height);
+        }
+
+        private void appendDotaAnnotation(long imageId, String target, List<Double> polygon) {
+            String imageName = outputImageNames.get(imageId);
+            if (StrUtil.isBlank(imageName) || polygon == null || polygon.size() < 8) return;
+            int dot = imageName.lastIndexOf('.');
+            String stem = dot > 0 ? imageName.substring(0, dot) : imageName;
+            StringBuilder line = new StringBuilder();
+            for (int i = 0; i < 8; i++) {
+                if (i > 0) line.append(' ');
+                line.append(polygon.get(i));
+            }
+            line.append(' ').append(target).append(" 0\n");
+            try {
+                Files.writeString(outputAnnotations.resolve(stem + ".txt"), line.toString(), StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            } catch (IOException e) {
+                throw new IllegalStateException("写入映射标注失败: " + imageName, e);
+            }
+        }
+
+        JSONObject toCoco() {
+            JSONObject root = new JSONObject(new LinkedHashMap<>());
+            root.set("info", Map.of("description", "AI_TT_PLATFORM mapped task dataset export"));
+            root.set("licenses", new JSONArray());
+            root.set("images", images);
+            root.set("annotations", annotations);
+            root.set("categories", categories);
+            return root;
+        }
+
+        private static String safeName(String value) {
+            String safe = StrUtil.blankToDefault(value, "item").replaceAll("[^0-9A-Za-z._\\-\\u4e00-\\u9fff]+", "_");
+            return StrUtil.blankToDefault(safe, "item");
+        }
+    }
+
     private static class DatasetSource {
         final String datasetName;
         final Path root;
+        final String annotationDir;
 
         DatasetSource(String datasetName, Path root) {
+            this(datasetName, root, null);
+        }
+
+        DatasetSource(String datasetName, Path root, String annotationDir) {
             this.datasetName = datasetName;
             this.root = root;
+            this.annotationDir = annotationDir;
+        }
+    }
+
+    private static class ExternalRegistrySource {
+        final String path;
+        final String annotationDir;
+
+        ExternalRegistrySource(String path, String annotationDir) {
+            this.path = path;
+            this.annotationDir = annotationDir;
         }
     }
 

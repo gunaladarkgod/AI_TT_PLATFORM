@@ -1,0 +1,5 @@
+# Runner 仅负责 HTTP API、配置生成和训练子进程调度。
+fastapi>=0.100.0
+uvicorn>=0.22.0
+typing_extensions>=4.8.0
+mmengine==0.10.5

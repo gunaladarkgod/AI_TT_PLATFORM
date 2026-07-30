@@ -9,6 +9,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -18,6 +21,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationListener;
 import org.springframework.stereotype.Component;
+
+import com.xgls.web.utils.WorkspacePathUtil;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -53,23 +58,25 @@ public class MmdetRunnerAutoStart implements ApplicationListener<ApplicationRead
             log.info("[runner-autostart] 检测到 Runner 已可用，跳过启动（{}）", healthUri());
             return;
         }
-        Path script = Path.of(launchScript).toAbsolutePath().normalize();
+        Path script = resolveLaunchScript();
         if (!Files.isRegularFile(script)) {
             log.error("[runner-autostart] 启动脚本不存在: {}（可设置 sys.runner.launch-script）", script);
             return;
         }
-        Path logFile = Path.of(autoStartLogPath).toAbsolutePath().normalize();
+        Path logFile = resolveAutoStartLogPath(script);
         try {
             Files.createDirectories(logFile.getParent());
         } catch (IOException e) {
             log.warn("[runner-autostart] 无法创建日志目录: {}", e.getMessage());
         }
-        ProcessBuilder pb = new ProcessBuilder("bash", script.toString());
+        ProcessBuilder pb = buildRunnerProcessBuilder(script);
         pb.directory(script.getParent().toFile());
         pb.redirectErrorStream(true);
         pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()));
-        // 与子进程 uvicorn 一致：避免 Python 混入 ~/.local 中与 numpy/pandas 冲突导致 clearml 无法 import
+        // Runner 使用独立环境，不混入用户级 site-packages。
         pb.environment().putIfAbsent("PYTHONNOUSERSITE", "1");
+        pb.environment().putIfAbsent("PYTHONUTF8", "1");
+        applyWorkspaceRunnerEnv(pb);
         try {
             Process p = pb.start();
             processRef.set(p);
@@ -79,6 +86,103 @@ public class MmdetRunnerAutoStart implements ApplicationListener<ApplicationRead
         } catch (IOException e) {
             log.error("[runner-autostart] 启动失败: {}", e.getMessage());
         }
+    }
+
+    /**
+     * 根据当前操作系统选择启动脚本。Windows 优先使用 start_runner.cmd，Linux/macOS 继续使用 start_runner.sh。
+     */
+    private Path resolveLaunchScript() {
+        Path configured = Path.of(launchScript).toAbsolutePath().normalize();
+
+        if (isWindows() && isStartRunnerSh(configured)) {
+            Path windowsSibling = configured.resolveSibling("start_runner.cmd").toAbsolutePath().normalize();
+            if (Files.isRegularFile(windowsSibling)) {
+                return windowsSibling;
+            }
+        }
+
+        if (Files.isRegularFile(configured)) {
+            return configured;
+        }
+
+        for (Path candidate : launchScriptFallbacks(configured)) {
+            if (Files.isRegularFile(candidate)) {
+                log.info("[runner-autostart] 配置的启动脚本不可用: {}，自动改用: {}", configured, candidate);
+                return candidate;
+            }
+        }
+        return configured;
+    }
+
+    private Path resolveAutoStartLogPath(Path script) {
+        if (!isWindows() || !looksLikeUnixAbsolutePath(autoStartLogPath)) {
+            return Path.of(autoStartLogPath).toAbsolutePath().normalize();
+        }
+        return script.getParent().resolve("..").resolve("logs").resolve("runner-autostart.log").toAbsolutePath().normalize();
+    }
+
+    private boolean looksLikeUnixAbsolutePath(String rawPath) {
+        if (rawPath == null) {
+            return false;
+        }
+        String normalized = rawPath.replace('\\', '/');
+        return normalized.startsWith("/home/") || normalized.startsWith("/opt/") || normalized.startsWith("/var/");
+    }
+
+    private List<Path> launchScriptFallbacks(Path configured) {
+        List<Path> candidates = new ArrayList<>();
+        if (isWindows()) {
+            addSiblingWithName(candidates, configured, "start_runner.cmd");
+            addSiblingWithName(candidates, configured, "start_runner.bat");
+            addSiblingWithName(candidates, configured, "start_runner.ps1");
+            candidates.add(Path.of("mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
+            candidates.add(Path.of("..", "mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
+        } else {
+            addSiblingWithName(candidates, configured, "start_runner.sh");
+            candidates.add(Path.of("mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
+            candidates.add(Path.of("..", "mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
+        }
+        return candidates;
+    }
+
+    private void addSiblingWithName(List<Path> candidates, Path configured, String fileName) {
+        Path parent = configured.getParent();
+        if (parent != null) {
+            candidates.add(parent.resolve(fileName).toAbsolutePath().normalize());
+        }
+    }
+
+    private ProcessBuilder buildRunnerProcessBuilder(Path script) {
+        String name = script.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (isWindows()) {
+            if (name.endsWith(".cmd") || name.endsWith(".bat")) {
+                return new ProcessBuilder("cmd.exe", "/c", script.toString());
+            }
+            if (name.endsWith(".ps1")) {
+                return new ProcessBuilder("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script.toString());
+            }
+        }
+        return new ProcessBuilder("bash", script.toString());
+    }
+
+    private void applyWorkspaceRunnerEnv(ProcessBuilder pb) {
+        Path workspace = WorkspacePathUtil.workspaceRoot();
+        pb.environment().putIfAbsent("APP_WORKSPACE_ROOT", workspace.toString());
+        pb.environment().putIfAbsent("MMDET_REPO_ROOT",
+                workspace.resolve("mmdet_run").resolve("mmdetection-3.0.0").toString());
+        pb.environment().putIfAbsent("MMDET_UPLOAD_ROOT",
+                workspace.resolve("mmdet_run").resolve("myfiles").toString());
+        pb.environment().putIfAbsent("MMDET_WORK_ROOT",
+                workspace.resolve("artifacts").resolve("mmdet_runs").toString());
+    }
+
+    private boolean isStartRunnerSh(Path script) {
+        Path fileName = script.getFileName();
+        return fileName != null && "start_runner.sh".equalsIgnoreCase(fileName.toString());
+    }
+
+    private boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     }
 
     /**

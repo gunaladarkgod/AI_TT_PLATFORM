@@ -15,9 +15,11 @@ import com.xgls.web.base.CodeMap;
 import com.xgls.web.entity.EngineTask;
 import com.xgls.web.entity.ModelTrans;
 import com.xgls.web.entity.TrainTask;
+import com.xgls.web.entity.TrainResult;
 import com.xgls.web.service.EngineTaskService;
 import com.xgls.web.service.ModelTransService;
 import com.xgls.web.service.TrainTaskService;
+import com.xgls.web.service.TrainResultService;
 import com.xgls.web.vo.MyTask;
 
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +36,12 @@ public class TaskInit implements ApplicationRunner {
 
   @Autowired
   TrainTaskService trainTaskService;
+
+  @Autowired
+  TrainResultService trainResultService;
+
+  @Autowired
+  TrainRunnerService trainRunnerService;
 
   @Autowired
   ModelTransService modelTransService;
@@ -53,6 +61,42 @@ public class TaskInit implements ApplicationRunner {
     wrapper_trans.set(ModelTrans::getEndtime, LocalDateTime.now());
     modelTransService.update(wrapper_trans);
 
+    // 配置生成是内存异步任务，后端重启后无法续跑；遗留的 PREPARING 必须明确标记为配置出错。
+    LambdaUpdateWrapper<TrainTask> stalePreparing = new LambdaUpdateWrapper<>();
+    stalePreparing.eq(TrainTask::getStatus, CodeMap.TRAIN_TASK_STATUS_DEFAULT);
+    stalePreparing.set(TrainTask::getStatus, CodeMap.TRAIN_TASK_STATUS_CFG_FAIL);
+    stalePreparing.set(TrainTask::getUpdated_date, LocalDateTime.now());
+    trainTaskService.update(stalePreparing);
+
+    // 清理上次异常退出遗留的 RUN 状态。若本轮已有正式结果，按成功恢复；否则终止残留 Runner 并标记失败。
+    List<TrainTask> staleRunning = trainTaskService.list(
+        new LambdaQueryWrapper<TrainTask>().eq(TrainTask::getStatus, CodeMap.TRAIN_TASK_STATUS_RUN));
+    for (TrainTask task : staleRunning) {
+      TrainResult latestResult = trainResultService.getOne(
+          new LambdaQueryWrapper<TrainResult>()
+              .eq(TrainResult::getTaskId, task.getId())
+              .ge(task.getStarted_date() != null, TrainResult::getTime, task.getStarted_date())
+              .orderByDesc(TrainResult::getTime)
+              .last("LIMIT 1"), false);
+      boolean completed = latestResult != null;
+      if (!completed) {
+        try {
+          trainRunnerService.stopByRunId(task.getName());
+        } catch (Exception e) {
+          log.warn("stale train process not active: id={}, runId={}, detail={}",
+              task.getId(), task.getName(), e.getMessage());
+        }
+      }
+      TrainTask recovered = new TrainTask();
+      recovered.setId(task.getId());
+      recovered.setStatus(CodeMap.TRAIN_TASK_STATUS_FINISH);
+      recovered.setRun_state(completed ? CodeMap.TRAIN_FINISH_SUCCESS : CodeMap.TRAIN_FINISH_ERROR);
+      recovered.setFinish_date(completed ? latestResult.getTime() : LocalDateTime.now());
+      trainTaskService.updateById(recovered);
+      log.warn("recovered stale train task: id={}, runId={}, completed={}",
+          task.getId(), task.getName(), completed);
+    }
+
     // 初始化训练队列
     LambdaQueryWrapper<TrainTask> wrapper = new LambdaQueryWrapper<>();
     wrapper.eq(TrainTask::getStatus, CodeMap.TRAIN_TASK_STATUS_QUEUE);
@@ -63,12 +107,7 @@ public class TaskInit implements ApplicationRunner {
       TaskQueue.addTask(new MyTask(item.getId(), item.getName(), item.getEnqueue()));
     }
     log.info("train task queue init:{}", list.size());
-    /**
-     * 开始消费线程
-     */
-    Thread processingThread = new Thread(() -> TaskQueue.processTasks(trainTaskService));
-    processingThread.setDaemon(true); // 设置为后台线程
-    processingThread.start();
+    // 训练队列仅由 TrainQueueWorker 消费；不要再启动旧 TaskQueue.processTasks 线程，避免双消费者并发覆盖状态。
 
   }
 

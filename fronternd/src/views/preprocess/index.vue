@@ -1,8 +1,35 @@
 <!-- instanceDatabase/create/index.vue -->
 <template>
-  <div class="content-div" :class="{ 'content-div--embed': embedMode }">
+  <div class="content-div app-list-page" :class="{ 'content-div--embed': embedMode }">
+    <div class="preprocess-page-toolbar app-list-toolbar flex-between">
+      <div class="filter-row-single preprocess-inline-filters">
+        <el-select v-model="filterConditions.sensorType" placeholder="传感器类型" size="small" clearable style="width: 120px;" @change="applyFilters">
+          <el-option v-for="type in sensorTypeOptions" :key="type" :label="type" :value="type"></el-option>
+        </el-select>
+        <el-select v-model="filterConditions.targetType" placeholder="目标类型" size="small" clearable style="width: 120px;" @change="applyFilters">
+          <el-option v-for="type in targetTypeOptions" :key="type" :label="type" :value="type"></el-option>
+        </el-select>
+        <el-select v-model="filterConditions.username" placeholder="创建用户" size="small" clearable style="width: 120px;" @change="applyFilters">
+          <el-option v-for="user in createUserList" :key="user" :label="user" :value="user"></el-option>
+        </el-select>
+        <el-button @click="resetFilters" size="small">重置筛选</el-button>
+      </div>
+      <el-button type="primary" size="small" @click="openCreateInstanceDialog">
+        创建实例数据集
+      </el-button>
+    </div>
+
+    <el-dialog
+      v-model="showCreateInstanceDialog"
+      title="创建实例数据集"
+      width="94vw"
+      class="preprocess-create-dialog"
+      align-center
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+    >
     <div class="create-interface">
-      <div class="create-header">
+      <div v-if="false" class="create-header">
       <!--
         <el-button @click="$router.push('/instanceDatabase/list')" size="small" type="primary" text>
           <el-icon><ArrowLeft /></el-icon>返回
@@ -25,6 +52,7 @@
                   style="width: 300px;"
                   clearable
                 >
+                  <el-option label="不使用脚本" :value="0" />
                   <el-option
                     v-for="script in enhancementScripts"
                     :key="script.id"
@@ -97,6 +125,7 @@
                   style="width: 300px;"
                   clearable
                 >
+                  <el-option label="不使用脚本" :value="0" />
                   <el-option
                     v-for="script in augmentationScripts"
                     :key="script.id"
@@ -168,44 +197,50 @@
             </div>
           </div>
         </div>
+        <div class="split-ratio-section">
+          <span class="script-label">训练集占比：</span>
+          <el-slider v-model="trainRatioPercent" :min="1" :max="99" :step="1" show-input style="max-width: 520px;" />
+          <div class="split-ratio-hint">
+            预处理完成后自动随机划分为 images/train、images/test、annotations/train、annotations/test；
+            当前训练集 {{ trainRatioPercent }}%，测试集 {{ 100 - trainRatioPercent }}%。
+          </div>
+        </div>
+      </div>
+    </div>
+      <template #footer>
+        <el-button @click="showCreateInstanceDialog = false" size="small">取消</el-button>
+        <el-button type="primary" @click="confirmCreateInstanceDataset" size="small" :loading="createLoading">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <div class="create-interface preprocess-list-panel">
+      <div class="create-form">
         <!-- ========== 选择数据（中间实例数据集） =========== -->
         <div class="data-selection">
-          <h3 class="section-title">选择数据（中间实例数据集）</h3>
-          <!-- 筛选条件 -->
-          <div class="filter-section full-width">
-            <div class="filter-row-single">
-              <el-select v-model="filterConditions.sensorType" placeholder="传感器类型" size="small" clearable style="width: 120px;" @change="applyFilters">
-                <el-option v-for="type in sensorTypeOptions" :key="type" :label="type" :value="type"></el-option>
-              </el-select>
-              <el-select v-model="filterConditions.targetType" placeholder="目标类型" size="small" clearable style="width: 120px;" @change="applyFilters">
-                <el-option v-for="type in targetTypeOptions" :key="type" :label="type" :value="type"></el-option>
-              </el-select>
-              <el-select v-model="filterConditions.username" placeholder="创建用户" size="small" clearable style="width: 120px;" @change="applyFilters">
-                <el-option v-for="user in createUserList" :key="user" :label="user" :value="user"></el-option>
-              </el-select>
-              <el-button @click="resetFilters" size="small">重置筛选</el-button>
-            </div>
-          </div>
           <!-- 数据表格（表格区滚动，分页条固定在下方） -->
           <div class="selection-table-container">
-            <div class="selection-table-scroll">
+            <div class="selection-table-scroll app-list-table">
             <el-table 
               :data="paginatedSelectionData" 
               stripe 
               size="small"
               @selection-change="handleSelectionChange"
+              @row-click="handleSelectionRowClick"
               v-loading="datasetsLoading"
               ref="selectionTableRef"
               :row-key="row => row.id"
               class="selection-table"
+              style="width: 100%"
+              :height="embedMode ? '100%' : undefined"
+              v-el-height-adaptive-table="{ bottomOffset: 110, isUse: !embedMode }"
             >
-              <el-table-column type="selection" width="55" :reserve-selection="true"></el-table-column>
+              <el-table-column type="selection" width="48" :reserve-selection="true"></el-table-column>
               <el-table-column type="index" label="序号" width="60" />
-              <el-table-column prop="name" label="数据集名称" width="150"></el-table-column>
-              <el-table-column prop="sensorType" label="传感器类型" width="120"></el-table-column>
-              <el-table-column prop="targetType" label="目标类型" width="120"></el-table-column>
+              <el-table-column prop="name" label="数据集名称" min-width="170"></el-table-column>
+              <el-table-column prop="sensorType" label="传感器类型" min-width="120"></el-table-column>
+              <el-table-column prop="targetType" label="目标类型" min-width="120"></el-table-column>
               <el-table-column prop="classNum" label="类别数" width="80"></el-table-column>
-              <el-table-column prop="classList" label="类别名称" width="200">
+              <el-table-column prop="classList" label="类别名称" min-width="300">
                 <template #default="{ row }">
                   <div class="category-tags-container">
                     <el-tag
@@ -222,11 +257,28 @@
               </el-table-column>
               <el-table-column prop="imgNum" label="图片数" width="80"></el-table-column>
               <el-table-column prop="annoNum" label="样本数" width="80"></el-table-column>
-              <el-table-column prop="username" label="创建用户" width="120"></el-table-column>
+              <el-table-column prop="username" label="创建用户" min-width="120"></el-table-column>
+              <el-table-column label="操作" width="132" fixed="right">
+                <template #default="{ row }">
+                  <el-dropdown trigger="click" @command="(command) => handleSourceDatasetAction(command, row)">
+                    <el-button type="primary" plain size="small" @click.stop>
+                      操作
+                      <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                    </el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="preview">查看示例</el-dropdown-item>
+                        <el-dropdown-item command="openPath">打开路径</el-dropdown-item>
+                        <el-dropdown-item command="clear" divided>清除导出数据集</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </template>
+              </el-table-column>
             </el-table>
             </div>
-            <div class="selection-table-footer">
-            <div class="pagination-container flex-end" style="margin-top: 16px;">
+            <div class="selection-table-footer app-list-footer">
+            <div class="pagination-container flex-end">
               <el-pagination 
                 background 
                 size="small" 
@@ -241,106 +293,8 @@
             </div>
           </div>
         </div>
-        <div class="form-actions">
-          <el-button @click="$router.push('/instanceDatabase/list')" size="small">取消</el-button>
-          <el-button type="primary" @click="showCreateDialog" size="small" :loading="createLoading">创建</el-button>
-        </div>
       </div>
     </div>
-
-    <!-- 创建实例数据集对话框 -->
-    <el-dialog
-      v-model="showCreateInstanceDialog"
-      title="创建实例数据集"
-      width="600px"
-      :close-on-click-modal="false"
-    >
-      <el-form
-        ref="createFormRef"
-        :model="createForm"
-        :rules="createRules"
-        label-width="120px"
-      >
-        <el-form-item label="中间实例数据集" class="selection-info">
-          <div class="selected-info">
-            <el-alert
-              v-if="selectedTaskDatasets.length === 0"
-              title="未选择任务数据集"
-              type="warning"
-              :closable="false"
-              show-icon
-              style="width: 300px;"
-            />
-            <div v-else>
-            <!--
-              <el-alert
-                v-for="(dataset, index) in selectedTaskDatasets"
-                :key="index"
-                :title="`${dataset.name} (${getDataTypeLabel(dataset.type)})`"
-                type="success"
-                :closable="false"
-                show-icon
-                style="width: 300px; margin-bottom: 4px;"
-              />
-              -->
-              <el-alert
-                v-for="(dataset, index) in selectedTaskDatasets"
-                :key="index"
-                :title="`${dataset.name} `"
-                type="success"
-                :closable="false"
-                show-icon
-                style="width: 300px; margin-bottom: 4px;"
-              />
-            </div>
-          </div>
-        </el-form-item>
-        <el-form-item label="增强脚本" class="selection-info">
-          <div class="selected-info">
-            <el-alert
-              v-if="selectedEnhancementScript"
-              :title="`已选择: ${getScriptName(selectedEnhancementScript, enhancementScripts)} (ID: ${selectedEnhancementScript})`"
-              type="info"
-              :closable="false"
-              show-icon
-              style="width: 300px;"
-            />
-            <el-alert
-              v-else
-              title="未选择增强脚本"
-              type="info"
-              :closable="false"
-              show-icon
-              style="width: 300px;"
-            />
-          </div>
-        </el-form-item>
-        <el-form-item label="增广脚本" class="selection-info">
-          <div class="selected-info">
-            <el-alert
-              v-if="selectedAugmentationScript"
-              :title="`已选择: ${getScriptName(selectedAugmentationScript, augmentationScripts)} (ID: ${selectedAugmentationScript})`"
-              type="info"
-              :closable="false"
-              show-icon
-              style="width: 300px;"
-            />
-            <el-alert
-              v-else
-              title="未选择增广脚本"
-              type="info"
-              :closable="false"
-              show-icon
-              style="width: 300px;"
-            />
-          </div>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showCreateInstanceDialog = false" size="small">取消</el-button>
-        <el-button type="primary" @click="confirmCreateInstanceDataset" size="small" :loading="createLoading">确定创建</el-button>
-      </template>
-    </el-dialog>
 
    <!-- 上传脚本弹窗 -->
 <el-dialog
@@ -600,6 +554,12 @@
     </el-button>
   </template>
 </el-dialog>
+    <DatasetPreviewDialog
+      v-model="sourcePreviewDialogVisible"
+      :title="sourcePreviewRow ? `查看示例 - ${sourcePreviewRow.name}` : '查看示例'"
+      empty-description="暂无可展示图片"
+      :load-preview="loadSourcePreview"
+    />
   </div>
 </template>
 
@@ -607,17 +567,22 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-defineProps({
+const props = defineProps({
   /** 嵌入「数据集管理（dev）」时收紧外边距 */
   embedMode: { type: Boolean, default: false },
   /** 统合页已提供大标题时隐藏内层「创建实例数据集」标题 */
-  embedHideCreateTitle: { type: Boolean, default: false }
+  embedHideCreateTitle: { type: Boolean, default: false },
+  sourceRefreshKey: { type: Number, default: 0 }
 })
-import { ArrowLeft } from '@element-plus/icons-vue'
-import { InstanceDatasetService, PreprocessScriptService, SourceInstanceDatasetService } from '@/api/api.js'
+
+const emit = defineEmits(['midDatasetChanged'])
+import { ArrowLeft, ArrowDown } from '@element-plus/icons-vue'
+import { InstanceDatasetService, PreprocessScriptService, SourceInstanceDatasetService, TaskDatasetDevService } from '@/api/api.js'
 
 // ========== 新增：上传脚本所需 ==========
 import { Upload } from '@element-plus/icons-vue'
+import { baseHost } from '@/api/axios'
+import DatasetPreviewDialog from '@/components/dataset/DatasetPreviewDialog.vue'
 import { uploadScript } from '@/api/api.js' // 确保你已新增该函数
 
 // ========== 状态（完全保留，仅移除非必要） ==========
@@ -628,13 +593,10 @@ const showCreateInstanceDialog = ref(false)
 const createFormRef = ref()
 
 
-// 默认不选择
-// const selectedAugmentationScript = ref('')
-// const selectedEnhancementScript = ref('')
-
-// 默认选择不执行
-const selectedAugmentationScript = ref(2)
-const selectedEnhancementScript = ref(1)
+// 0 表示不使用脚本，避免依赖数据库中的“空操作”脚本记录
+const selectedAugmentationScript = ref(0)
+const selectedEnhancementScript = ref(0)
+const trainRatioPercent = ref(80)
 
 const augmentationScripts = ref([])
 const enhancementScripts = ref([])
@@ -645,6 +607,11 @@ const filteredSelectionData = ref([])
 const selectedTaskDatasets = ref([])
 const selectionCurrentPage = ref(1)
 const selectionCurrentSize = ref(10)
+const sourcePreviewDialogVisible = ref(false)
+const sourcePreviewLoading = ref(false)
+const sourcePreviewRow = ref(null)
+const sourcePreviewGroups = ref([])
+
 
 const sensorTypeOptions = ref([])
 const targetTypeOptions = ref([])
@@ -734,6 +701,155 @@ const getScriptName = (scriptId, scriptList) => {
   return script ? script.name : '未知脚本'
 }
 
+const isCanonicalMidSourceDataset = (row) => {
+  const name = String(row?.name || '').trim()
+  const father = String(row?.fatherName || '').trim()
+  return !!name && !!father && name === father
+}
+
+const getSourceTaskName = (row) => String(row?.fatherName || row?.name || '').trim()
+
+const handleSourceDatasetAction = async (command, row) => {
+  if (command === 'preview') {
+    await openSourcePreview(row)
+    return
+  }
+  if (command === 'openPath') {
+    await openSourcePath(row)
+    return
+  }
+  if (command === 'clear') {
+    await clearSourceDataset(row)
+  }
+}
+
+const openSourcePath = async (row) => {
+  const name = getSourceTaskName(row)
+  if (!name) {
+    ElMessage.warning('缺少中间实例数据集名称')
+    return
+  }
+  try {
+    const res = await TaskDatasetDevService.openTaskPath({ name })
+    if (res?.code !== 0) {
+      ElMessage.error(res?.msg || '打开路径失败')
+      return
+    }
+    ElMessage.success('已打开中间实例数据集目录')
+  } catch (e) {
+    ElMessage.error('打开路径失败：' + (e?.message || e))
+  }
+}
+
+const clearSourceDataset = async (row) => {
+  const name = getSourceTaskName(row)
+  if (!name) {
+    ElMessage.warning('缺少中间实例数据集名称')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定清除中间实例数据集“${name}”吗？这会删除 data/instance_dataset_mid 下的导出目录和中间表记录，任务定义会保留。`,
+      '清除导出数据集',
+      { confirmButtonText: '确认清除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch (e) {
+    return
+  }
+  try {
+    const res = await TaskDatasetDevService.clearTask({ name })
+    if (res?.code !== 0) {
+      ElMessage.error(res?.msg || '清除失败')
+      return
+    }
+    ElMessage.success('已清除导出数据集')
+    await loadSourceDatasetsForSelection()
+    emit('midDatasetChanged')
+  } catch (e) {
+    ElMessage.error('清除失败：' + (e?.message || e))
+  }
+}
+
+const normalizePreviewUrl = (url) => {
+  if (!url) return ''
+  if (/^https?:\/\//i.test(url)) return url
+  const clean = String(url).startsWith('/') ? String(url) : `/${url}`
+  return `${window.location.protocol}//${baseHost}${clean}`
+}
+
+const normalizePreviewImage = (item) => {
+  if (typeof item === 'string') {
+    return { url: item, src: normalizePreviewUrl(item), fileName: '', width: 0, height: 0, objects: [] }
+  }
+  const rawUrl = item?.url || item?.src || ''
+  return {
+    ...item,
+    url: rawUrl,
+    src: normalizePreviewUrl(rawUrl),
+    fileName: item?.fileName || item?.file_name || item?.name || '',
+    width: Number(item?.width || 0),
+    height: Number(item?.height || 0),
+    objects: Array.isArray(item?.objects) ? item.objects : []
+  }
+}
+
+const normalizeSourcePreviewGroups = (items) => {
+  if (!Array.isArray(items)) return []
+  return items.map((item) => {
+    const name = item?.label || item?.className || item?.name || '未命名类别'
+    const images = Array.isArray(item?.images) ? item.images : Array.isArray(item?.urls) ? item.urls : []
+    return { name, images: images.map(normalizePreviewImage) }
+  }).filter(group => group.images.length > 0)
+}
+
+const loadSourcePreview = ({ perLabel = 3 } = {}) => {
+  const name = getSourceTaskName(sourcePreviewRow.value)
+  if (!name) throw new Error('缺少中间实例数据集名称')
+  return TaskDatasetDevService.previewTask(name, perLabel)
+}
+const openSourcePreview = async (row) => {
+  const name = getSourceTaskName(row)
+  if (!name) {
+    ElMessage.warning('缺少中间实例数据集名称')
+    return
+  }
+  sourcePreviewRow.value = row
+  sourcePreviewDialogVisible.value = true
+}
+
+const refreshSourcePreviewGroup = async (groupName) => {
+  const row = sourcePreviewRow.value
+  const name = getSourceTaskName(row)
+  if (!name) return
+  try {
+    const res = await TaskDatasetDevService.previewTask(name, 3)
+    const data = res?.data || res
+    const groups = normalizeSourcePreviewGroups(data?.items)
+    const refreshed = groups.find(g => g.name === groupName)
+    if (refreshed) {
+      sourcePreviewGroups.value = sourcePreviewGroups.value.map(g => g.name === groupName ? refreshed : g)
+    }
+  } catch (e) {
+    ElMessage.error('换一换失败：' + (e?.message || e))
+  }
+}
+
+const getPreviewBoxStyle = (obj, image) => {
+  const box = obj?.bbox || obj?.box || obj
+  let x = Number(box?.x ?? box?.left ?? (Array.isArray(box) ? box[0] : NaN))
+  let y = Number(box?.y ?? box?.top ?? (Array.isArray(box) ? box[1] : NaN))
+  let w = Number(box?.w ?? box?.width ?? (Array.isArray(box) ? box[2] : NaN))
+  let h = Number(box?.h ?? box?.height ?? (Array.isArray(box) ? box[3] : NaN))
+  const imgW = Number(image?.width || 0)
+  const imgH = Number(image?.height || 0)
+  if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0 || imgW <= 0 || imgH <= 0) return null
+  return {
+    left: `${Math.max(0, Math.min(100, (x / imgW) * 100))}%`,
+    top: `${Math.max(0, Math.min(100, (y / imgH) * 100))}%`,
+    width: `${Math.max(0, Math.min(100, (w / imgW) * 100))}%`,
+    height: `${Math.max(0, Math.min(100, (h / imgH) * 100))}%`
+  }
+}
 const loadPreprocessScripts = async () => {
   try {
     console.log('开始加载预处理脚本...')
@@ -812,8 +928,8 @@ const loadSourceDatasetsForSelection = async () => {
         data = rawData.data
       }
     }
-    selectionData.value = data
-    filteredSelectionData.value = [...data]
+    selectionData.value = data.filter(isCanonicalMidSourceDataset)
+    filteredSelectionData.value = [...selectionData.value]
     if (!data.length) {
       ElMessage.info('未找到磁盘上路径完整且含训练样本的中间实例数据集，请先在任务数据集中生成实例数据')
     }
@@ -833,9 +949,24 @@ const loadSourceDatasetsForSelection = async () => {
   }
 }
 
+watch(
+  () => props.sourceRefreshKey,
+  async () => {
+    await loadSourceDatasetsForSelection()
+  }
+)
 const handleSelectionChange = (selection) => {
   selectedTaskDatasets.value = selection
 }
+
+const handleSelectionRowClick = (row, _column, event) => {
+  const target = event?.target
+  if (target?.closest?.('.el-checkbox, .el-table-column--selection, button, .el-button, .el-dropdown, .el-popper, input, textarea, a')) {
+    return
+  }
+  selectionTableRef.value?.toggleRowSelection?.(row)
+}
+
 const applyFilters = () => {
   if (!selectionData.value || selectionData.value.length === 0) {
     filteredSelectionData.value = []
@@ -859,19 +990,29 @@ const resetFilters = () => {
   selectionCurrentPage.value = 1
 }
 
-const showCreateDialog = () => {
+const openCreateInstanceDialog = () => {
   if (selectedTaskDatasets.value.length === 0) {
-    ElMessage.warning('请至少选择一个任务数据集')
+    ElMessage.warning('请至少选择一个中间实例数据集')
     return
   }
   createForm.description = ''
   showCreateInstanceDialog.value = true
 }
 
+const showCreateDialog = () => {
+  if (selectedTaskDatasets.value.length === 0) {
+    ElMessage.warning('请至少选择一个任务数据集')
+    return
+  }
+  createForm.description = ''
+  confirmCreateInstanceDataset()
+}
+
 const confirmCreateInstanceDataset = async () => {
-  if (!createFormRef.value) return;
-  await createFormRef.value.validate(async (valid) => {
-    if (valid) {
+  if (selectedTaskDatasets.value.length === 0) {
+    ElMessage.warning('请至少选择一个中间实例数据集')
+    return
+  }
       try {
         createLoading.value = true;
         const selectedAugScript = augmentationScripts.value.find(s => s.id == selectedAugmentationScript.value);
@@ -967,10 +1108,11 @@ if (selectedAugmentationScript.value && selectedAugmentationScriptObj.value) {
 }
         const requestBody = {
           sourceInstanceIds: selectedTaskDatasets.value.map(item => item.id),
-          enhanceScriptId: selectedEnhancementScript.value || 0,
+          enhanceScriptId: selectedEnhancementScript.value || null,
           enhanceParams: enhanceParams,
-          augmentScriptId: selectedAugmentationScript.value || 0,
-          augmentParams: augmentParams
+          augmentScriptId: selectedAugmentationScript.value || null,
+          augmentParams: augmentParams,
+          trainRatio: trainRatioPercent.value / 100
         };
         console.log(' 发送预处理请求:', requestBody);
         const response = await fetch('/develop/api/preprocess/run', {
@@ -997,8 +1139,6 @@ if (selectedAugmentationScript.value && selectedAugmentationScriptObj.value) {
       } finally {
         createLoading.value = false;
       }
-    }
-  });
 };
 
 const handleSelectionPageChange = () => {}
@@ -1102,19 +1242,81 @@ const openUploadDialog = () => {
 <style scoped>
 /* 完全保留原始样式（仅保留 create 相关） */
 .content-div {
-  padding: 16px;
+  padding: 0;
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   width: 100%;
   box-sizing: border-box;
 }
+
+.preprocess-page-toolbar {
+  width: 100%;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  margin-bottom: 8px;
+  min-height: 32px;
+  align-items: center;
+  gap: 8px 12px;
+  flex-wrap: nowrap;
+}
+
+.preprocess-inline-filters {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-bottom: 0 !important;
+}
+
+:deep(.preprocess-create-dialog) {
+  width: 94vw;
+  max-width: 1600px;
+  height: 90vh;
+  max-height: 90vh;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+:deep(.preprocess-create-dialog .el-dialog__header) {
+  flex: 0 0 auto;
+  margin-right: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+:deep(.preprocess-create-dialog .el-dialog__body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+:deep(.preprocess-create-dialog .el-dialog__footer) {
+  flex: 0 0 auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
 .create-interface {
   height: 100%;
   display: flex;
   flex-direction: column;
   width: 100%;
   box-sizing: border-box;
+}
+
+.preprocess-list-panel {
+  flex: 1 1 0;
+  min-height: 420px;
+  height: auto;
+  overflow: visible;
+}
+
+.preprocess-list-panel .create-form {
+  min-height: 420px;
+  overflow: visible;
 }
 .create-header {
   display: flex;
@@ -1131,16 +1333,16 @@ const openUploadDialog = () => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
   width: 100%;
   box-sizing: border-box;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 .augmentation-section {
-  background: #f8f9fa;
-  padding: 16px;
-  border-radius: 4px;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
   width: 100%;
   box-sizing: border-box;
 }
@@ -1197,11 +1399,11 @@ const openUploadDialog = () => {
   gap: 16px;
   width: 100%;
   box-sizing: border-box;
-  background: #f8f9fa;
-  padding: 16px;
-  border-radius: 4px;
-  min-height: 0;
-  overflow: hidden;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  min-height: 380px;
+  overflow: visible;
 }
 .section-title {
   margin: 0 0 12px 0;
@@ -1229,15 +1431,16 @@ const openUploadDialog = () => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
+  min-height: 320px;
+  overflow: visible;
   width: 100%;
   box-sizing: border-box;
 }
 
 .selection-table-scroll {
-  flex: 1 1 0;
-  min-height: 0;
+  flex: 1 1 auto;
+  min-height: 260px;
+  width: 100%;
   overflow: auto;
 }
 
@@ -1247,6 +1450,11 @@ const openUploadDialog = () => {
 .selection-table {
   width: 100% !important;
   min-width: 100%;
+}
+.selection-table :deep(.el-table__inner-wrapper),
+.selection-table :deep(.el-table__header-wrapper),
+.selection-table :deep(.el-table__body-wrapper) {
+  width: 100%;
 }
 .form-actions {
   display: flex;

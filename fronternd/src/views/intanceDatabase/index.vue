@@ -1,13 +1,13 @@
-<template>
-  <div class="content" :class="{ 'content--embed': embedMode }">
+﻿<template>
+  <div class="content app-list-page" :class="{ 'content--embed': embedMode }">
     <!-- 统合内嵌：与「原始数据集」同构 — el-card 内工具行 + 可滚动主区域，分页在 card footer -->
     <el-card
       v-if="useInstanceUnifiedPanel"
-      class="original-dataset-panel original-dataset-panel--embed instance-embed-outer-card"
+      class="original-dataset-panel original-dataset-panel--embed instance-embed-outer-card app-list-panel"
       shadow="never"
     >
       <div class="original-dataset-panel__main original-dataset-panel__main--embed">
-        <div class="original-dataset-toolbar-row flex-between">
+        <div class="original-dataset-toolbar-row app-list-toolbar flex-between">
           <div class="flex-start gap-8">
             <el-button size="small" @click="clearInstanceToolbarFilters">清除列筛选</el-button>
             <el-button size="small" @click="clearInstanceToolbarSort">清除列排序</el-button>
@@ -25,96 +25,68 @@
         <div class="split-layout__main instance-embed-card-scroll">
           <div
             v-if="effectiveTaskViewAsTable"
-            class="table-div table-div--embed-scroll original-dataset-panel__scroll"
+            class="table-div app-list-table table-div--embed-scroll original-dataset-panel__scroll"
           >
             <el-table
               ref="instanceTaskTableRef"
-              class="my-table"
-              :data="instanceTasksForTable"
+              class="my-table instance-tree-table"
+              :data="instanceTreeRowsForTable"
               stripe
               size="small"
               style="width: 100%"
               :height="embedMode ? '100%' : undefined"
+              row-key="treeKey"
+              :tree-props="{ children: 'children' }"
+              v-loading="instanceLoading"
               @sort-change="onInstanceTableSortChange"
               @filter-change="onInstanceTableFilterChange"
               @row-click="handleTaskRowClick"
-              :row-class-name="getRowClassName"
+              :row-class-name="getTreeRowClassName"
               v-el-height-adaptive-table="{ bottomOffset: 70, isUse: !embedMode }"
             >
-          <el-table-column label="序号" width="56" align="center" fixed="left">
-            <template #default="scope">
-              {{ (currentPage - 1) * pageSize + scope.$index + 1 }}
-            </template>
-          </el-table-column>
-          <el-table-column
-            prop="name"
-            column-key="name"
-            label="数据集名称"
-            min-width="140"
-            align="center"
-            fixed="left"
-            sortable="custom"
-            show-overflow-tooltip
-          />
-          <el-table-column
-            prop="sensorType"
-            column-key="sensorType"
-            label="传感器类型"
-            min-width="120"
-            align="center"
-            sortable="custom"
-            :filters="instanceSensorFilterOptions"
-            :filter-method="instanceTableFilterPassAll"
-            filter-placement="bottom-end"
-          />
-          <el-table-column
-            prop="targetType"
-            column-key="targetType"
-            label="目标类型"
-            min-width="120"
-            align="center"
-            sortable="custom"
-            :filters="instanceTargetFilterOptions"
-            :filter-method="instanceTableFilterPassAll"
-            filter-placement="bottom-end"
-          />
-          <el-table-column
-            prop="classNum"
-            column-key="classNum"
-            label="类别数"
-            align="center"
-            width="88"
-            sortable="custom"
-          >
-            <template #default="{ row }">
-              {{ displayCoreClassNum(row) }}
-            </template>
-          </el-table-column>
-          <el-table-column label="类别名称" align="center" min-width="200">
-            <template #default="{ row }">
-              <div class="category-tags-container">
-                <el-tag
-                  v-for="(item, index) in getTaskCategoryList(row)"
-                  :key="`${row.id}-${index}`"
-                  size="small"
-                  :type="getTagType(index)"
-                  style="margin: 2px; white-space: nowrap;"
-                >
-                  {{ item.name }}: {{ item.count ?? 0 }}
-                </el-tag>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column
-            prop="username"
-            column-key="username"
-            label="创建用户"
-            min-width="100"
-            align="center"
-            sortable="custom"
-            show-overflow-tooltip
-          />
-        </el-table>
+              <el-table-column label="序号" width="72" align="center" fixed="left">
+                <template #default="{ row }">
+                  <span v-if="row.__rowType === 'parent'">{{ (currentPage - 1) * pageSize + row.__parentIndex + 1 }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="name" column-key="name" label="数据集名称" min-width="220" align="left" fixed="left" sortable="custom" show-overflow-tooltip />
+              <el-table-column prop="classNum" column-key="classNum" label="类别数" align="center" width="96" sortable="custom">
+                <template #default="{ row }"><span v-if="row.__rowType === 'parent'">{{ displayCoreClassNum(row) }}</span></template>
+              </el-table-column>
+              <el-table-column label="类别名称" align="center" min-width="260">
+                <template #default="{ row }">
+                  <div v-if="row.__rowType === 'parent'" class="category-tags-container">
+                    <el-tag v-for="(item, index) in getTaskCategoryList(row)" :key="`${row.treeKey}-${index}`" size="small" :type="getTagType(index)" style="margin: 2px; white-space: nowrap;">{{ item.name }}: {{ item.count ?? 0 }}</el-tag>
+                  </div>
+                  <div v-else class="instance-child-summary">
+                    <el-tag size="small" type="info">图片：{{ row.imgNum ?? 0 }}</el-tag>
+                    <el-tag size="small" type="success">样本：{{ row.annoNum ?? 0 }}</el-tag>
+                    <span class="instance-child-summary__config">{{ formatConfigList(row.configList) }}</span>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="实例数据集数量" align="center" width="140">
+                <template #default="{ row }"><span v-if="row.__rowType === 'parent'">{{ row.children?.length || 0 }}</span></template>
+              </el-table-column>
+              <el-table-column label="操作" align="center" width="120" fixed="right">
+                <template #default="{ row }">
+                  <el-dropdown v-if="row.__rowType === 'child'" trigger="click" @command="cmd => handleInstanceRowCommand(cmd, row)">
+                    <el-button type="primary" plain size="small" @click.stop>
+                      操作
+                      <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                    </el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="preview">查看示例</el-dropdown-item>
+                        <el-dropdown-item command="openPath">打开路径</el-dropdown-item>
+                        <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </template>
+              </el-table-column>
+              <el-table-column prop="username" label="创建用户" align="center" width="120" show-overflow-tooltip />
+            </el-table>
       </div>
       <div v-else class="instance-task-card-grid instance-task-card-grid--embed original-dataset-panel__scroll">
         <el-card
@@ -145,14 +117,49 @@
               style="margin: 2px; white-space: nowrap;"
             >
               {{ item.name }}: {{ item.count ?? 0 }}
-            </el-tag>
+            </el-tag>          <div v-if="selectedTaskId === row.id" class="instance-inline-panel instance-inline-panel--card" @click.stop>
+            <div class="instance-inline-panel__header">
+              <div class="instance-inline-panel__title">实例数据集（{{ row.name || '未选择任务' }}）</div>
+              <el-button link type="primary" size="small" @click.stop="openTrainTestDrawer(row)">
+                任务级训测划分
+              </el-button>
+            </div>
+            <el-table
+              class="my-table instance-inline-table"
+              :data="instanceDatasetList"
+              stripe
+              size="small"
+              v-loading="instanceLoading"
+              empty-text="暂无实例数据集"
+              style="width: 100%"
+            >
+              <el-table-column prop="name" label="数据集名称" align="center" min-width="160" show-overflow-tooltip />
+              <el-table-column prop="imgNum" label="图片数" align="center" width="80" />
+              <el-table-column prop="annoNum" label="样本数" align="center" width="80" />
+              <el-table-column label="示例" align="center" width="70">
+                <template #default="{ row: ds }">
+                  <el-button link type="primary" size="small" @click.stop="openInstancePreview(ds)">查看</el-button>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" align="center" width="80">
+                <template #default="{ row: ds }">
+                  <el-popconfirm title="确定要删除该实例数据集吗？" @confirm="handleDelete(ds.id)">
+                    <template #reference>
+                      <el-button link type="danger" size="small" @click.stop>删除</el-button>
+                    </template>
+                  </el-popconfirm>
+                </template>
+              </el-table-column>
+              <el-table-column prop="username" label="创建用户" align="center" width="120" show-overflow-tooltip />
+            </el-table>
+          </div>
           </div>
         </el-card>
       </div>
         </div>
       </div>
       <template #footer>
-        <div class="original-dataset-panel__footer">
+        <div class="original-dataset-panel__footer app-list-footer">
           <el-pagination
             v-if="effectiveTaskViewAsTable"
             background
@@ -188,106 +195,83 @@
         'split-layout--embed': embedMode
       }"
     >
-      <div v-if="!embedUnifiedToolbar" class="task-title-row split-layout__toolbar">
-        <h4 class="panel-title">任务数据集（请点选）</h4>
-        <div class="task-title-toolbar">
-          <el-switch
-            v-model="effectiveTaskViewAsTable"
-            inline-prompt
-            active-text="列表"
-            inactive-text="卡片"
+      <div v-if="!embedUnifiedToolbar" class="original-dataset-toolbar-row app-list-toolbar flex-between">
+        <div class="flex-start gap-8">
+          <el-button size="small" @click="clearInstanceToolbarFilters">清除列筛选</el-button>
+          <el-button size="small" @click="clearInstanceToolbarSort">清除列排序</el-button>
+        </div>
+        <div class="flex-start gap-8 original-dataset-toolbar-row__right">
+          <el-input
+            v-model="instanceToolbarSearch"
+            size="small"
+            clearable
+            placeholder="Type to search"
+            class="original-dataset-toolbar-search"
           />
         </div>
       </div>
       <div class="split-layout__main">
-        <div v-if="effectiveTaskViewAsTable" class="table-div table-div--embed-scroll">
+        <div v-if="effectiveTaskViewAsTable" class="table-div app-list-table table-div--embed-scroll">
           <el-table
-            ref="instanceTaskTableRef"
-            class="my-table"
-            :data="instanceTasksForTable"
-            stripe
-            size="small"
-            style="width: 100%"
-            @sort-change="onInstanceTableSortChange"
-            @filter-change="onInstanceTableFilterChange"
-            @row-click="handleTaskRowClick"
-            :row-class-name="getRowClassName"
-            v-el-height-adaptive-table="{ bottomOffset: 70, isUse: !embedMode }"
-          >
-            <el-table-column label="序号" width="56" align="center" fixed="left">
-              <template #default="scope">
-                {{ (currentPage - 1) * pageSize + scope.$index + 1 }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              prop="name"
-              column-key="name"
-              label="数据集名称"
-              min-width="140"
-              align="center"
-              fixed="left"
-              sortable="custom"
-              show-overflow-tooltip
-            />
-            <el-table-column
-              prop="sensorType"
-              column-key="sensorType"
-              label="传感器类型"
-              min-width="120"
-              align="center"
-              sortable="custom"
-              :filters="instanceSensorFilterOptions"
-              :filter-method="instanceTableFilterPassAll"
-              filter-placement="bottom-end"
-            />
-            <el-table-column
-              prop="targetType"
-              column-key="targetType"
-              label="目标类型"
-              min-width="120"
-              align="center"
-              sortable="custom"
-              :filters="instanceTargetFilterOptions"
-              :filter-method="instanceTableFilterPassAll"
-              filter-placement="bottom-end"
-            />
-            <el-table-column
-              prop="classNum"
-              column-key="classNum"
-              label="类别数"
-              align="center"
-              width="88"
-              sortable="custom"
+              ref="instanceTaskTableRef"
+              class="my-table instance-tree-table"
+              :data="instanceTreeRowsForTable"
+              stripe
+              size="small"
+              style="width: 100%"
+              :height="embedMode ? '100%' : undefined"
+              row-key="treeKey"
+              :tree-props="{ children: 'children' }"
+              v-loading="instanceLoading"
+              @sort-change="onInstanceTableSortChange"
+              @filter-change="onInstanceTableFilterChange"
+              @row-click="handleTaskRowClick"
+              :row-class-name="getTreeRowClassName"
+              v-el-height-adaptive-table="{ bottomOffset: 110, isUse: !embedMode }"
             >
-              <template #default="{ row }">
-                {{ displayCoreClassNum(row) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="类别名称" align="center" min-width="200">
-              <template #default="{ row }">
-                <div class="category-tags-container">
-                  <el-tag
-                    v-for="(item, index) in getTaskCategoryList(row)"
-                    :key="`${row.id}-${index}`"
-                    size="small"
-                    :type="getTagType(index)"
-                    style="margin: 2px; white-space: nowrap;"
-                  >
-                    {{ item.name }}: {{ item.count ?? 0 }}
-                  </el-tag>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column
-              prop="username"
-              column-key="username"
-              label="创建用户"
-              min-width="100"
-              align="center"
-              sortable="custom"
-              show-overflow-tooltip
-            />
-          </el-table>
+              <el-table-column label="序号" width="72" align="center" fixed="left">
+                <template #default="{ row }">
+                  <span v-if="row.__rowType === 'parent'">{{ (currentPage - 1) * pageSize + row.__parentIndex + 1 }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="name" column-key="name" label="数据集名称" min-width="220" align="left" fixed="left" sortable="custom" show-overflow-tooltip />
+              <el-table-column prop="classNum" column-key="classNum" label="类别数" align="center" width="96" sortable="custom">
+                <template #default="{ row }"><span v-if="row.__rowType === 'parent'">{{ displayCoreClassNum(row) }}</span></template>
+              </el-table-column>
+              <el-table-column label="类别名称" align="center" min-width="260">
+                <template #default="{ row }">
+                  <div v-if="row.__rowType === 'parent'" class="category-tags-container">
+                    <el-tag v-for="(item, index) in getTaskCategoryList(row)" :key="`${row.treeKey}-${index}`" size="small" :type="getTagType(index)" style="margin: 2px; white-space: nowrap;">{{ item.name }}: {{ item.count ?? 0 }}</el-tag>
+                  </div>
+                  <div v-else class="instance-child-summary">
+                    <el-tag size="small" type="info">图片：{{ row.imgNum ?? 0 }}</el-tag>
+                    <el-tag size="small" type="success">样本：{{ row.annoNum ?? 0 }}</el-tag>
+                    <span class="instance-child-summary__config">{{ formatConfigList(row.configList) }}</span>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="实例数据集数量" align="center" width="140">
+                <template #default="{ row }"><span v-if="row.__rowType === 'parent'">{{ row.children?.length || 0 }}</span></template>
+              </el-table-column>
+              <el-table-column label="操作" align="center" width="120" fixed="right">
+                <template #default="{ row }">
+                  <el-dropdown v-if="row.__rowType === 'child'" trigger="click" @command="cmd => handleInstanceRowCommand(cmd, row)">
+                    <el-button type="primary" plain size="small" @click.stop>
+                      操作
+                      <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                    </el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="preview">查看示例</el-dropdown-item>
+                        <el-dropdown-item command="openPath">打开路径</el-dropdown-item>
+                        <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </template>
+              </el-table-column>
+              <el-table-column prop="username" label="创建用户" align="center" width="120" show-overflow-tooltip />
+            </el-table>
         </div>
         <div v-else class="instance-task-card-grid">
           <el-card
@@ -318,12 +302,47 @@
                 style="margin: 2px; white-space: nowrap;"
               >
                 {{ item.name }}: {{ item.count ?? 0 }}
-              </el-tag>
+              </el-tag>          <div v-if="selectedTaskId === row.id" class="instance-inline-panel instance-inline-panel--card" @click.stop>
+            <div class="instance-inline-panel__header">
+              <div class="instance-inline-panel__title">实例数据集（{{ row.name || '未选择任务' }}）</div>
+              <el-button link type="primary" size="small" @click.stop="openTrainTestDrawer(row)">
+                任务级训测划分
+              </el-button>
+            </div>
+            <el-table
+              class="my-table instance-inline-table"
+              :data="instanceDatasetList"
+              stripe
+              size="small"
+              v-loading="instanceLoading"
+              empty-text="暂无实例数据集"
+              style="width: 100%"
+            >
+              <el-table-column prop="name" label="数据集名称" align="center" min-width="160" show-overflow-tooltip />
+              <el-table-column prop="imgNum" label="图片数" align="center" width="80" />
+              <el-table-column prop="annoNum" label="样本数" align="center" width="80" />
+              <el-table-column label="示例" align="center" width="70">
+                <template #default="{ row: ds }">
+                  <el-button link type="primary" size="small" @click.stop="openInstancePreview(ds)">查看</el-button>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" align="center" width="80">
+                <template #default="{ row: ds }">
+                  <el-popconfirm title="确定要删除该实例数据集吗？" @confirm="handleDelete(ds.id)">
+                    <template #reference>
+                      <el-button link type="danger" size="small" @click.stop>删除</el-button>
+                    </template>
+                  </el-popconfirm>
+                </template>
+              </el-table-column>
+              <el-table-column prop="username" label="创建用户" align="center" width="120" show-overflow-tooltip />
+            </el-table>
+          </div>
             </div>
           </el-card>
         </div>
       </div>
-      <div class="split-layout__pager">
+      <div class="split-layout__pager app-list-footer">
         <el-pagination
           background
           size="small"
@@ -378,20 +397,7 @@
             </template>
           </el-table-column>
           <el-table-column prop="username" label="创建用户" align="center" />
-          <el-table-column label="训测划分" align="center" width="100">
-            <template #default="{ row }">
-              <el-tooltip
-                content="按训练集占全部图片的比例，将图像与成对标注随机拆分到训练目录与测试目录；若测试侧已有文件，会先合并回训练集再按新比例划分"
-                placement="top"
-                :show-after="200"
-              >
-                <el-button type="primary" link size="small" @click.stop="openInstanceSplitDialog(row)">
-                  训测划分
-                </el-button>
-              </el-tooltip>
-            </template>
-          </el-table-column>
-          <el-table-column label="示例" align="center" width="80">
+                    <el-table-column label="示例" align="center" width="80">
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="openInstancePreview(row)">
                 查看
@@ -524,95 +530,23 @@
         </el-button>
       </div>
     </el-drawer>
-
-    <!-- 预览弹窗 -->
-    <el-dialog
+    <DatasetPreviewDialog
       v-model="previewDialogVisible"
-      :title="previewRow ? `示例预览 - ${previewRow.name}` : '示例预览'"
-      width="60%"
-      top="5vh"
-    >
-      <div v-if="previewLoading" class="image-preview-dialog">
-        <div style="padding: 24px; text-align: center; color: #909399;">
-          图片加载中…
-        </div>
-      </div>
-      <div v-else-if="!previewGroups.length" class="image-preview-dialog">
-        <div style="padding: 24px; text-align: center; color: #909399;">
-          暂无可展示的示例图片
-        </div>
-      </div>
-      <div v-else class="image-preview-dialog">
-        <div
-          class="category-section"
-          v-for="group in previewGroups"
-          :key="group.name"
-        >
-          <div class="category-header">
-            <h3 class="category-title">
-              <el-tag style="margin-right: 8px; opacity: 0.7;">
-                <el-text style="color: black; opacity: 1;">
-                  {{ group.name }}
-                </el-text>
-              </el-tag>
-              <span>示例图片 ({{ group.images.length }} 张)</span>
-            </h3>
-            <el-button
-              size="small"
-              type="primary"
-              plain
-              :loading="groupRefreshing[group.name] === true"
-              @click="refreshPreviewGroup(group.name)"
-            >
-              换一换
-            </el-button>
-          </div>
-          <div class="image-row">
-            <div
-              v-for="(src, index) in group.images"
-              :key="group.name + '-' + index"
-              class="image-item-square"
-            >
-              <svg
-                v-if="objectsMeta[src]?.width && objectsMeta[src]?.height"
-                class="anno-svg-square"
-                :viewBox="`0 0 ${objectsMeta[src].width} ${objectsMeta[src].height}`"
-                preserveAspectRatio="xMidYMid meet"
-              >
-                <image
-                  :href="src"
-                  :width="objectsMeta[src].width"
-                  :height="objectsMeta[src].height"
-                />
-                <g v-for="(obj, idx2) in objectsMeta[src].objects || []" :key="idx2">
-                  <polygon :points="pointsAttr(obj.points)" class="anno-poly" />
-                </g>
-              </svg>
-              <img
-                v-else
-                :src="src"
-                alt="示例图片"
-                class="anno-fallback-square"
-                @error="onPreviewImgError($event)"
-                @load="ensurePreviewAnno(src)"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-      <template #footer>
-        <el-button @click="previewDialogVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
+      :title="previewRow ? `查看示例 - ${previewRow.name}` : '查看示例'"
+      empty-description="暂无可展示的示例图片"
+      :load-preview="loadInstancePreview"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, computed, watch, nextTick } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { TaskDatasetService, InstanceDatasetService, SourceInstanceDatasetService } from '@/api/api'
 import { useRouter } from 'vue-router'
-import { request } from '@/api/axios'
+import { baseHost, request } from '@/api/axios'
+import DatasetPreviewDialog from '@/components/dataset/DatasetPreviewDialog.vue'
+import { ArrowDown } from '@element-plus/icons-vue'
 
 const router = useRouter()
 
@@ -630,14 +564,10 @@ const emit = defineEmits(['update:taskViewAsTable'])
 const localTaskViewAsTable = ref(true)
 
 const effectiveTaskViewAsTable = computed({
-  get: () => (props.taskViewAsTable !== undefined ? props.taskViewAsTable : localTaskViewAsTable.value),
-  set: (v) => {
-    if (props.taskViewAsTable !== undefined) emit('update:taskViewAsTable', v)
-    else localTaskViewAsTable.value = v
-  }
+  get: () => true,
+  set: () => {}
 })
 
-// 左侧任务数据集
 const taskDatasetList = ref([])
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -649,14 +579,12 @@ const useInstanceUnifiedPanel = computed(
   () => props.embedMode && props.embedUnifiedToolbar
 )
 const selectedTask = ref(null)
-// ✅ 修改：使用 selectedTaskId (number 类型)
 const selectedTaskId = ref(null)
 
-// 右侧实例数据集
 const instanceDatasetList = ref([])
+const allInstanceDatasetList = ref([])
 const instanceLoading = ref(false)
 const instanceDrawerVisible = ref(false)
-
 const instanceSplitDialogVisible = ref(false)
 const instanceSplitRow = ref(null)
 const instanceSplitTrainRatio = ref(0.8)
@@ -783,6 +711,41 @@ const instanceTasksForTable = computed(() => {
   return list
 })
 
+
+
+const instanceDatasetChildrenByFather = computed(() => {
+  const map = new Map()
+  for (const item of allInstanceDatasetList.value || []) {
+    const father = item?.fatherName || item?.father_name || ''
+    if (!father) continue
+    if (!map.has(father)) map.set(father, [])
+    map.get(father).push({
+      ...item,
+      __rowType: 'child',
+      treeKey: `instance-${item.id || item.name}`
+    })
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => String(b?.createdTime || b?.created_time || '').localeCompare(String(a?.createdTime || a?.created_time || '')))
+  }
+  return map
+})
+
+const instanceTreeRowsForTable = computed(() => {
+  return instanceTasksForTable.value.map((task, index) => ({
+    ...task,
+    __rowType: 'parent',
+    __parentIndex: index,
+    treeKey: `task-${task.id || task.name}`,
+    children: instanceDatasetChildrenByFather.value.get(task.name) || []
+  }))
+})
+
+function formatConfigList(configStr) {
+  const list = parseConfigList(configStr)
+  if (!list.length) return '-'
+  return list.map(item => item.name).filter(Boolean).join(' → ') || '-'
+}
 function clearInstanceToolbarFilters() {
   instanceToolbarSearch.value = ''
   colFilterSensor.value = []
@@ -796,6 +759,7 @@ function clearInstanceToolbarSort() {
   if (useInstanceUnifiedPanel.value) currentPage.value = 1
   nextTick(() => instanceTaskTableRef.value?.clearSort?.())
 }
+
 
 watch(instanceToolbarSearch, () => {
   if (useInstanceUnifiedPanel.value) currentPage.value = 1
@@ -997,9 +961,7 @@ const handleDelete = async (id) => {
     const response = await InstanceDatasetService.deleteById(id)
     if (response && response.code === 0) {
       ElMessage.success('删除成功')
-      if (selectedTask.value) {
-        fetchInstanceList(selectedTask.value.name)
-      }
+      await fetchAllInstanceDatasets()
     } else {
       ElMessage.error(response?.msg || '删除失败')
     }
@@ -1009,43 +971,46 @@ const handleDelete = async (id) => {
   }
 }
 
+function normalizeBackendUrl(url) {
+  if (!url) return ''
+  try {
+    const parsed = new URL(url, window.location.origin)
+    return `${window.location.protocol}//${baseHost}${parsed.pathname}${parsed.search}`
+  } catch (_) {
+    const path = String(url).startsWith('/') ? String(url) : `/${url}`
+    return `${window.location.protocol}//${baseHost}${path}`
+  }
+}
+
+function normalizePreviewImageItem(item) {
+  if (typeof item === 'string') {
+    const src = normalizeBackendUrl(item)
+    return { url: item, src, fileName: '', width: 0, height: 0, objects: [] }
+  }
+  const rawUrl = item?.url || item?.src || ''
+  return {
+    ...item,
+    url: rawUrl,
+    src: normalizeBackendUrl(rawUrl),
+    fileName: item?.fileName || item?.file_name || item?.name || '',
+    width: Number(item?.width || 0),
+    height: Number(item?.height || 0),
+    objects: Array.isArray(item?.objects) ? item.objects : []
+  }
+}
+const loadInstancePreview = ({ perLabel = 3 } = {}) => {
+  if (!previewRow.value?.id) throw new Error('缺少实例数据集ID')
+  return request(
+    `/instanceDataset/${previewRow.value.id}/preview`,
+    { perLabel },
+    'get',
+    'application/json'
+  )
+}
 // 预览功能
 const openInstancePreview = async (row) => {
   previewRow.value = row
   previewDialogVisible.value = true
-  previewLoading.value = true
-  previewGroups.value = []
-  objectsMeta.value = {}
-  try {
-    const res = await request(
-      `/instanceDataset/${row.id}/preview`,
-      { perLabel: 3 },
-      'get',
-      'application/json'
-    )
-    const obj = typeof res === 'string' ? JSON.parse(res) : res
-    const data = obj.data || obj
-    const items = Array.isArray(data.items) ? data.items : []
-    const groups = items.map(it => {
-      const name = it.label || it.className || it.name || '未命名'
-      const images = Array.isArray(it.images)
-        ? it.images
-        : Array.isArray(it.urls)
-          ? it.urls
-          : []
-      return { name, images }
-    })
-    previewGroups.value = groups
-    groupRefreshing.value = {}
-    setTimeout(() => {
-      groups.forEach(g => g.images.forEach(src => ensurePreviewAnno(src)))
-    }, 0)
-  } catch (e) {
-    console.error('加载实例示例失败', e)
-    ElMessage.error('加载示例失败：' + (e?.message || e))
-  } finally {
-    previewLoading.value = false
-  }
 }
 
 const refreshPreviewGroup = async (groupName) => {
@@ -1070,11 +1035,12 @@ const refreshPreviewGroup = async (groupName) => {
       : hit && Array.isArray(hit.urls)
         ? hit.urls
         : []
+    const fixedImages = images.map(normalizePreviewImageItem)
     previewGroups.value = previewGroups.value.map(g => (
-      g.name === groupName ? { ...g, images } : g
+      g.name === groupName ? { ...g, images: fixedImages } : g
     ))
     setTimeout(() => {
-      images.forEach(src => ensurePreviewAnno(src))
+      fixedImages.forEach(image => ensurePreviewAnno(image))
     }, 0)
   } catch (e) {
     ElMessage.error('换一换失败：' + (e?.message || e))
@@ -1087,8 +1053,19 @@ function subsetObjectsUrlFromImageUrl(imgUrl) {
   return imgUrl.replace('/image?', '/objects?')
 }
 
-async function ensurePreviewAnno(src) {
-  if (objectsMeta.value[src]) return
+async function ensurePreviewAnno(image) {
+  const src = typeof image === 'string' ? image : image?.src
+  if (!src) return
+  if (typeof image === 'object' && image.width && image.height && Array.isArray(image.objects) && image.objects.length) return
+  if (objectsMeta.value[src]) {
+    const cached = objectsMeta.value[src]
+    if (typeof image === 'object') {
+      image.width = Number(cached.width || image.width || 0)
+      image.height = Number(cached.height || image.height || 0)
+      image.objects = Array.isArray(cached.objects) ? cached.objects : []
+    }
+    return
+  }
   try {
     const url = subsetObjectsUrlFromImageUrl(src)
     const resp = await fetch(url)
@@ -1096,16 +1073,39 @@ async function ensurePreviewAnno(src) {
     const data = res?.data || res
     if (data && (data.width || Array.isArray(data.objects))) {
       objectsMeta.value = { ...objectsMeta.value, [src]: data }
+      if (typeof image === 'object') {
+        image.width = Number(data.width || image.width || 0)
+        image.height = Number(data.height || image.height || 0)
+        image.objects = Array.isArray(data.objects) ? data.objects : []
+      }
     }
   } catch (e) {
     console.warn('加载实例标注失败', src, e)
   }
 }
 
-function pointsAttr(points) {
-  return Array.isArray(points) ? points.map(p => p.join(',')).join(' ') : ''
+function normalizePreviewPoint(point) {
+  if (Array.isArray(point)) return [Number(point[0] || 0), Number(point[1] || 0)]
+  if (typeof point === 'string') {
+    const parts = point.trim().split(/[\s,]+/).map(Number)
+    if (parts.length >= 2 && parts.every(Number.isFinite)) return [parts[0], parts[1]]
+  }
+  return null
 }
 
+function pointsAttr(points) {
+  if (!Array.isArray(points)) return ''
+  return points
+    .map(normalizePreviewPoint)
+    .filter(Boolean)
+    .map(point => point.join(','))
+    .join(' ')
+}
+
+function firstPoint(points) {
+  if (!Array.isArray(points)) return null
+  return normalizePreviewPoint(points[0])
+}
 function onPreviewImgError(e) {
   e.target.style.display = 'none'
   if (e.target.parentElement) {
@@ -1145,20 +1145,17 @@ const fetchTaskList = async () => {
 }
 
 // 获取实例数据集列表（根据 father_name 过滤）
-const fetchInstanceList = async (fatherName) => {
-  if (!fatherName) {
-    instanceDatasetList.value = []
-    return
-  }
+const fetchAllInstanceDatasets = async () => {
   instanceLoading.value = true
   try {
     const res = await InstanceDatasetService.queryList()
-    const filtered = Array.isArray(res) 
-      ? res.filter(item => item.fatherName === fatherName)
-      : []
-    instanceDatasetList.value = filtered
+    allInstanceDatasetList.value = Array.isArray(res) ? res : []
+    if (selectedTask.value?.name) {
+      instanceDatasetList.value = allInstanceDatasetList.value.filter(item => item.fatherName === selectedTask.value.name)
+    }
   } catch (error) {
     console.error('加载实例数据集失败:', error)
+    allInstanceDatasetList.value = []
     instanceDatasetList.value = []
     ElMessage.error('实例数据集加载失败')
   } finally {
@@ -1166,31 +1163,71 @@ const fetchInstanceList = async (fatherName) => {
   }
 }
 
-// ✅ 点击任务数据集行（支持选中/取消；排除表头筛选/排序区域）
+const fetchInstanceList = async (fatherName) => {
+  if (!fatherName) {
+    instanceDatasetList.value = []
+    return
+  }
+  if (!allInstanceDatasetList.value.length) {
+    await fetchAllInstanceDatasets()
+  }
+  instanceDatasetList.value = allInstanceDatasetList.value.filter(item => item.fatherName === fatherName)
+}
+
 const handleTaskRowClick = (row, _column, event) => {
   if (event?.target) {
     if (event.target.closest('.el-table__column-filter-trigger')) return
+    if (event.target.closest('.el-table__expand-icon')) return
     if (event.target.closest('.el-popper')) return
-    if (event.target.closest('button, .el-button')) return
+    if (event.target.closest('button, .el-button, .el-dropdown, a, input, textarea')) return
   }
-  if (selectedTaskId.value === row.id) {
-    selectedTask.value = null
-    selectedTaskId.value = null
-    instanceDatasetList.value = []
-    instanceDrawerVisible.value = false
+  if (row?.__rowType === 'child') {
+    openInstancePreview(row)
     return
   }
   handleTaskSelect(row)
+  nextTick(() => {
+    instanceTaskTableRef.value?.toggleRowExpansion?.(row)
+  })
 }
 
-// ✅ 处理单选按钮选择
 const handleTaskSelect = (row) => {
   selectedTask.value = row
-  selectedTaskId.value = row.id // number 类型
+  selectedTaskId.value = row.id
   fetchInstanceList(row.name)
-  instanceDrawerVisible.value = true
+  instanceDrawerVisible.value = false
 }
 
+const openInstanceDatasetPath = async (row) => {
+  if (!row?.id) return
+  try {
+    const res = await InstanceDatasetService.openPath(row.id)
+    if (res?.code !== 0) {
+      ElMessage.error(res?.msg || '打开路径失败')
+      return
+    }
+    ElMessage.success('已打开实例数据集目录')
+  } catch (e) {
+    ElMessage.error('打开路径失败：' + (e?.message || e))
+  }
+}
+
+const handleInstanceRowCommand = async (command, row) => {
+  if (!row) return
+  if (command === 'preview') return openInstancePreview(row)
+  if (command === 'openPath') return openInstanceDatasetPath(row)
+  if (command === 'split') return openInstanceSplitDialog(row)
+  if (command === 'delete') {
+    try {
+      await ElMessageBox.confirm(
+        `确定要删除实例数据集“${row.name || row.id}”吗？`,
+        '删除确认',
+        { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+      )
+      await handleDelete(row.id)
+    } catch (_) {}
+  }
+}
 function openInstanceSplitDialog(row) {
   instanceSplitRow.value = row
   instanceSplitTrainRatio.value = 0.8
@@ -1215,9 +1252,7 @@ async function submitInstanceRandomSplit() {
         `划分完成：训练集 ${d.trainImages ?? 0} 张图，测试集 ${d.testImages ?? 0} 张图`
       )
       instanceSplitDialogVisible.value = false
-      if (selectedTask.value) {
-        await fetchInstanceList(selectedTask.value.name)
-      }
+      await fetchAllInstanceDatasets()
     } else {
       ElMessage.error(response?.msg || '划分失败')
     }
@@ -1306,7 +1341,7 @@ const saveTrainTestSplit = async () => {
     const res = await TaskDatasetService.saveTrainTestSplit(payload)
     if (res?.code === 0) {
       ElMessage.success(`成功保存 ${allTestPlans.length} 个划分方案`)
-      fetchInstanceList(selectedTrainTestDataset.value.name)
+      fetchAllInstanceDatasets()
       
       // 新增：保存成功后跳转到预处理页面
       drawerVisible.value = false
@@ -1325,7 +1360,8 @@ const handleCloseDrawer = () => {
 }
 
 // ✅ 行高亮（基于 number 类型比较）
-const getRowClassName = ({ row }) => {
+const getTreeRowClassName = ({ row }) => {
+  if (row.__rowType === 'child') return 'instance-child-row'
   return row.id === selectedTaskId.value ? 'selected-row' : ''
 }
 
@@ -1382,6 +1418,7 @@ const selectDiversePlans = (allPlans, limit) => {
 // 初始化
 onMounted(() => {
   fetchTaskList()
+  fetchAllInstanceDatasets()
   loadMidClassSummaries()
 })
 </script>
@@ -1405,17 +1442,19 @@ onMounted(() => {
 
 .original-dataset-toolbar-row {
   margin-bottom: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px 12px;
+  width: 100%;
+  min-width: 0;
 }
 
 .original-dataset-toolbar-row__right {
-  flex-shrink: 0;
+  flex: 0 0 auto;
   align-items: center;
 }
 
 .original-dataset-toolbar-search {
-  width: 220px;
+  width: 280px;
 }
 
 .flex-between {
@@ -1518,6 +1557,11 @@ onMounted(() => {
   color: #333;
   font-size: 18px;
 }
+/* 隐藏实例数据集卡片模式入口 */
+.task-title-toolbar {
+  display: none;
+}
+
 .task-title-row {
   display: flex;
   align-items: center;
@@ -1583,8 +1627,8 @@ onMounted(() => {
   display: none !important;
 }
 
-.task-title-toolbar {
-  display: flex;
+ .task-title-toolbar {
+  display: none !important;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
@@ -1702,17 +1746,35 @@ onMounted(() => {
   background: #fff;
   position: relative;
 }
-.anno-svg-square,
 .anno-fallback-square {
   width: 100%;
   aspect-ratio: 1 / 1;
   display: block;
-  object-fit: cover;
+  object-fit: contain;
+  background: #fff;
+}
+
+.anno-svg-square {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
 }
 .anno-poly {
   fill: rgba(59, 130, 246, 0.12);
   stroke: #3b82f6;
   stroke-width: 2;
+}
+
+.anno-label {
+  fill: #fff;
+  stroke: rgba(0, 0, 0, 0.55);
+  stroke-width: 3;
+  paint-order: stroke;
+  font-size: 13px;
+  font-weight: 700;
 }
 .image-item-square:hover {
   box-shadow: 0 4px 12px rgba(0,0,0,.1);
@@ -1728,6 +1790,47 @@ onMounted(() => {
   }
 }
 
+
+.instance-inline-panel {
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+}
+
+.instance-inline-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.instance-inline-panel__title {
+  font-weight: 600;
+  color: #303133;
+}
+
+.instance-inline-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #909399;
+  font-size: 12px;
+}
+
+.instance-inline-panel__hint {
+  color: #909399;
+}
+
+.instance-inline-panel--card {
+  margin-top: 12px;
+}
+
+.instance-inline-table {
+  border-radius: 6px;
+  overflow: hidden;
+}
 .instance-drawer-task-split-hint {
   margin: 0 0 10px;
   font-size: 13px;

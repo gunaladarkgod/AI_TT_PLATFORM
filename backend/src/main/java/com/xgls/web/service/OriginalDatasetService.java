@@ -14,6 +14,7 @@ import com.xgls.web.entity.TaskDataset;
 import com.xgls.web.mapper.OriginalDatasetMapper;
 import com.xgls.web.mapper.TaskDatasetMapper;
 import com.xgls.web.utils.SessionUtil;
+import com.xgls.web.utils.WorkspacePathUtil;
 import com.xgls.web.vo.dataset.MarkSubsetsReq;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,10 +27,12 @@ import org.springframework.web.multipart.MultipartFile;
 import javax.swing.JFileChooser;
 import javax.swing.SwingUtilities;
 import java.awt.GraphicsEnvironment;
+import java.io.IOException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -54,12 +57,13 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
     private String publicBaseUrl;
 
     /** 原始数据集根目录（用于保存外部导入注册表） */
-    @Value("${sys.original-dataset-root:/home/omen1/AI_TT_Platform/data/original_dataset}")
+    @Value("${sys.original-dataset-root:data/original_dataset}")
     private String originalDatasetRoot;
 
-    /** 当库里 data_path 为空时的回落目录（你提供的实际根） */
-    private static final Path DEFAULT_DATA_ROOT =
-            Paths.get("/home/cs303-1/AI_TT_Platform/data/original_dataset");
+    /** 库里 data_path 为空时回落到项目根目录下的数据目录。 */
+    private Path defaultDataRoot() {
+        return WorkspacePathUtil.resolveConfiguredPath(originalDatasetRoot, "data/original_dataset");
+    }
 
     /* ====================== 任务数据集：标记 + 物化 ====================== */
 
@@ -228,7 +232,11 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
     /* ====================== 外部导入数据集（注册表） ====================== */
 
     public AjaxResult validateExternalDatasetPath(String rawPath) {
-        ScanStat stat = scanExternalDataset(rawPath);
+        return validateExternalDatasetPath(rawPath, null);
+    }
+
+    public AjaxResult validateExternalDatasetPath(String rawPath, String annotationDir) {
+        ScanStat stat = scanExternalDataset(rawPath, annotationDir);
         if (!stat.valid) {
             return AjaxResult.error(stat.errorMsg);
         }
@@ -239,6 +247,8 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         data.put("annoNum", stat.boxCount);
         data.put("classNum", stat.classMap.size());
         data.put("classList", JSONUtil.toJsonStr(stat.classMap));
+        data.put("annotationDir", stat.annotationDirName);
+        data.put("annotationDirCandidates", stat.annotationDirCandidates);
         return AjaxResult.success(data);
     }
 
@@ -333,11 +343,15 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
     }
 
     public AjaxResult importExternalDataset(String name, String rawPath) {
+        return importExternalDataset(name, rawPath, null);
+    }
+
+    public AjaxResult importExternalDataset(String name, String rawPath, String annotationDir) {
         String dsName = StrUtil.trimToEmpty(name);
         if (StrUtil.isBlank(dsName)) {
             return AjaxResult.error("数据集显示名称不能为空");
         }
-        ScanStat stat = scanExternalDataset(rawPath);
+        ScanStat stat = scanExternalDataset(rawPath, annotationDir);
         if (!stat.valid) {
             return AjaxResult.error(stat.errorMsg);
         }
@@ -352,6 +366,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             RegistryItem n = new RegistryItem();
             n.name = dsName;
             n.path = stat.datasetRoot.toString().replace("\\", "/");
+            n.annotationDir = stat.annotationDirName;
             n.createdTime = LocalDateTime.now().toString();
             items.add(n);
             writeExternalRegistry(items);
@@ -392,7 +407,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         }
         Path uploadedRoot = null;
         try {
-            Path base = Paths.get(firstNonBlank(originalDatasetRoot, DEFAULT_DATA_ROOT.toString()))
+            Path base = defaultDataRoot()
                     .resolve("external_uploaded")
                     .resolve(System.currentTimeMillis() + "_" + UUID.randomUUID().toString().replace("-", ""))
                     .normalize();
@@ -426,7 +441,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             if (!Files.isDirectory(uploadedRoot)) {
                 return AjaxResult.error("上传后目录结构异常");
             }
-            return importExternalDataset(dsName, uploadedRoot.toString());
+            return importExternalDataset(dsName, uploadedRoot.toString(), null);
         } catch (Exception e) {
             log.warn("importExternalDatasetByUpload failed, name={}", dsName, e);
             return AjaxResult.error("上传导入失败: " + e.getMessage());
@@ -481,7 +496,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             if (!name.equals(StrUtil.trimToEmpty(it.name))) {
                 continue;
             }
-            ScanStat stat = scanExternalDataset(it.path);
+            ScanStat stat = scanExternalDataset(it.path, it.annotationDir);
             if (stat.valid && stat.classMap != null) {
                 for (Map.Entry<String, Integer> e : stat.classMap.entrySet()) {
                     out.put(e.getKey(), e.getValue().longValue());
@@ -497,7 +512,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         List<RegistryItem> items = readExternalRegistry();
         for (int i = 0; i < items.size(); i++) {
             RegistryItem it = items.get(i);
-            ScanStat stat = scanExternalDataset(it.path);
+            ScanStat stat = scanExternalDataset(it.path, it.annotationDir);
             Map<String, Object> row = new LinkedHashMap<String, Object>();
             row.put("id", "ext-" + i + "-" + Math.abs(Objects.hash(it.name, it.path)));
             row.put("name", it.name);
@@ -507,6 +522,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             row.put("data_source", "外部导入");
             row.put("is_external", true);
             row.put("external_path", it.path);
+            row.put("annotation_dir", stat.annotationDirName);
             if (stat.valid) {
                 row.put("img_num", stat.imageCount);
                 row.put("anno_num", stat.boxCount);
@@ -525,9 +541,25 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
     }
 
     public AjaxResult browseExternalDirs(String base) {
-        Path root = resolveBrowseRoot();
+        boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+        // Windows 保持原有的盘符浏览行为；Linux 从文件系统根目录开始，允许浏览
+        // 后端进程有权限访问的任意绝对路径，而不是限制在 data 目录附近。
+        Path root = windows ? resolveBrowseRoot() : Paths.get("/").normalize();
+        if (windows && StrUtil.isBlank(base)) {
+            List<String> roots = new ArrayList<String>();
+            for (Path p : FileSystems.getDefault().getRootDirectories()) {
+                roots.add(p.toString().replace("\\", "/"));
+            }
+            roots.sort(String::compareToIgnoreCase);
+            Map<String, Object> data = new LinkedHashMap<String, Object>();
+            data.put("root", "");
+            data.put("base", "");
+            data.put("parent", null);
+            data.put("dirs", roots);
+            return AjaxResult.success(data);
+        }
         Path cur = StrUtil.isBlank(base) ? root : Paths.get(base).normalize();
-        if (!cur.startsWith(root)) {
+        if (!windows && (!cur.isAbsolute() || !cur.startsWith(root))) {
             return AjaxResult.error("非法路径：超出可浏览范围");
         }
         if (!Files.isDirectory(cur)) {
@@ -547,7 +579,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             data.put("root", root.toString().replace("\\", "/"));
             data.put("base", cur.toString().replace("\\", "/"));
             Path parent = cur.getParent();
-            data.put("parent", (parent != null && parent.startsWith(root)) ? parent.toString().replace("\\", "/") : null);
+            data.put("parent", (parent != null && (windows || parent.startsWith(root))) ? parent.toString().replace("\\", "/") : null);
             data.put("dirs", dirs);
             return AjaxResult.success(data);
         } catch (Exception e) {
@@ -584,7 +616,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             if (StrUtil.isNotBlank(od.getDataPath())) {
                 imagesDir = resolveImagesDir(Paths.get(od.getDataPath()).normalize());
             } else {
-                imagesDir = resolveImagesDir(DEFAULT_DATA_ROOT.resolve(String.valueOf(od.getProjectId())).normalize());
+                imagesDir = resolveImagesDir(defaultDataRoot().resolve(String.valueOf(od.getProjectId())).normalize());
             }
             if (imagesDir == null) {
                 return AjaxResult.error("数据集图片目录不存在");
@@ -680,6 +712,38 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
      * 返回：每个标签各取 perLabel 张示例图片（绝对 URL）
      * @param baseUrl 形如 http://127.0.0.1:8081（可传 null，内部会回落）
      */
+    public AjaxResult getExternalDotaObjects(String datasetPath, String relImgPath) {
+        if (StrUtil.isBlank(datasetPath) || StrUtil.isBlank(relImgPath)) return AjaxResult.error("missing params");
+        try {
+            Path root = Paths.get(datasetPath).normalize();
+            Path imagesDir = resolveImagesDir(root);
+            if (imagesDir == null) return AjaxResult.error("image dir not found");
+            Path datasetRoot = imagesDir.getParent();
+            if (datasetRoot == null) return AjaxResult.error("dataset root invalid");
+            Path annDir = resolveRegisteredAnnotationDir(datasetRoot);
+
+            String rel = relImgPath.replace("\\", "/");
+            while (rel.startsWith("/")) rel = rel.substring(1);
+            if (rel.contains("..")) return AjaxResult.error("invalid image path");
+            Path imgFile = imagesDir.resolve(rel).normalize();
+            if (!imgFile.startsWith(imagesDir) || !Files.isRegularFile(imgFile)) {
+                return AjaxResult.error("image not found");
+            }
+
+            int[] wh = readImageWH(imgFile);
+            List<Map<String, Object>> objects = readPreviewObjects(imagesDir, annDir, imgFile, wh);
+
+            Map<String, Object> payload = new LinkedHashMap<String, Object>();
+            payload.put("width", wh[0]);
+            payload.put("height", wh[1]);
+            payload.put("objects", objects);
+            return AjaxResult.success(payload);
+        } catch (Exception e) {
+            log.warn("getExternalDotaObjects failed, datasetPath={}, img={}", datasetPath, relImgPath, e);
+            return AjaxResult.error("read annotations failed");
+        }
+    }
+
     public AjaxResult previewSamples(Long datasetId, Integer perLabel, String baseUrl) {
         if (datasetId == null) return AjaxResult.error("datasetId 为空");
 
@@ -731,7 +795,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
 
     /**
      * 图片二进制直出：基于 original_dataset.data_path + img_name
-     * 当 data_path 为空时，回落到 DEFAULT_DATA_ROOT/{projectId}/images
+     * 当 data_path 为空时，回落到项目根目录下 data/original_dataset/{projectId}/images
      */
     public void streamImage(Long datasetId, String imgName, jakarta.servlet.http.HttpServletResponse resp) throws java.io.IOException {
         if (datasetId == null || StrUtil.isBlank(imgName)) { resp.setStatus(404); return; }
@@ -747,7 +811,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         if (StrUtil.isNotBlank(od.getDataPath())) {
             base = resolveImagesDir(Paths.get(od.getDataPath()).normalize());
         } else {
-            base = resolveImagesDir(DEFAULT_DATA_ROOT.resolve(String.valueOf(od.getProjectId())).normalize());
+            base = resolveImagesDir(defaultDataRoot().resolve(String.valueOf(od.getProjectId())).normalize());
         }
         if (base == null) {
             resp.setStatus(404);
@@ -797,13 +861,11 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         try {
             Path imagesDir;
             if (StrUtil.isNotBlank(od.getDataPath())) {
-                imagesDir = Paths.get(od.getDataPath()).normalize(); // .../{projectId}/images
+                imagesDir = resolveImagesDir(Paths.get(od.getDataPath()).normalize());
             } else {
-                imagesDir = DEFAULT_DATA_ROOT
-                        .resolve(String.valueOf(od.getProjectId()))
-                        .resolve("images")
-                        .normalize();
+                imagesDir = resolveImagesDir(defaultDataRoot().resolve(String.valueOf(od.getProjectId())).normalize());
             }
+            if (imagesDir == null) return AjaxResult.error("图片目录不存在");
 
             Path rootDir = imagesDir.getParent(); // .../{projectId}
             if (rootDir == null) return AjaxResult.error("数据路径异常");
@@ -833,41 +895,17 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
 
             List<String> lines = Files.readAllLines(txtFile, StandardCharsets.UTF_8);
             List<Map<String, Object>> objects = new ArrayList<Map<String, Object>>();
+            int[] wh = readImageWH(imgFile);
 
             for (int li = 0; li < lines.size(); li++) {
                 String line = lines.get(li);
                 if (StrUtil.isBlank(line)) continue;
 
-                String[] parts = line.trim().split("\\s+");
-                if (parts.length < 9) continue;
-
-                double[] v = new double[8];
-                try {
-                    for (int i = 0; i < 8; i++) v[i] = Double.parseDouble(parts[i]);
-                } catch (Exception e) {
-                    continue;
+                Map<String, Object> one = parseTxtObjectLine(line, wh);
+                if (one != null) {
+                    objects.add(one);
                 }
-
-                String label = parts[8];
-                int difficult = 0;
-                if (parts.length >= 10) {
-                    try { difficult = Integer.parseInt(parts[9]); } catch (Exception ignore) {}
-                }
-
-                List<List<Double>> pts = new ArrayList<List<Double>>(4);
-                pts.add(Arrays.asList(v[0], v[1]));
-                pts.add(Arrays.asList(v[2], v[3]));
-                pts.add(Arrays.asList(v[4], v[5]));
-                pts.add(Arrays.asList(v[6], v[7]));
-
-                Map<String, Object> one = new LinkedHashMap<String, Object>();
-                one.put("points", pts);
-                one.put("label", label);
-                one.put("difficult", difficult);
-                objects.add(one);
             }
-
-            int[] wh = readImageWH(imgFile);
 
             Map<String, Object> payload = new LinkedHashMap<String, Object>();
             payload.put("width", wh[0]);
@@ -881,6 +919,125 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         }
     }
 
+    private List<Map<String, Object>> readPreviewObjects(Path imagesDir, Path annDir, Path imgFile, int[] wh) throws IOException {
+        List<Map<String, Object>> objects = new ArrayList<Map<String, Object>>();
+        String baseName = imgFile.getFileName().toString().replaceAll("\\.[^.]+$", "");
+        Path txtFile = annDir.resolve(baseName + ".txt").normalize();
+        if (txtFile.startsWith(annDir) && Files.isRegularFile(txtFile)) {
+            List<String> lines = Files.readAllLines(txtFile, StandardCharsets.UTF_8);
+            for (String line : lines) {
+                Map<String, Object> one = parseTxtObjectLine(line, wh);
+                if (one != null) objects.add(one);
+            }
+            return objects;
+        }
+        objects.addAll(readCocoObjectsForImage(imagesDir, annDir, imgFile));
+        return objects;
+    }
+
+    private List<Map<String, Object>> readCocoObjectsForImage(Path imagesDir, Path annDir, Path imgFile) throws IOException {
+        List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+        if (!Files.isDirectory(annDir)) return out;
+        String relUnix = imagesDir.relativize(imgFile).toString().replace("\\", "/");
+        String fileName = imgFile.getFileName().toString();
+        String baseName = fileName.replaceAll("\\.[^.]+$", "");
+        try (Stream<Path> walk = Files.walk(annDir)) {
+            List<Path> jsonFiles = walk
+                    .filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".json"))
+                    .collect(Collectors.toList());
+            for (Path jsonFile : jsonFiles) {
+                out.addAll(readCocoObjectsFromFile(jsonFile, relUnix, fileName, baseName));
+                if (!out.isEmpty()) return out;
+            }
+        }
+        return out;
+    }
+
+    private List<Map<String, Object>> readCocoObjectsFromFile(Path jsonFile, String relUnix, String fileName, String baseName) {
+        List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+        try {
+            JSONObject root = JSONUtil.parseObj(Files.readString(jsonFile, StandardCharsets.UTF_8));
+            JSONArray images = root.getJSONArray("images");
+            JSONArray annotations = root.getJSONArray("annotations");
+            JSONArray categories = root.getJSONArray("categories");
+            if (images == null || annotations == null || categories == null) return out;
+
+            Set<Long> imageIds = new LinkedHashSet<Long>();
+            for (Object value : images) {
+                if (!(value instanceof JSONObject image)) continue;
+                Long id = image.getLong("id");
+                String oneFile = StrUtil.trimToEmpty(image.getStr("file_name"));
+                if (id == null || StrUtil.isBlank(oneFile)) continue;
+                String oneNorm = oneFile.replace("\\", "/");
+                String oneName = Paths.get(oneNorm).getFileName().toString();
+                String oneBase = oneName.replaceAll("\\.[^.]+$", "");
+                if (oneNorm.equals(relUnix) || oneName.equals(fileName) || oneBase.equals(baseName)) {
+                    imageIds.add(id);
+                }
+            }
+            if (imageIds.isEmpty()) return out;
+
+            Map<Integer, String> categoryNames = new HashMap<Integer, String>();
+            for (Object value : categories) {
+                if (!(value instanceof JSONObject category)) continue;
+                Integer id = category.getInt("id");
+                String name = category.getStr("name", "unknown");
+                if (id != null) categoryNames.put(id, name);
+            }
+
+            for (Object value : annotations) {
+                if (!(value instanceof JSONObject annotation)) continue;
+                Long imageId = annotation.getLong("image_id");
+                Integer categoryId = annotation.getInt("category_id");
+                if (imageId == null || !imageIds.contains(imageId)) continue;
+                Map<String, Object> one = cocoAnnotationToPreviewObject(annotation, categoryNames.getOrDefault(categoryId, "unknown"));
+                if (one != null) out.add(one);
+            }
+        } catch (Exception e) {
+            log.warn("read coco preview objects failed: {}", jsonFile, e);
+        }
+        return out;
+    }
+
+    private Map<String, Object> cocoAnnotationToPreviewObject(JSONObject annotation, String label) {
+        List<List<Double>> points = null;
+        JSONArray segmentation = annotation.getJSONArray("segmentation");
+        if (segmentation != null && !segmentation.isEmpty()) {
+            Object first = segmentation.get(0);
+            JSONArray polygon = first instanceof JSONArray ? (JSONArray) first : segmentation;
+            if (polygon != null && polygon.size() >= 6) {
+                points = new ArrayList<List<Double>>();
+                for (int i = 0; i + 1 < polygon.size(); i += 2) {
+                    points.add(Arrays.asList(jsonDouble(polygon.get(i)), jsonDouble(polygon.get(i + 1))));
+                }
+            }
+        }
+        if (points == null || points.isEmpty()) {
+            JSONArray bbox = annotation.getJSONArray("bbox");
+            if (bbox == null || bbox.size() < 4) return null;
+            double x = jsonDouble(bbox.get(0));
+            double y = jsonDouble(bbox.get(1));
+            double w = Math.max(0d, jsonDouble(bbox.get(2)));
+            double h = Math.max(0d, jsonDouble(bbox.get(3)));
+            points = Arrays.asList(
+                    Arrays.asList(x, y),
+                    Arrays.asList(x + w, y),
+                    Arrays.asList(x + w, y + h),
+                    Arrays.asList(x, y + h)
+            );
+        }
+        return buildObject(StrUtil.blankToDefault(label, "unknown"), 0, points);
+    }
+
+    private double jsonDouble(Object value) {
+        if (value instanceof Number number) return number.doubleValue();
+        try {
+            return Double.parseDouble(String.valueOf(value));
+        } catch (Exception e) {
+            return 0d;
+        }
+    }
     private int[] readImageWH(Path imgFile) {
         int w = 0, h = 0;
         try {
@@ -895,6 +1052,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
     private static class RegistryItem {
         String name;
         String path;
+        String annotationDir;
         String createdTime;
     }
 
@@ -902,14 +1060,15 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         boolean valid;
         String errorMsg;
         Path datasetRoot;
+        String annotationDirName;
+        List<String> annotationDirCandidates = new ArrayList<String>();
         int imageCount;
         int boxCount;
         Map<String, Integer> classMap = new LinkedHashMap<String, Integer>();
     }
 
     private Path externalRegistryPath() {
-        String root = firstNonBlank(originalDatasetRoot, DEFAULT_DATA_ROOT.toString());
-        Path base = Paths.get(root).normalize();
+        Path base = defaultDataRoot();
         try {
             Files.createDirectories(base);
         } catch (Exception e) {
@@ -947,6 +1106,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
                 RegistryItem ri = new RegistryItem();
                 ri.name = name;
                 ri.path = path;
+                ri.annotationDir = StrUtil.trimToEmpty(one.getStr("annotationDir"));
                 ri.createdTime = one.getStr("createdTime");
                 out.add(ri);
             }
@@ -964,6 +1124,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             JSONObject one = new JSONObject();
             one.put("name", it.name);
             one.put("path", it.path);
+            one.put("annotationDir", it.annotationDir);
             one.put("createdTime", it.createdTime);
             arr.add(one);
         }
@@ -971,7 +1132,65 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         Files.writeString(file, JSONUtil.toJsonPrettyStr(obj), StandardCharsets.UTF_8);
     }
 
+    private List<String> findAnnotationDirCandidates(Path root) {
+        List<String> out = new ArrayList<String>();
+        try (DirectoryStream<Path> dirs = Files.newDirectoryStream(root)) {
+            for (Path dir : dirs) {
+                if (!Files.isDirectory(dir) || dir.getFileName() == null) continue;
+                String name = dir.getFileName().toString();
+                String normalized = name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+                if (normalized.contains("annotation") || normalized.equals("anno") || normalized.equals("annos")
+                        || normalized.contains("label")) {
+                    out.add(name);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("scan annotation directory candidates failed: {}", e.getMessage());
+        }
+        out.sort((a, b) -> {
+            int pa = annotationDirPriority(a);
+            int pb = annotationDirPriority(b);
+            return pa != pb ? Integer.compare(pa, pb) : a.compareToIgnoreCase(b);
+        });
+        return out;
+    }
+
+    private int annotationDirPriority(String name) {
+        String n = StrUtil.trimToEmpty(name).toLowerCase(Locale.ROOT);
+        if ("annotations".equals(n)) return 0;
+        if ("labels".equals(n)) return 1;
+        if ("annotation".equals(n)) return 2;
+        if ("label".equals(n)) return 3;
+        if ("anno".equals(n) || "annos".equals(n)) return 4;
+        return 10;
+    }
+
+    private String chooseDefaultAnnotationDir(List<String> candidates) {
+        return candidates == null || candidates.isEmpty() ? "annotations" : candidates.get(0);
+    }
+
+    /** 预览时按注册表中保存的选择定位标注目录；老记录仍默认使用 annotations。 */
+    private Path resolveRegisteredAnnotationDir(Path datasetRoot) {
+        String normalizedRoot = datasetRoot.toAbsolutePath().normalize().toString();
+        for (RegistryItem item : readExternalRegistry()) {
+            try {
+                if (Paths.get(item.path).toAbsolutePath().normalize().toString().equals(normalizedRoot)) {
+                    String selected = StrUtil.blankToDefault(item.annotationDir, "annotations");
+                    Path resolved = datasetRoot.resolve(selected).normalize();
+                    if (resolved.getParent() != null && resolved.getParent().equals(datasetRoot)
+                            && Files.isDirectory(resolved)) return resolved;
+                }
+            } catch (Exception ignore) {
+            }
+        }
+        return datasetRoot.resolve("annotations").normalize();
+    }
+
     private ScanStat scanExternalDataset(String rawPath) {
+        return scanExternalDataset(rawPath, null);
+    }
+
+    private ScanStat scanExternalDataset(String rawPath, String selectedAnnotationDir) {
         ScanStat stat = new ScanStat();
         String p = StrUtil.trimToEmpty(rawPath);
         if (StrUtil.isBlank(p)) {
@@ -994,12 +1213,37 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
             return stat;
         }
 
-        Path annDir = root.resolve("annotations").normalize();
-        if (!Files.isDirectory(annDir)) {
+        stat.annotationDirCandidates = findAnnotationDirCandidates(root);
+        String annName = StrUtil.trimToEmpty(selectedAnnotationDir);
+        // 首次校验尚未由用户指定目录时，按优先级逐个尝试候选目录。
+        // 例如 VisDrone 的 annotations 是原始 CSV，而 labels 是可训练的 YOLO；
+        // 不能因为优先级更高的 annotations 不可解析，就阻止前端拿到候选列表。
+        if (StrUtil.isBlank(annName) && stat.annotationDirCandidates.size() > 1) {
+            ScanStat firstFailure = null;
+            for (String candidate : stat.annotationDirCandidates) {
+                ScanStat candidateStat = scanExternalDataset(rawPath, candidate);
+                if (candidateStat.valid) return candidateStat;
+                if (firstFailure == null) firstFailure = candidateStat;
+            }
+            if (firstFailure != null) return firstFailure;
+        }
+        if (StrUtil.isBlank(annName)) {
+            annName = chooseDefaultAnnotationDir(stat.annotationDirCandidates);
+        }
+        if (annName.contains("/") || annName.contains("\\") || annName.contains("..")) {
             stat.valid = false;
-            stat.errorMsg = "路径无效：缺少 annotations 目录";
+            stat.errorMsg = "标注目录必须是数据集根目录下的直接子目录";
             return stat;
         }
+        Path annDir = root.resolve(annName).normalize();
+        if (!annDir.getParent().equals(root) || !Files.isDirectory(annDir)) {
+            stat.valid = false;
+            stat.errorMsg = stat.annotationDirCandidates.isEmpty()
+                    ? "路径无效：未发现 annotations、labels、anno 等标注目录"
+                    : "路径无效：所选标注目录不存在";
+            return stat;
+        }
+        stat.annotationDirName = annDir.getFileName().toString();
 
         try {
             long imgCnt;
@@ -1021,11 +1265,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
                         if (StrUtil.isBlank(line)) {
                             continue;
                         }
-                        String[] parts = line.trim().split("\\s+");
-                        if (parts.length < 9) {
-                            continue;
-                        }
-                        String cls = parts[8].trim();
+                        String cls = parseTxtClassName(line);
                         if (StrUtil.isBlank(cls)) {
                             continue;
                         }
@@ -1072,6 +1312,109 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
                 || n.endsWith(".bmp") || n.endsWith(".tif") || n.endsWith(".tiff") || n.endsWith(".webp");
     }
 
+    private String parseTxtClassName(String line) {
+        if (StrUtil.isBlank(line)) {
+            return null;
+        }
+        String[] parts = line.trim().split("\\s+");
+        if (parts.length >= 9) {
+            String cls = parts[8].trim();
+            return StrUtil.isBlank(cls) ? null : cls;
+        }
+        if (parts.length == 5 && isNumeric(parts[0]) && isNumeric(parts[1])
+                && isNumeric(parts[2]) && isNumeric(parts[3]) && isNumeric(parts[4])) {
+            return "class_" + normalizeClassId(parts[0]);
+        }
+        return null;
+    }
+
+    private Map<String, Object> parseTxtObjectLine(String line, int[] wh) {
+        if (StrUtil.isBlank(line)) {
+            return null;
+        }
+        String[] parts = line.trim().split("\\s+");
+        if (parts.length >= 9) {
+            double[] v = new double[8];
+            try {
+                for (int i = 0; i < 8; i++) v[i] = Double.parseDouble(parts[i]);
+            } catch (Exception e) {
+                return null;
+            }
+            String label = parts[8];
+            int difficult = 0;
+            if (parts.length >= 10) {
+                try { difficult = Integer.parseInt(parts[9]); } catch (Exception ignore) {}
+            }
+            return buildObject(label, difficult, Arrays.asList(
+                    Arrays.asList(v[0], v[1]),
+                    Arrays.asList(v[2], v[3]),
+                    Arrays.asList(v[4], v[5]),
+                    Arrays.asList(v[6], v[7])
+            ));
+        }
+
+        if (parts.length == 5 && isNumeric(parts[0]) && isNumeric(parts[1])
+                && isNumeric(parts[2]) && isNumeric(parts[3]) && isNumeric(parts[4])) {
+            double cx = Double.parseDouble(parts[1]);
+            double cy = Double.parseDouble(parts[2]);
+            double bw = Double.parseDouble(parts[3]);
+            double bh = Double.parseDouble(parts[4]);
+            int imgW = wh != null && wh.length > 0 ? wh[0] : 0;
+            int imgH = wh != null && wh.length > 1 ? wh[1] : 0;
+
+            boolean normalized = cx >= 0 && cx <= 1 && cy >= 0 && cy <= 1 && bw >= 0 && bw <= 1 && bh >= 0 && bh <= 1;
+            if (normalized && imgW > 0 && imgH > 0) {
+                cx *= imgW;
+                bw *= imgW;
+                cy *= imgH;
+                bh *= imgH;
+            }
+            double x1 = cx - bw / 2.0;
+            double y1 = cy - bh / 2.0;
+            double x2 = cx + bw / 2.0;
+            double y2 = cy + bh / 2.0;
+            String label = "class_" + normalizeClassId(parts[0]);
+            return buildObject(label, 0, Arrays.asList(
+                    Arrays.asList(x1, y1),
+                    Arrays.asList(x2, y1),
+                    Arrays.asList(x2, y2),
+                    Arrays.asList(x1, y2)
+            ));
+        }
+        return null;
+    }
+
+    private Map<String, Object> buildObject(String label, int difficult, List<List<Double>> pts) {
+        Map<String, Object> one = new LinkedHashMap<String, Object>();
+        one.put("points", pts);
+        one.put("label", label);
+        one.put("difficult", difficult);
+        return one;
+    }
+
+    private boolean isNumeric(String s) {
+        if (StrUtil.isBlank(s)) {
+            return false;
+        }
+        try {
+            Double.parseDouble(s);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private String normalizeClassId(String raw) {
+        try {
+            double d = Double.parseDouble(raw);
+            long l = (long) d;
+            if (Math.abs(d - l) < 0.0000001) {
+                return String.valueOf(l);
+            }
+        } catch (Exception ignore) {}
+        return raw;
+    }
+
     private String toRelUnix(Path base, Path file) {
         return base.relativize(file).toString().replace("\\", "/");
     }
@@ -1093,8 +1436,7 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
     }
 
     private Path resolveBrowseRoot() {
-        String root = firstNonBlank(originalDatasetRoot, DEFAULT_DATA_ROOT.toString());
-        Path p = Paths.get(root).normalize();
+        Path p = defaultDataRoot();
         Path parent = p.getParent();
         return parent != null ? parent : p;
     }

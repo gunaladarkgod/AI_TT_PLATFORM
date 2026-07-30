@@ -1,4 +1,4 @@
-import { request } from './axios'
+﻿import { request, uploadRequest } from './axios'
 
 /**登录接口 */
 export class AuthService {
@@ -152,8 +152,23 @@ export class TrainTaskService {
     static async addMMD(params) {
         return request('/trainTask/pack', params, 'post', 'multipart/form-data;chartset=utf-8');
     }
+    static async configTemplates(params = {}) {
+        return request('/trainTask/config/templates', params, 'get');
+    }
+    static async configTemplateDefaults(params) {
+        return request('/trainTask/config/template/defaults', params, 'get');
+    }
+    static async readConfig(params) {
+        return request('/trainTask/config/read', params, 'get');
+    }
+    static async traceConfig(params) {
+        return request('/trainTask/config/trace', params, 'get');
+    }
     static async update(params) {
         return request('/trainTask/update', params, 'post', 'multipart/form-data;chartset=utf-8');
+    }
+    static async updateRemark(params) {
+        return request('/trainTask/remark/update', params, 'post');
     }
     static async queryArgs(params) {
         return request('/trainTask/args/query', params, 'post');
@@ -169,6 +184,24 @@ export class TrainTaskService {
     }
     static async runnerHealth(params) {
         return request('/api/runner/health', params || {}, 'post');
+    }
+    static async startRunner(params) {
+        return request('/api/runner/start', params || {}, 'post');
+    }
+    static async checkRunnerDependencies() {
+        return request('/api/runner/dependencies/check', {}, 'post');
+    }
+    static async installRunnerDependencies() {
+        return request('/api/runner/dependencies/install', {}, 'post');
+    }
+    static async pickTrainingPython() {
+        return request('/trainTask/python/pick', {}, 'post');
+    }
+    static async defaultTrainingPython() {
+        return request('/trainTask/python/default', {}, 'get');
+    }
+    static async latestTrainLog(params) {
+        return request('/trainTask/runner/log/latest', params, 'post');
     }
     static async stop(params) {
         return request('/trainTask/stop', params, 'post');
@@ -196,19 +229,6 @@ export class TrainTaskService {
         return request('/trainTask/predict/add', params, 'post', 'multipart/form-data;chartset=utf-8');
     }
 
-}
-
-/** ClearML 集群监控（dev），密钥仅存服务端 */
-export class ClearmlDevService {
-    static async status() {
-        return request('/clearml/status', {}, 'post', 'application/json;charset=UTF-8');
-    }
-    static async probe() {
-        return request('/clearml/probe', {}, 'post', 'application/json;charset=UTF-8');
-    }
-    static async activeTasks(params = {}) {
-        return request('/clearml/tasks/active', params, 'post', 'application/json;charset=UTF-8');
-    }
 }
 
 /**训练文件管理 */
@@ -414,6 +434,14 @@ export class TaskDatasetDevService {
     static async clearTask(payload) {
         return request('/taskDatasetDev/tasks/clear', payload, 'post', 'application/json');
     }
+
+    static async openTaskPath(payload) {
+        return request('/taskDatasetDev/tasks/open-path', payload, 'post', 'application/json');
+    }
+
+    static async previewTask(name, perLabel = 3) {
+        return request('/taskDatasetDev/tasks/preview', { name, perLabel, nonce: Date.now() }, 'get', 'application/json', 'json');
+    }
 }
 
 // /**结果查询管理 */
@@ -454,6 +482,10 @@ export class OriginalDatasetService {
 
   static async validateExternal(payload) {
     return request('/original-dataset/external/validate', payload, 'post', 'application/json')
+  }
+
+  static async browseExternal(base = '') {
+    return request('/original-dataset/external/browse', { base }, 'get', 'application/json', 'json')
   }
 
   static async pickExternalDir() {
@@ -594,6 +626,16 @@ export class InstanceDatasetService {
    * 按训测比随机划分图像与成对标注到 test/train（先合并 test 回 train 再重划）
    * @param {{ id: number, trainRatio: number }} params
    */
+
+  static async openPath(id) {
+    return request(
+      '/instance/instancedatasets/open-path',
+      { id },
+      'post',
+      'application/json;charset=UTF-8',
+      'json'
+    )
+  }
   static async splitTrainTestRandom(params) {
     return request(
       '/instance/instancedatasets/splitTrainTest',
@@ -620,7 +662,6 @@ export class PreprocessScriptService {
 
 
 // 改为导入新函数
-import { uploadRequest } from './axios'
 
 export function uploadScript(data) {
   return uploadRequest('/preprocess/upload', data);
@@ -653,5 +694,9 @@ export class TaskDatasetService {
 export class ResultQueryService {
     static async queryList(params) {
         return request('/trainResult/all', params, 'post');
+    }
+
+    static async deleteResult(id) {
+        return request('/trainResult/del', { id }, 'post');
     }
 }

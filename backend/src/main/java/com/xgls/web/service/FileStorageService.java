@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.xgls.web.entity.OriginalDataset;
+import com.xgls.web.utils.WorkspacePathUtil;
 import com.xgls.web.vo.dataset.TaskDatasetLabelMappingVO;
 
 import cn.hutool.core.collection.CollUtil;
@@ -34,7 +35,7 @@ public class FileStorageService {
     private static final String ANNOTATIONS_DIR = "annotations";
     private static final String[] IMAGE_EXTENSIONS = new String[] { ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff" };
 
-    @Value("${sys.task-dataset-root:/home/cs303-1/AI_TT_Platform/data/task_dataset}")
+    @Value("${sys.task-dataset-root:data/task_dataset}")
     private String taskDatasetRoot;
 
     public String generateTaskDatasetPath(Long taskDatasetId) {
@@ -360,7 +361,7 @@ public class FileStorageService {
     }
 
     private String getTaskDatasetRoot() {
-        return Paths.get(taskDatasetRoot).toString();
+        return WorkspacePathUtil.resolveConfiguredPath(taskDatasetRoot, "data/task_dataset").toString();
     }
 
     private void createDirectories(Path path) {

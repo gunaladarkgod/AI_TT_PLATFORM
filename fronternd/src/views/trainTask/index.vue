@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="content-div">
     <div class="search-div flex-between">
       <div class="flex-start">
@@ -34,7 +34,8 @@
 
     <!-- 表格 -->
     <div class="table-div">
-      <el-table class="my-table" :data="tableData" stripe style="width: 100%" size="small"
+      <el-table class="my-table train-task-table" :data="tableData" stripe style="width: 100%" size="small"
+        @row-click="handleTrainTaskRowClick"
         v-el-height-adaptive-table="{ bottomOffset: 110, isUse: true }">
 
 
@@ -79,38 +80,42 @@
 
         <el-table-column label="耗时" align="center">
           <template #default="{ row }">
-            <el-text v-if="row.finish_date" size="small">{{ getTimeDif(row.started_date, row.finish_date) }}</el-text>
+            <el-text v-if="row.started_date" size="small">{{ getTrainElapsed(row) }}</el-text>
           </template>
         </el-table-column>
 
 
         <el-table-column prop="status" label="任务状态" align="center" width="160">
           <template #default="{ row }">
-            <el-button v-if="row.status == 0" loading size="small" type="info" link> {{
-              taskStatusMap.get(row.status) }}
-            </el-button>
-            <el-button v-else-if="row.status == 1" size="small" type="success" link>{{
-              taskStatusMap.get(row.status) }}
-            </el-button>
-            <el-button v-else-if="row.status == 2" size="small" type="warning" link>{{
-              taskStatusMap.get(row.status) }}
-            </el-button>
-            <el-space v-else-if="row.status == 3">
-              <el-button loading size="small" type="danger" link>{{ showStatus(row) }}
-              </el-button>
-              <el-button size="small" type="danger" link @click="openLog(row)" class="iconfont icon-genzong">
-              </el-button>
-            </el-space>
-            <el-space v-else-if="row.status == 4">
-              <el-button size="small" type="info" link>{{ showStatus(row) }}
-                <el-button size="small" type="info" link @click="openLog(row)" class="iconfont icon-genzong">
+            <el-tooltip :content="getTaskStatusHelp(row.status)" placement="top" :show-after="250">
+              <div class="task-status-tooltip-target">
+                <el-button v-if="row.status == 0" loading size="small" type="info" link> {{
+                  taskStatusMap.get(row.status) }}
                 </el-button>
-              </el-button>
-            </el-space>
-            <el-space v-else-if="row.status == 5">
-              <el-button size="small" type="warning" link>{{ showStatus(row) }}
-              </el-button>
-            </el-space>
+                <el-button v-else-if="row.status == 1" size="small" type="success" link>{{
+                  taskStatusMap.get(row.status) }}
+                </el-button>
+                <el-button v-else-if="row.status == 2" size="small" type="warning" link>{{
+                  taskStatusMap.get(row.status) }}
+                </el-button>
+                <el-space v-else-if="row.status == 3">
+                  <el-button loading size="small" type="danger" link>{{ showStatus(row) }}
+                  </el-button>
+                  <el-button size="small" type="danger" link @click="openLog(row)" class="iconfont icon-genzong">
+                  </el-button>
+                </el-space>
+                <el-space v-else-if="row.status == 4">
+                  <el-button size="small" type="info" link>{{ showStatus(row) }}
+                    <el-button size="small" type="info" link @click="openLog(row)" class="iconfont icon-genzong">
+                    </el-button>
+                  </el-button>
+                </el-space>
+                <el-space v-else-if="row.status == 5">
+                  <el-button size="small" type="warning" link>{{ showStatus(row) }}
+                  </el-button>
+                </el-space>
+              </div>
+            </el-tooltip>
           </template>
         </el-table-column>
 
@@ -128,67 +133,79 @@
         <el-table-column prop="img_num" label="图片数" align="center" v-if="showExt" />
         <el-table-column prop="cls_num" label="标签数" align="center" v-if="showExt" />
         <el-table-column prop="obj_num" label="标注数" align="center" v-if="showExt" />
-        <el-table-column label="操作" align="center" width="270" fixed="right">
-
-
-          <!-- 操作按钮 -->
+        <el-table-column label="操作" align="center" width="230" fixed="right">
           <template #default="{ row }">
-            <div class="flex-start  flex-wrap">
-              <el-space :wrap="true">
-                <el-button link size="small" @click="showEditModal(row)" v-if="isSys || curUser == row.username">
-                  <el-tag size="small" type="primary" class="iconfont icon-bianji fontSpan">{{ row.run_name ? '查看任务' :
-                    '编辑任务' }}</el-tag>
+            <div class="table-row-actions train-task-row-actions" @click.stop>
+              <template v-if="isSys || curUser == row.username">
+                <el-button v-if="!row.run_name && (row.status == 1 || row.status == 4)" size="small"
+                  class="table-action-button table-action-button--success" @click="enqueueTask(row)">
+                  发布
                 </el-button>
-                <el-button link size="small" @click="showCloneModal(row)">
-                  <el-tag size="small" type="primary" class="iconfont icon-guanlianxinghao fontSpan">克隆任务</el-tag>
+              </template>
+              <el-dropdown trigger="click" placement="bottom-end">
+                <el-button size="small" class="table-action-button table-action-dropdown-button">
+                  操作
+                  <el-icon class="el-icon--right"><ArrowDown /></el-icon>
                 </el-button>
-                <el-button @click="viewResult(row)" link size="small" v-show="isSys || curUser == row.username">
-                  <el-tag size="small" class="iconfont icon-chakan fontSpan">浏览文件</el-tag></el-button>
-
-                
-                <template v-if="isSys || curUser == row.username">
-                  <!-- 执行成功了 -->
-                  <template v-if="row.run_name">
-                    <el-button @click="showTransModal(row)" link size="small"><el-tag size="small" type="warning"
-                        class="iconfont icon-yingshe fontSpan">模型转换</el-tag></el-button>
-                    <el-button @click="showValModal(row, true)" link size="small" :loading="row.val_state == 1"><el-tag
-                        size="small" type="warning"
-                        :class="row.val_state ? '' : 'iconfont icon-trainScript fontSpan'">模型验证</el-tag></el-button>
-                    <el-button @click="showValModal(row, false)" link size="small"
-                      :loading="row.predict_state == 1"><el-tag size="small" type="warning"
-                        :class="row.predict_state ? '' : 'iconfont icon-brain-o fontSpan'">模型预测</el-tag></el-button>
-                    <el-button @click="delRecord(row)" link size="small">
-                      <el-tag size="small" type="danger"
-                        class="iconfont icon-shanchu fontSpan">删除任务</el-tag></el-button>
-                  </template>
-                  <template v-else-if="row.status == 1 || row.status == 4">
-                    <el-button link size="small" @click="enqueueTask(row)" v-if="!row.run_name">
-                      <el-tag size="small" type="success" class="iconfont icon-qidongruanjian fontSpan">发布任务</el-tag>
-                    </el-button>
-                    <el-button @click="delRecord(row)" link size="small">
-                      <el-tag size="small" type="danger"
-                        class="iconfont icon-shanchu fontSpan">删除任务</el-tag></el-button>
-                  </template>
-                  <template v-else-if="row.status == 5">
-                    <el-button @click="delRecord(row)" link size="small">
-                      <el-tag size="small" type="danger"
-                        class="iconfont icon-shanchu fontSpan">删除任务</el-tag></el-button>
-                  </template>
-                  <template v-else-if="row.status == 2">
-                    <el-button link size="small" @click="topTask(row)">
-                      <el-tag size="small" type="primary" class="iconfont icon-qidongruanjian fontSpan">置顶任务</el-tag>
-                    </el-button>
-                    <el-button link size="small" @click="cancelTask(row)">
-                      <el-tag size="small" type="info" class="iconfont icon-tingzhiruanjian fontSpan">取消任务</el-tag>
-                    </el-button>
-                  </template>
-                  <template v-else-if="row.status == 3">
-                    <el-button link size="small" @click="stopTask(row)" :disabled="row.status != 3">
-                      <el-tag size="small" type="danger" class="iconfont icon-tingzhiruanjian fontSpan">停止任务</el-tag>
-                    </el-button>
-                  </template>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item v-if="isSys || curUser == row.username" @click="showEditModal(row)">
+                      <el-icon><Edit /></el-icon>
+                      {{ row.run_name ? '查看任务' : '编辑任务' }}
+                    </el-dropdown-item>
+                    <el-dropdown-item @click="showCloneModal(row)">
+                      <el-icon><CopyDocument /></el-icon>
+                      克隆任务
+                    </el-dropdown-item>
+                    <el-dropdown-item v-if="isSys || curUser == row.username" :disabled="latestLogLoadingId === row.id"
+                      @click="viewLatestTrainLog(row)">
+                      <el-icon><View /></el-icon>
+                      查看日志
+                    </el-dropdown-item>
+                    <el-dropdown-item v-if="isSys || curUser == row.username" :disabled="configLoadingId === row.id"
+                      @click="viewTaskConfig(row)">
+                      <el-icon><Document /></el-icon>
+                      查看配置
+                    </el-dropdown-item>
+                    <template v-if="isSys || curUser == row.username">
+                      <el-dropdown-item v-if="row.run_name" @click="showTransModal(row)">
+                        <el-icon><Switch /></el-icon>
+                        模型转换
+                      </el-dropdown-item>
+                      <el-dropdown-item v-if="row.run_name" :disabled="row.val_state == 1"
+                        @click="showValModal(row, true)">
+                        <el-icon><CircleCheck /></el-icon>
+                        模型验证
+                      </el-dropdown-item>
+                      <el-dropdown-item v-if="row.run_name" :disabled="row.predict_state == 1"
+                        @click="showValModal(row, false)">
+                        <el-icon><Aim /></el-icon>
+                        模型预测
+                      </el-dropdown-item>
+                      <el-dropdown-item v-if="row.status == 2" @click="topTask(row)">
+                        <el-icon><Top /></el-icon>
+                        置顶任务
+                      </el-dropdown-item>
+                      <el-dropdown-item v-if="row.status == 2" @click="cancelTask(row)">
+                        <el-icon><Close /></el-icon>
+                        取消任务
+                      </el-dropdown-item>
+                    </template>
+                  </el-dropdown-menu>
                 </template>
-              </el-space>
+              </el-dropdown>
+
+              <template v-if="isSys || curUser == row.username">
+                <el-button v-if="row.run_name || row.status == 1 || row.status == 4 || row.status == 5" size="small"
+                  class="table-action-button table-action-button--danger" @click="delRecord(row)">
+                  删除
+                </el-button>
+                <el-button v-if="row.status == 3" size="small" class="table-action-button table-action-button--danger"
+                  :loading="stoppingTaskId === row.id" :disabled="row.status != 3 || stoppingTaskId !== null"
+                  @click="stopTask(row)">
+                  停止
+                </el-button>
+              </template>
             </div>
           </template>
         </el-table-column>
@@ -203,51 +220,183 @@
         @current-change="handleCurrentChange" @size-change="handleCurrentChange" />
     </div>
 
-    <div class="runner-status-footer">
-      <el-alert
-        :type="runnerHealthOk === true ? 'success' : (runnerHealthOk === false ? 'error' : 'info')"
-        :closable="false"
-        show-icon
+    <div class="runner-status-floating">
+      <el-popover
+        v-model:visible="runnerStatusPopoverVisible"
+        trigger="manual"
+        placement="bottom-end"
+        width="460"
+        popper-class="runner-status-popover"
       >
-        <template #title>
-          <span class="runner-status-title">MMDet 训练服务（Runner）</span>
+        <template #reference>
+          <el-tooltip :content="runnerHealthDetail" placement="left" :show-after="250">
+            <button
+              type="button"
+              class="runner-status-chip"
+              :class="'runner-status-chip--' + runnerStatusTone"
+              @click.stop="runnerStatusPopoverVisible = !runnerStatusPopoverVisible"
+            >
+              <span class="runner-status-chip__dot"></span>
+              <span class="runner-status-chip__main">
+                <span class="runner-status-chip__title">Runner</span>
+                <span class="runner-status-chip__summary">{{ runnerStatusSummary }}</span>
+              </span>
+              <span class="runner-status-chip__more">详情</span>
+            </button>
+          </el-tooltip>
         </template>
-        <div class="runner-status-row">
-          <el-text size="small" class="runner-status-text">{{ runnerHealthDetail }}</el-text>
-          <el-button type="primary" link size="small" @click="refreshRunnerHealth">刷新</el-button>
+        <div class="runner-status-popover-content">
+          <div class="runner-status-popover-title">
+            <span class="runner-status-chip__dot" :class="'runner-status-popover-dot--' + runnerStatusTone"></span>
+            <span>MMDet 训练服务（Runner）</span>
+          </div>
+          <div class="runner-status-popover-detail">{{ runnerHealthDetail }}</div>
+          <div class="runner-status-popover-actions">
+            <el-button type="primary" size="small" @click="refreshRunnerHealth">刷新</el-button>
+            <el-button type="warning" size="small" :loading="runnerDependencyLoading" @click="checkRunnerDependencies">检测依赖</el-button>
+            <el-button type="success" size="small" :loading="runnerStartLoading" @click="startRunner">启动</el-button>
+          </div>
         </div>
-      </el-alert>
+      </el-popover>
     </div>
 
   </div>
 
 
   <!-- 创建训练任务 -->
-  <el-dialog top="1vh" v-model="addVisible" width="98%" :close-on-press-escape="false"
+  <el-dialog v-model="addVisible" width="94vw" class="train-task-edit-dialog" align-center
+    :close-on-press-escape="false"
     :title="is_create ? (is_add ? '创建任务(追加模式)' : '创建任务') : '编辑任务_#' + cur_task_id" draggable
     :close-on-click-modal="false">
     <el-form size="small" label-width="130" label-position="left">
-      <el-space wrap>
-        <el-form-item label="任务名称" required>
-          <el-input v-model="addForm.name" class="width-300" :disabled="isSee"></el-input>
-        </el-form-item>
-        <el-form-item label="模型类别" required>
-          <el-select v-model="addForm.type" class="width-150" :disabled="is_add || isSee" @change="handleTypeChange">
-            <el-option v-for="item in algList" :key="item.id" :value="item.id + ''" :label="item.name"></el-option>
-          </el-select>
-        </el-form-item>
+      <div v-if="is_create" class="task-overview task-create-overview">
+        <div class="task-overview-row task-overview-primary">
+          <div class="task-overview-item task-name-item">
+            <div class="task-overview-label required-label">任务名称</div>
+            <div class="task-overview-content">
+              <el-input v-model="addForm.name" :disabled="isSee" />
+            </div>
+          </div>
+          <div class="task-overview-item">
+            <div class="task-overview-label required-label">模型类别</div>
+            <div class="task-overview-content">
+              <el-select v-model="addForm.type" :disabled="is_add || isSee || !is_create" @change="handleTypeChange">
+                <el-option v-for="item in algList" :key="item.id" :value="item.id + ''" :label="item.name" />
+              </el-select>
+            </div>
+          </div>
+          <div class="task-overview-item">
+            <div class="task-overview-label">算法模板</div>
+            <div class="task-overview-content">
+              <el-select v-model="addForm.temp" :disabled="!isMMDetSelected || isSee || !is_create" @change="handleTempChange">
+                <el-option v-for="item in templateList" :key="item" :value="item" :label="item" />
+                <el-option v-if="isFixedRunnerSelected" value="fixed" label="fixed" />
+              </el-select>
+            </div>
+          </div>
+          <div class="task-overview-item task-python-item">
+            <div class="task-overview-label required-label">训练 Python</div>
+            <div class="task-overview-content task-python-content">
+              <el-input v-model="trainingPythonPath" :disabled="isSee" placeholder="请选择训练环境的 python 可执行文件">
+                <template #append><el-button :disabled="isSee" @click="pickTrainingPython">选择</el-button></template>
+              </el-input>
+              <div class="python-path-meta">
+                <el-tag size="small" :type="trainingPythonInfo.tagType">{{ trainingPythonInfo.type }}</el-tag>
+                <span class="python-path-desc">{{ trainingPythonInfo.desc }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="task-overview-item task-create-remark-item">
+          <div class="task-overview-label">备注</div>
+          <div class="task-overview-content">
+            <el-input v-model="addForm.remark" type="textarea" :rows="3" maxlength="255" show-word-limit
+              placeholder="请输入任务备注（可选）" />
+          </div>
+        </div>
+      </div>
+      <div v-if="!is_create && editTaskMeta" class="task-overview">
+        <div class="task-overview-row task-overview-primary">
+          <div class="task-overview-item task-name-item">
+            <div class="task-overview-label required-label">任务名称</div>
+            <div class="task-overview-content">
+              <el-input v-model="addForm.name" :disabled="isSee" />
+            </div>
+          </div>
+          <div class="task-overview-item">
+            <div class="task-overview-label required-label">模型类别</div>
+            <div class="task-overview-content">
+              <el-select v-model="addForm.type" :disabled="is_add || isSee || !is_create" @change="handleTypeChange">
+                <el-option v-for="item in algList" :key="item.id" :value="item.id + ''" :label="item.name" />
+              </el-select>
+            </div>
+          </div>
+          <div class="task-overview-item">
+            <div class="task-overview-label">算法模板</div>
+            <div class="task-overview-content">
+              <el-select v-model="addForm.temp" :disabled="!isMMDetSelected || isSee || !is_create" @change="handleTempChange">
+                <el-option v-for="item in templateList" :key="item" :value="item" :label="item" />
+                <el-option v-if="isFixedRunnerSelected" value="fixed" label="fixed" />
+              </el-select>
+            </div>
+          </div>
+          <div class="task-overview-item task-python-item">
+            <div class="task-overview-label required-label">训练 Python</div>
+            <div class="task-overview-content task-python-content">
+              <el-input v-model="trainingPythonPath" :disabled="isSee" placeholder="请选择训练环境的 python 可执行文件">
+                <template #append><el-button :disabled="isSee" @click="pickTrainingPython">选择</el-button></template>
+              </el-input>
+              <div class="python-path-meta">
+                <el-tag size="small" :type="trainingPythonInfo.tagType">{{ trainingPythonInfo.type }}</el-tag>
+                <span class="python-path-desc">{{ trainingPythonInfo.desc }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
 
-        <!-- 算法模板（一键填写网络参数及算法参数） -->
-        <el-form-item label="算法模板">
-          <el-select v-model="addForm.temp" class="width-150" :disabled="!isMMDetSelected||isSee"
-             @change="handleTempChange">
-            <el-option v-for="item in templateList" :key="item" :value="item"
-              :label="item"></el-option>
-          </el-select>
-          
-        </el-form-item>
-      </el-space>
-      <el-row v-if="!isMMDetSelected">
+        <div class="task-overview-row task-overview-runtime">
+          <div class="task-overview-item">
+            <div class="task-overview-label">任务状态</div>
+            <div class="task-overview-content">
+              <el-tooltip :content="getTaskStatusHelp(editTaskMeta.status)" placement="top" :show-after="250">
+                <el-tag class="task-status-help" size="small" :type="getTaskStatusTagType(editTaskMeta.status)">
+                  {{ taskStatusMap.get(editTaskMeta.status) || editTaskMeta.status }}
+                </el-tag>
+              </el-tooltip>
+            </div>
+          </div>
+          <div class="task-overview-item">
+            <div class="task-overview-label">最近耗时</div>
+            <div class="task-overview-content">
+              {{ editTaskMeta.started_date ? getTrainElapsed(editTaskMeta) : '—' }}
+            </div>
+          </div>
+          <div class="task-overview-item task-time-item">
+            <div class="task-overview-label">上次运行开始</div>
+            <div class="task-overview-content">
+              {{ showDateTime(editTaskMeta.started_date) || '—' }}
+            </div>
+          </div>
+          <div class="task-overview-item task-time-item">
+            <div class="task-overview-label">上次运行结束</div>
+            <div class="task-overview-content">
+              {{ showDateTime(editTaskMeta.finish_date) || '—' }}
+            </div>
+          </div>
+        </div>
+
+        <div class="task-overview-item task-remark-item">
+          <div class="task-overview-label">备注</div>
+          <div class="task-overview-content task-remark-editor">
+            <el-input v-model="addForm.remark" type="textarea" :rows="4" maxlength="255" show-word-limit
+              placeholder="请输入任务备注" />
+            <el-button type="primary" size="small" :loading="savingRemark" @click="saveTaskRemark">
+              保存备注
+            </el-button>
+          </div>
+        </div>
+      </div>
+      <el-row v-if="!isRunnerConfigSelected">
         <el-col :span="6">
           <el-form-item label="模型标签" required>
             <el-select-v2 v-model="addForm.labels" :options="label_list" :reserve-keyword="false" filterable
@@ -281,7 +430,7 @@
         </el-col>
       </el-row>
 
-      <el-tabs v-if="!isMMDetSelected" v-model="activeTab" class="tabs-div">
+      <el-tabs v-if="!isRunnerConfigSelected" v-model="activeTab" class="tabs-div">
         <el-tab-pane label="训练样本配置" name="data-tab">
           <div class="pane-div">
             <el-container>
@@ -1166,8 +1315,9 @@
                   <el-input-number class="width-200" :controls="false" v-model="mmdetParameter.train_epoch" :disabled="isSee"></el-input-number>
                 </el-form-item>
 
-                <el-form-item label="学习率下降轮次" required>
-                  <el-input-number  v-model="mmdetParameter.down_round" class="width-200" :controls="false"    :disabled="isSee"></el-input-number>
+                <el-form-item v-if="mmdetTemplateSupportsStep" label="学习率下降轮次" required>
+                  <el-input v-model="mmdetParameter.down_round" class="width-200" :disabled="isSee"
+                    placeholder="例如：8, 11"></el-input>
                 </el-form-item>
 
                 <el-form-item label="权值保存轮次间隔" required>
@@ -1190,17 +1340,40 @@
 
       <div v-else class="mmdet-div">
         <el-divider />
-        <el-row :gutter="20">
+        <el-alert v-if="isMMDetSelected" class="single-config-tip" type="info" :closable="false" show-icon
+          title="所有参数均从一个完整模板读取，保存后只生成 modelcfg/{任务名称}/config.py" />
+        <el-alert v-else class="single-config-tip" type="info" :closable="false" show-icon
+          title="自定义任务使用 Runner fixed 模式，按上方选择的训练 Python、执行目录和命令行直接运行。" />
+        <div v-if="isFixedRunnerSelected" class="mmdet-file-block">
+          <span class="mmdet-file-title">fixed runner · 运行参数</span>
+          <el-form-item label="执行目录：" required>
+            <el-input v-model="fixedRunnerParameter.exec_dir" :disabled="isSee"
+              placeholder="支持相对项目根目录，例如：mmdet_run/mmdetection-3.0.0" />
+          </el-form-item>
+          <el-form-item label="命令行：" required>
+            <el-input v-model="fixedRunnerParameter.command_line" :disabled="isSee" type="textarea" :rows="3"
+              placeholder="例如：tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}" />
+          </el-form-item>
+          <el-form-item label="输出根目录：" required>
+            <el-input v-model="fixedRunnerParameter.work_root" :disabled="isSee"
+              placeholder="支持相对项目根目录，例如：artifacts/mmdet_runs" />
+          </el-form-item>
+          <div class="el-form-item__tip">
+            可用占位符：{run_id} 为任务名称，{work_dir} 为本次训练输出目录。相对路径按 AI_TT_PLATFORM 项目根目录解析。
+          </div>
+        </div>
+        <el-row v-else :gutter="20">
           <el-col :span="14">
             <div class="mmdet-file-block">
-              <span class="mmdet-file-title">model.py (模型结构配置)</span>
+              <span class="mmdet-file-title">config.py · 模型与网络参数</span>
               
               <div v-if="addForm.temp!=='DETR'">
                 <div class="config-text">网络架构</div>
                 <div class="sub-param-box">
                   <el-form-item label="网络模板名称：" required>
                     <el-select v-model="mmdetParameter.selected_template" class="width-200" :disabled="isSee">
-                      <el-option v-for="item in netTemplateName" :key="item" :value="item" :label="item"></el-option>
+                      <el-option v-for="item in networkTemplateOptions" :key="item.name" :value="item.name"
+                        :label="item.available ? item.name : `${item.name}（缺少模板）`" :disabled="!item.available" />
                     </el-select>
                   </el-form-item>
                   <el-form-item label="主干网名称：" required>
@@ -1328,8 +1501,8 @@
                 <div class="sub-param-box">
                   <el-form-item label="网络模板名称：" required>
                     <el-select v-model="mmdetParameter.selected_template" class="width-200" :disabled="isSee">
-                      <el-option v-for="item in netTemplateName_DETR" :key="item" :value="item"
-                        :label="item"></el-option>
+                      <el-option v-for="item in networkTemplateOptions" :key="item.name" :value="item.name"
+                        :label="item.available ? item.name : `${item.name}（缺少模板）`" :disabled="!item.available" />
                     </el-select>
                   </el-form-item>
                   <el-form-item label="主干网名称：" required>
@@ -1538,7 +1711,7 @@
           <el-col :span="10">
             
             <div class="mmdet-file-block">
-              <span class="mmdet-file-title">dataset.py (数据加载配置)</span>
+              <span class="mmdet-file-title">config.py · 数据集参数</span>
               <el-form-item label="实例数据集" required>
                 <div class="mmdet-instance-dataset-block">
                   <el-table
@@ -1618,7 +1791,7 @@
             </div>
 
             <div class="mmdet-file-block">
-              <span class="mmdet-file-title">schedule.py (训练策略配置)</span>
+              <span class="mmdet-file-title">config.py · 训练策略参数</span>
               <el-form-item label="优化器" required>
                 <el-select v-model="mmdetParameter.optimizer" class="width-200" :disabled="isSee">
                   <el-option v-for="item in optimizerList" :key="item" :value="item" :label="item"></el-option>
@@ -1634,14 +1807,14 @@
                   :disabled="isSee"></el-input-number>
               </el-form-item>
 
-              <el-form-item label="学习率下降轮次" required>
-                <el-input-number v-model="mmdetParameter.down_round" class="width-200" :controls="false"
-                  :disabled="isSee"></el-input-number>
+              <el-form-item v-if="mmdetTemplateSupportsStep" label="学习率下降轮次" required>
+                <el-input v-model="mmdetParameter.down_round" class="width-200" :disabled="isSee"
+                  placeholder="例如：8, 11"></el-input>
               </el-form-item>
             </div>
 
             <div class="mmdet-file-block">
-              <span class="mmdet-file-title">default_runtime.py (运行环境配置)</span>
+              <span class="mmdet-file-title">config.py · 运行参数</span>
               <el-form-item label="权值保存轮次间隔" required>
                 <el-input v-model="mmdetParameter.weight_round" class="width-200" :disabled="isSee"></el-input>
               </el-form-item>
@@ -1737,9 +1910,19 @@
     </div>
   </el-drawer>
 
-  <el-dialog v-model="txtVisible" width="60%" top="5vh" title="查看" draggable :close-on-click-modal="true"
+  <el-dialog v-model="txtVisible" width="75%" top="3vh" :title="txtTitle" draggable :close-on-click-modal="true"
     :destroy-on-close="true">
-    <pre class="preBox">{{ cur_text }}</pre>
+    <div class="text-viewer-wrap">
+      <pre ref="textViewerRef" class="preBox">{{ cur_text }}</pre>
+      <div v-if="textViewerMode === 'log'" class="log-scroll-actions">
+        <el-tooltip content="回到日志顶部" placement="left">
+          <el-button circle size="small" aria-label="回到日志顶部" @click="scrollLogToTop">↑</el-button>
+        </el-tooltip>
+        <el-tooltip content="跳到日志底部" placement="left">
+          <el-button circle size="small" aria-label="跳到日志底部" @click="scrollLogToBottom">↓</el-button>
+        </el-tooltip>
+      </div>
+    </div>
     <template #footer>
       <span class="dialog-footer">
         <el-button @click="txtVisible = false">关闭</el-button>
@@ -2105,12 +2288,12 @@ import { useRouter } from "vue-router";
 import { useUserStore } from "../../stores/index";
 import { FileService, EngineProjectService, EngineTaskService, TrainLabelService, TrainTaskService, TrainScriptService, TrainYoloService, ApiService, ModelTransService, trainService, transService , InstanceDatasetService } from "../../api/api";
 import { ElMessage, dayjs, ElMessageBox, ElMain, genFileId } from "element-plus";
+import { Aim, ArrowDown, CircleCheck, Close, CopyDocument, Document, Edit, Switch, Top, View } from '@element-plus/icons-vue';
 import { nextTick, onBeforeUnmount, onMounted, watchEffect } from "@vue/runtime-core";
 import { basePath_TASK, basePath_YOLO, basePath_TRAIN, basePath_WS_TASK, nginx_tensorboard, apiRequest } from "../../api/axios";
 import fileview from "../../components/fileview.vue";
 import { isNum } from "../../utils/regex";
 import { taskStatusMap, taskStatusList, perspectiveMap } from '../../utils/selfmaps'
-import { getTimeDif } from '../../utils/time'
 import { uuid } from 'vue-uuid'
 import authimg from '../../components/authimg.vue'
 import logview from '../../components/logger.vue'
@@ -2147,10 +2330,19 @@ const weightFileList = ref([])
 const instanceReadinessList = ref([])
 const instanceReadinessLoading = ref(false)
 const qualifiedMmdetDatasetCount = computed(() => instanceReadinessList.value.filter((r) => r.qualified).length)
-// 网络模板名称
-const netTemplateName=ref(["Faster R-CNN","Cascade R-CNN","DetectoRS"])
-// 网络模板名称-DETR
-const netTemplateName_DETR=ref(["DETR","Deformable DETR","DINO"])
+// 网络模板以 mmdet_run/myfiles/template 中是否存在实际文件为准。
+const templateCatalog = ref([
+  { name: 'Faster R-CNN', group: 'CNN', available: true },
+  { name: 'Cascade R-CNN', group: 'CNN', available: false },
+  { name: 'DetectoRS', group: 'CNN', available: false },
+  { name: 'DETR', group: 'DETR', available: true },
+  { name: 'Deformable DETR', group: 'DETR', available: true },
+  { name: 'DINO', group: 'DETR', available: true },
+  { name: 'YOLOv3', group: 'YOLO', available: true },
+])
+const networkTemplateOptions = computed(() => templateCatalog.value.filter(item => item.group === addForm.temp))
+const restoringMmdetParams = ref(false)
+const mmdetTemplateSupportsStep = ref(true)
 // 主干网
 const backboneNetwork=ref(["ResNet","ConvNext","SwinTransformer"])
 
@@ -2203,11 +2395,96 @@ const currentPage = ref(1);
 const currentSize = ref(10);
 const total = ref(0);
 const tableData = ref([]);
+const stoppingTaskId = ref(null)
+const editTaskMeta = ref(null)
+const savingRemark = ref(false)
+const trainNowTick = ref(Date.now())
+let trainElapsedTimer = null
+
+const formatElapsedClock = (start, end) => {
+  const startMs = new Date(start).getTime()
+  const endMs = new Date(end).getTime()
+  const total = Number.isFinite(startMs) && Number.isFinite(endMs)
+    ? Math.max(0, Math.floor((endMs - startMs) / 1000))
+    : 0
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = total % 60
+  return [hours, minutes, seconds].map(value => String(value).padStart(2, '0')).join(':')
+}
+
+const getTrainElapsed = (row) => {
+  const end = row.status === 3 ? trainNowTick.value : row.finish_date
+  return end ? formatElapsedClock(row.started_date, end) : '—'
+}
+
+const getTaskStatusTagType = (status) => {
+  if (status === 1) return 'success'
+  if (status === 2) return 'warning'
+  if (status === 3) return 'danger'
+  return 'info'
+}
+
+const taskStatusHelpMap = new Map([
+  [0, '后台正在生成训练配置并检查数据集。通常只需短暂等待；长时间不变化时，请检查后端日志、模板路径和数据集路径。'],
+  [1, '训练配置已经生成完成，任务可以发布或提交训练。'],
+  [2, '任务已经进入训练队列，正在等待 Runner 空闲并启动。'],
+  [3, 'Runner 正在执行训练，可点击旁边的日志按钮查看实时输出。'],
+  [4, '本次训练已经结束，可查看日志和训练结果确认是否达到预期。'],
+  [5, '生成训练配置时发生错误，请重点检查后端日志、配置模板及数据集文件路径。'],
+])
+
+const getTaskStatusHelp = (status) => taskStatusHelpMap.get(Number(status)) || '未知任务状态'
+
+const handleTrainTaskRowClick = (row, _column, event) => {
+  if (!row || !event?.target) return
+  if (event.target.closest('button, a, .el-button, .el-link, .el-tag, .el-popper, .el-table__column-filter-trigger')) return
+  if (!(isSys || curUser === row.username)) return
+  showEditModal(row)
+}
+
+const saveTaskRemark = async () => {
+  if (!editTaskMeta.value?.id || savingRemark.value) return
+  savingRemark.value = true
+  try {
+    const res = await TrainTaskService.updateRemark({
+      id: editTaskMeta.value.id,
+      remark: addForm.remark || '',
+    })
+    if (res.code !== 0) {
+      ElMessage.warning(res.msg || '备注保存失败')
+      return
+    }
+    editTaskMeta.value.remark = addForm.remark || ''
+    const row = tableData.value.find(item => item.id === editTaskMeta.value.id)
+    if (row) row.remark = addForm.remark || ''
+    ElMessage.success('备注已保存')
+  } finally {
+    savingRemark.value = false
+  }
+}
 const showExt = ref(false)
 
 const runnerHealthOk = ref(null)
 const runnerHealthDetail = ref('正在检测 Runner 服务…')
+const runnerStartLoading = ref(false)
+const runnerDependencyLoading = ref(false)
+const runnerStatusPopoverVisible = ref(false)
 let runnerHealthTimer = null
+const runnerBaseUrl = `${window.location.protocol}//${window.location.hostname}:8009`
+const runnerStatusTone = computed(() => {
+  if (runnerHealthOk.value === true) return 'success'
+  if (runnerHealthOk.value === false) return 'danger'
+  return 'info'
+})
+const runnerStatusSummary = computed(() => {
+  if (runnerStartLoading.value) return '启动中'
+  if (runnerDependencyLoading.value) return '检测中'
+  if (runnerHealthOk.value === true) return '正常'
+  if (runnerHealthOk.value === false) return '不可用'
+  return '检测中'
+})
+
 const refreshRunnerHealth = async () => {
   try {
     const res = await TrainTaskService.runnerHealth({})
@@ -2233,6 +2510,99 @@ const refreshRunnerHealth = async () => {
   }
 }
 
+const runnerStartDetailText = (data) => {
+  if (!data) return '后端没有返回启动详情'
+  const parts = []
+  if (data.message) parts.push(data.message)
+  if (data.error) parts.push(`错误：${data.error}`)
+  if (data.script) parts.push(`脚本：${data.script}`)
+  if (data.log) parts.push(`日志：${data.log}`)
+  if (data.pid) parts.push(`PID：${data.pid}`)
+  if (data.exitCode != null) parts.push(`退出码：${data.exitCode}`)
+  const health = data.health || data.beforeHealth
+  if (health?.error) parts.push(`健康检查：${health.error}`)
+  if (health?.httpStatus != null) parts.push(`健康检查 HTTP：${health.httpStatus}`)
+  if (health?.bodyPreview) parts.push(`健康检查返回：${health.bodyPreview}`)
+  if (data.logTail) parts.push(`日志尾部：\n${data.logTail}`)
+  return parts.join('\n') || JSON.stringify(data, null, 2)
+}
+
+const startRunner = async () => {
+  if (runnerStartLoading.value) return
+  runnerStartLoading.value = true
+  runnerHealthDetail.value = '正在启动 Runner，请稍候…'
+  try {
+    const res = await TrainTaskService.startRunner({})
+    if (res.code !== 0) {
+      runnerHealthOk.value = false
+      runnerHealthDetail.value = res.msg || 'Runner 启动接口返回失败'
+      await ElMessageBox.alert(runnerHealthDetail.value, 'Runner 启动失败', { type: 'error' })
+      return
+    }
+    const data = res.data || {}
+    const detail = runnerStartDetailText(data)
+    runnerHealthOk.value = !!data.ok
+    runnerHealthDetail.value = data.ok
+      ? `Runner 可用。${data.message || ''}${data.pid ? ` PID ${data.pid}` : ''}`
+      : detail
+    if (data.ok) {
+      ElMessage.success(data.message || 'Runner 启动成功')
+      await refreshRunnerHealth()
+    } else {
+      await ElMessageBox.alert(detail, 'Runner 启动失败', { type: 'error', dangerouslyUseHTMLString: false })
+    }
+  } catch (e) {
+    runnerHealthOk.value = false
+    runnerHealthDetail.value = 'Runner 启动请求失败：' + (e?.message || String(e))
+    await ElMessageBox.alert(runnerHealthDetail.value, 'Runner 启动失败', { type: 'error' })
+  } finally {
+    runnerStartLoading.value = false
+  }
+}
+
+const dependencyDetailText = (data) => {
+  const d = data?.after || data || {}
+  const parts = [d.message]
+  if (d.python) parts.push(`Python：${d.python}`)
+  if (d.requirements) parts.push(`依赖文件：${d.requirements}`)
+  if (d.detail) parts.push(d.detail)
+  if (data?.installLog && !data?.ok) parts.push(`安装日志：\n${data.installLog}`)
+  return parts.filter(Boolean).join('\n')
+}
+
+const checkRunnerDependencies = async () => {
+  if (runnerDependencyLoading.value) return
+  runnerDependencyLoading.value = true
+  try {
+    const res = await TrainTaskService.checkRunnerDependencies()
+    const data = res.data || {}
+    if (res.code === 0 && data.ok) {
+      ElMessageBox.alert(dependencyDetailText(data), 'Runner 依赖正常', { type: 'success' })
+      return
+    }
+    await ElMessageBox.confirm(
+      `${dependencyDetailText(data)}\n\n是否立即根据 requirements.txt 自动安装？`,
+      'Runner 依赖缺失',
+      { confirmButtonText: '安装', cancelButtonText: '取消', type: 'warning' }
+    )
+    runnerHealthDetail.value = '正在安装 Runner 依赖，请稍候…'
+    const installRes = await TrainTaskService.installRunnerDependencies()
+    const installed = installRes.data || {}
+    if (installRes.code === 0 && installed.ok) {
+      ElMessage.success('Runner 依赖安装完成')
+      await ElMessageBox.alert(dependencyDetailText(installed), '安装成功', { type: 'success' })
+      await refreshRunnerHealth()
+    } else {
+      await ElMessageBox.alert(dependencyDetailText(installed) || installRes.msg || '安装失败', '安装失败', { type: 'error' })
+    }
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') {
+      ElMessage.error('依赖检测失败：' + (e?.message || String(e)))
+    }
+  } finally {
+    runnerDependencyLoading.value = false
+  }
+}
 const handleCurrentChange = () => {
   let time_range = searchCreateRange.value
   let start_time = null
@@ -2327,7 +2697,7 @@ const is_create = ref(false)   // 创建/编辑
 const is_add = ref(false) // 追加模式
 const cur_task_id = ref(0);
 const algList = ref([])
-const templateList = ref(["CNN","DETR"])
+const templateList = ref(["CNN","DETR","YOLO"])
 const algMap = ref(Map);
 const cur_type = computed(() => {
   return algMap.value.get(addForm.type)?.name;
@@ -2338,13 +2708,31 @@ const cur_cmd = computed(() => {
 const queryAlgs = () => {
   TrainScriptService.queryAll({ type: 'train' }).then(res => {
     if (res.code === 0) {
-      algList.value = res.data
+      const list = [...(res.data || [])]
+      if (!list.some(item => item.id === 'custom' || item.name === '自定义')) {
+        list.push({ id: 'custom', name: '自定义', cmd: 'fixed' })
+      }
+      algList.value = list
       let map = new Map;
-      res.data.forEach(item => {
+      list.forEach(item => {
         map.set(item.id + '', item)
       })
       algMap.value = map;
     }
+  })
+}
+
+const fetchConfigTemplates = () => {
+  TrainTaskService.configTemplates().then((res) => {
+    if (res.code === 0 && Array.isArray(res.data)) {
+      templateCatalog.value = res.data
+      const cur = templateCatalog.value.find(item => item.name === mmdetParameter.selected_template)
+      if (is_create.value && cur?.available) {
+        loadMmdetTemplateDefaults(mmdetParameter.selected_template)
+      }
+    }
+  }).catch(() => {
+    // Runner 重启前沿用页面内的保守默认值，缺失模板仍保持禁用。
   })
 }
 
@@ -2374,6 +2762,8 @@ const showAddModal = () => {
   addForm.ext_params = ""
   addForm.ext_file_update = false
   addForm.ext_file = null
+  trainingPythonPath.value = ''
+  loadDefaultTrainingPython()
 
   applyMmdetCnnQuickDefaults()
   mmdetParameter.selected_dataset = null
@@ -2393,6 +2783,7 @@ const showAddModal = () => {
   mmdetParameter.loss_iou_weight = 2
 
   weightFileList.value = []
+  fetchConfigTemplates()
 
   addForm.mmdet_cfg = default_mmdet_header;
 
@@ -2404,6 +2795,8 @@ const showAddModal = () => {
     if (isMMDetSelected.value) {
       addForm.temp = 'CNN'
       fetchMmdetInstanceDatasets()
+    } else if (isFixedRunnerSelected.value) {
+      addForm.temp = 'fixed'
     } else {
       addForm.temp = null
       addForm.labels = label_list.value.length ? [label_list.value[0].id] : []
@@ -2418,6 +2811,8 @@ const showAddModal = () => {
 }
 /**编辑模式 */
 const showEditModal = (row) => {
+  editTaskMeta.value = { ...row }
+  trainingPythonPath.value = ''
   isSee.value = row.run_name   //设置是否编辑
   //算法模版初始化
   templateAlgorithm.value = null
@@ -2430,6 +2825,7 @@ const showEditModal = (row) => {
   addForm.status = row.status;
   addForm.remark = row.remark;
   addForm.clone_from = null;
+  fetchConfigTemplates()
   //查询train_label信息
   TrainTaskService.queryArgs({ id: row.id }).then(res => {
     if (res.code === 0) {
@@ -2546,14 +2942,22 @@ const showEditModal = (row) => {
   TrainTaskService.getExtQuery({ id: row.id }).then(res => {
     if (res.code === 0) {
       addForm.ext_params = res.data?.params || ""
+      applyStoredTrainingPythonParams(addForm.ext_params)
+      if (algMap.value.get(row.type)?.cmd === 'mmdet' && res.data?.params) {
+        try {
+          applyStoredMmdetParams(JSON.parse(res.data.params))
+        } catch (_) {
+          ElMessage.warning('任务参数记录无法解析，将显示默认配置')
+        }
+      }
       addForm.ext_file_update = false
       extFileList.value = []
     }
   })
   // 回显mmdet_cfg
   if (algMap.value.get(row.type)?.cmd == 'mmdet') {
-    FileService.getFile(basePath_TRAIN + '/' + row.id + "/file/cfg.py").then(res => {
-      addForm.mmdet_cfg = res
+    TrainTaskService.readConfig({ id: row.id, includeText: true }).then(res => {
+      if (res.code === 0) addForm.mmdet_cfg = res.data?.text || ''
     })
   } else {
     addForm.mmdet_cfg = default_mmdet_header;
@@ -2699,6 +3103,7 @@ const openCloneModal = (row1, flg) => {
   TrainTaskService.getExtQuery({ id: row.id }).then(res => {
     if (res.code === 0) {
       addForm.ext_params = res.data?.params || ""
+      applyStoredTrainingPythonParams(addForm.ext_params)
       addForm.ext_file_update = false
       extFileList.value = []
     }
@@ -3075,6 +3480,13 @@ const isMMDetSelected=computed(() => {
   return selectedItem && selectedItem.name === 'mmdet'
 })
 
+const isFixedRunnerSelected = computed(() => {
+  const selectedItem = algList.value.find(item => item.id == addForm.type)
+  return addForm.type === 'custom' || selectedItem?.name === '自定义' || selectedItem?.cmd === 'fixed'
+})
+
+const isRunnerConfigSelected = computed(() => isMMDetSelected.value || isFixedRunnerSelected.value)
+
 
 const taskTable = computed(() => {
   return filterTable.value.slice((currentPage2.value - 1) * currentSize2.value, currentPage2.value * currentSize2.value)
@@ -3316,6 +3728,115 @@ const queryYoloFiles = () => {
 }
 const txtVisible = ref(false);
 const cur_text = ref('')
+const txtTitle = ref('查看')
+const latestLogLoadingId = ref(null)
+const configLoadingId = ref(null)
+const textViewerRef = ref(null)
+const textViewerMode = ref('file')
+
+const scrollLogToTop = () => {
+  textViewerRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+const scrollLogToBottom = () => {
+  const el = textViewerRef.value
+  if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+}
+
+const viewLatestTrainLog = async (row) => {
+  latestLogLoadingId.value = row.id
+  try {
+    const res = await TrainTaskService.latestTrainLog({ id: row.id, lines: 2000 })
+    if (res.code !== 0 || !res.data) {
+      ElMessage.warning(res.msg || '该任务还没有训练日志')
+      return
+    }
+    const log = res.data
+    textViewerMode.value = 'log'
+    txtTitle.value = `最新训练日志 - ${row.name}`
+    cur_text.value = [
+      `日志文件：${log.log_path || '-'}`,
+      `更新时间：${log.modified_time || '-'}`,
+      `显示行数：${log.returned_lines || 0} / ${log.total_lines || 0}`,
+      '',
+      log.content || '(日志为空)'
+    ].join('\n')
+    txtVisible.value = true
+  } catch (e) {
+    ElMessage.error('读取训练日志失败')
+  } finally {
+    latestLogLoadingId.value = null
+  }
+}
+
+const viewTaskConfig = async (row) => {
+  configLoadingId.value = row.id
+  try {
+    const res = await TrainTaskService.readConfig({ id: row.id, includeText: true })
+    if (res.code !== 0 || !res.data) {
+      let trace = res.data || null
+      let staticReadError = null
+      // 兼容前端已更新但 Java 后端仍是旧进程的部署状态：配置统一位于新版
+      // root-upload/modelcfg/{任务名称}/config.py，可直接走静态资源读取。
+      try {
+        const configUrl = `/modelcfg/${encodeURIComponent(String(row.name || '').trim())}/config.py`
+        const text = await FileService.getFile(configUrl)
+        if (typeof text === 'string' && text.trim()) {
+          textViewerMode.value = 'config'
+          txtTitle.value = `训练配置 - ${row.name}`
+          cur_text.value = [
+            `配置文件：mmdet_run/myfiles/modelcfg/${row.name}/config.py`,
+            '',
+            text
+          ].join('\n')
+          txtVisible.value = true
+          return
+        }
+      } catch (e) {
+        staticReadError = e?.msg || e?.message || String(e)
+      }
+      let traceRequestError = null
+      if (!trace) {
+        try {
+          const traceRes = await TrainTaskService.traceConfig({ id: row.id })
+          if (traceRes?.code === 0) trace = traceRes.data
+        } catch (e) {
+          traceRequestError = e?.msg || e?.message || JSON.stringify(e || {})
+        }
+      }
+      textViewerMode.value = 'config'
+      txtTitle.value = `配置读取诊断 - ${row.name}`
+      cur_text.value = [
+        res.msg || '该任务还没有生成配置文件',
+        '',
+        '以下信息可用于定位后端实际查找位置：',
+        JSON.stringify(trace || {
+          taskId: row.id,
+          taskName: row.name,
+          staticConfigPath: `mmdet_run/myfiles/modelcfg/${row.name}/config.py`,
+          staticReadError,
+          traceRequestError,
+          conclusion: '配置文件存在时仍出现此结果，说明当前 Java 后端/静态资源服务未指向本工作区或尚未重启。'
+        }, null, 2)
+      ].join('\n')
+      txtVisible.value = true
+      return
+    }
+    const config = res.data
+    textViewerMode.value = 'config'
+    txtTitle.value = `训练配置 - ${row.name}`
+    cur_text.value = [
+      `配置文件：${config.config_path || '-'}`,
+      '',
+      config.text || '(配置文件为空)'
+    ].join('\n')
+    txtVisible.value = true
+  } catch (e) {
+    ElMessage.error('读取训练配置失败')
+  } finally {
+    configLoadingId.value = null
+  }
+}
 const viewFile = (row) => {
   let url = basePath_YOLO + row.type + "_" + row.id + row.path
   if (row.type === 'weights') {
@@ -3326,6 +3847,8 @@ const viewFile = (row) => {
 }
 const readTxt = (url) => {
   if (!url) return;
+  textViewerMode.value = 'file'
+  txtTitle.value = '查看文件'
   FileService.getFile(url)
     .then((res) => {
       const text = res.toString();
@@ -3654,7 +4177,7 @@ const saveRecord = () => {
 
 
 const handleSave = () => {
-  if (isMMDetSelected.value) {
+  if (isRunnerConfigSelected.value) {
     saveMMdetRecord()
   } else {
     saveRecord()
@@ -3715,6 +4238,89 @@ const mmdetParameter = reactive({
 
 })
 
+const fixedRunnerParameter = reactive({
+  python_path: 'C:\\Users\\Guo Qinyao\\.conda\\envs\\openmmlab\\python.exe',
+  exec_dir: 'mmdet_run/mmdetection-3.0.0',
+  command_line: 'tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}',
+  work_root: 'artifacts/mmdet_runs',
+})
+const trainingPythonPath = ref('')
+
+const classifyTrainingPythonPath = (value) => {
+  const raw = String(value || '').trim()
+  if (!raw) {
+    return { type: '未保存', desc: '该任务还没有保存训练 Python 路径', tagType: 'info' }
+  }
+  const normalized = raw.replace(/\\/g, '/')
+  const lower = normalized.toLowerCase()
+  const condaEnvMatch = normalized.match(/(?:^|\/)(?:miniconda3|anaconda3|\.conda)\/envs\/([^/]+)\/(?:scripts\/)?python(?:\.exe)?$/i)
+    || normalized.match(/\/envs\/([^/]+)\/(?:scripts\/)?python(?:\.exe)?$/i)
+  if (condaEnvMatch?.[1]) {
+    return { type: 'Conda 环境', desc: condaEnvMatch[1], tagType: 'success' }
+  }
+  if (/(?:miniconda3|anaconda3)\/(?:python(?:\.exe)?)$/i.test(normalized)) {
+    return { type: 'Conda base', desc: 'base 环境', tagType: 'warning' }
+  }
+  const venvMatch = normalized.match(/\/([^/]*(?:venv|env)[^/]*)\/scripts\/python(?:\.exe)?$/i)
+    || normalized.match(/\/([^/]*(?:venv|env)[^/]*)\/bin\/python$/i)
+  if (venvMatch?.[1]) {
+    return { type: '虚拟环境', desc: venvMatch[1], tagType: 'success' }
+  }
+  if (lower.endsWith('/python.exe') || lower.endsWith('/python')) {
+    return { type: '自定义 Python', desc: normalized.split('/').slice(-3).join('/'), tagType: 'primary' }
+  }
+  return { type: '自定义文件', desc: normalized.split('/').pop() || raw, tagType: 'primary' }
+}
+
+const trainingPythonInfo = computed(() => classifyTrainingPythonPath(trainingPythonPath.value))
+
+const applyStoredTrainingPythonParams = (payload) => {
+  if (!payload) return false
+  let p = payload
+  if (typeof payload === 'string') {
+    try {
+      p = JSON.parse(payload)
+    } catch (_) {
+      return false
+    }
+  }
+  const savedPath = p.training_python_path || p.fixed_python_path || p.python_path || ''
+  if (String(savedPath || '').trim()) {
+    trainingPythonPath.value = String(savedPath).trim()
+    if (p.fixed_python_path !== undefined && p.fixed_python_path !== null) {
+      fixedRunnerParameter.python_path = String(p.fixed_python_path)
+    }
+    return true
+  }
+  return false
+}
+
+const loadDefaultTrainingPython = async () => {
+  if (String(trainingPythonPath.value || '').trim()) return
+  try {
+    const res = await TrainTaskService.defaultTrainingPython()
+    if (!String(trainingPythonPath.value || '').trim() && res.code === 0 && res.data?.path) {
+      trainingPythonPath.value = String(res.data.path)
+    }
+  } catch (_) {
+    // 未探测到时保留为空，用户仍可通过“选择”按钮指定。
+  }
+}
+
+const pickTrainingPython = async () => {
+  try {
+    const res = await TrainTaskService.pickTrainingPython()
+    if (res.code === 0 && res.data?.path) {
+      trainingPythonPath.value = String(res.data.path)
+      ElMessage.success('已选择训练 Python 解释器')
+    } else if (res.msg) {
+      ElMessage.warning(res.msg)
+    }
+  } catch (e) {
+    ElMessage.error('选择解释器失败：' + (e?.message || String(e)))
+  }
+}
+
 /**新建弹窗用：带时间戳的任务名 */
 const formatQuickTaskName = () => {
   const d = new Date()
@@ -3754,6 +4360,68 @@ const applyMmdetCnnQuickDefaults = () => {
   addForm.train_img_h = 800
   addForm.train_bath_size = 2
   addForm.train_epoch = 12
+}
+
+const mmdetParamFieldMap = {
+  selected_template: 'mmdet_network', selected_network: 'mmdet_backbone', deep: 'mmdet_depth',
+  dcn_sac_use: 'mmdet_dcn', exist_stage: 'mmdet_dcnStage', scale: 'mmdet_conv_arch',
+  window_size: 'mmdet_window', photo_width: 'mmdet_input_width', photo_height: 'mmdet_input_height',
+  train_bath_size: 'mmdet_batchsize', optimizer: 'mmdet_opt', stu_rate: 'mmdet_inlr',
+  train_epoch: 'mmdet_epoch', down_round: 'mmdet_step', weight_round: 'mmdet_weight_interval',
+  valid_round: 'mmdet_val_interval', RFP: 'mmdet_rfp_steps', ASPP: 'mmdet_aspp_dilation',
+  iter_count: 'mmdet_detectors_itrnum', measure: 'detr_neck_mode', embedding_dimension: 'detr_embed_dims',
+  encoder_layers: 'detr_encoder_layers', decoder_layers: 'detr_decoder_layers', attention_num: 'detr_num_heads',
+  attention_discard_rate: 'detr_attn_dropout', FFN_intermediate_layer_dimension: 'detr_ffn_channels',
+  FFN_linear_layer_num: 'detr_ffn_num_fcs', FFN_discard_rate: 'detr_ffn_dropout',
+  FFN_active_func: 'detr_ffn_act', temperature: 'detr_pos_temperature', loss_cls: 'detr_loss_cls_type',
+  loss_bbox: 'detr_loss_bbox_type', loss_iou: 'detr_loss_iou_type', loss_cls_weight: 'detr_loss_cls_weight',
+  loss_bbox_weight: 'detr_loss_bbox_weight', loss_iou_weight: 'detr_loss_iou_weight',
+  use_custom_pretrained: 'mmdet_use_custom_pretrained', pretrained_address: 'mmdet_pretrained_address',
+  selected_dataset: 'dataset',
+}
+
+const syncMmdetCommonFormFields = () => {
+  addForm.train_img_w = Number(mmdetParameter.photo_width) || addForm.train_img_w
+  addForm.train_img_h = Number(mmdetParameter.photo_height) || addForm.train_img_h
+  addForm.train_bath_size = Number(mmdetParameter.train_bath_size) || addForm.train_bath_size
+  addForm.train_epoch = Number(mmdetParameter.train_epoch) || addForm.train_epoch
+}
+
+const applyMmdetParamPayload = (p = {}, { keepDataset = true, keepPretrained = true } = {}) => {
+  Object.entries(mmdetParamFieldMap).forEach(([field, key]) => {
+    if (keepDataset && field === 'selected_dataset') return
+    if (keepPretrained && (field === 'use_custom_pretrained' || field === 'pretrained_address')) return
+    if (p[key] !== undefined && p[key] !== null) mmdetParameter[field] = p[key]
+  })
+  syncMmdetCommonFormFields()
+}
+
+let templateDefaultsSeq = 0
+const loadMmdetTemplateDefaults = async (templateName = mmdetParameter.selected_template) => {
+  if (!is_create.value || restoringMmdetParams.value || !templateName) return
+  const selectedTemplate = templateCatalog.value.find(item => item.name === templateName)
+  if (selectedTemplate && selectedTemplate.available === false) return
+  const seq = ++templateDefaultsSeq
+  try {
+    const res = await TrainTaskService.configTemplateDefaults({ template: templateName })
+    if (seq !== templateDefaultsSeq) return
+    if (res.code === 0 && res.data?.params) {
+      restoringMmdetParams.value = true
+      mmdetTemplateSupportsStep.value = Object.prototype.hasOwnProperty.call(res.data.params, 'mmdet_step')
+      if (!mmdetTemplateSupportsStep.value) {
+        mmdetParameter.down_round = ''
+      }
+      if (res.data.group) addForm.temp = res.data.group
+      applyMmdetParamPayload(res.data.params, { keepDataset: true, keepPretrained: true })
+      nextTick(() => { restoringMmdetParams.value = false })
+    } else if (res.msg) {
+      ElMessage.warning(res.msg)
+    }
+  } catch (e) {
+    if (seq === templateDefaultsSeq) {
+      ElMessage.warning('读取模板默认参数失败：' + (e?.message || String(e)))
+    }
+  }
 }
 
 function suggestInstanceDatasetScroll(row) {
@@ -3809,6 +4477,7 @@ watch(
 
 // DETR / CNN 算法模板切换（不要用 immediate: true，否则 temp 为 null 时会清空已设好的 CNN 默认）
 watch(() => addForm.temp, (newType) => {
+  if (restoringMmdetParams.value) return
   if (newType === 'DETR') {
     mmdetParameter.use_custom_pretrained = false
     mmdetParameter.pretrained_address = ''
@@ -3830,7 +4499,23 @@ watch(() => addForm.temp, (newType) => {
     addForm.weight_round = 1
   } else if (newType === 'CNN') {
     applyMmdetCnnQuickDefaults()
+  } else if (newType === 'YOLO') {
+    mmdetParameter.use_custom_pretrained = false
+    mmdetParameter.pretrained_address = ''
+    mmdetParameter.selected_template = 'YOLOv3'
+    mmdetParameter.selected_network = 'Darknet53'
+    mmdetParameter.deep = 53
+    mmdetParameter.train_bath_size = 8
+    mmdetParameter.train_epoch = 273
+    mmdetParameter.photo_width = 320
+    mmdetParameter.photo_height = 320
+    mmdetParameter.optimizer = 'SGD'
+    mmdetParameter.stu_rate = 0.001
+    mmdetParameter.down_round = '218, 246'
+    mmdetParameter.weight_round = 7
+    mmdetParameter.valid_round = 7
   }
+  nextTick(() => loadMmdetTemplateDefaults(mmdetParameter.selected_template))
 })
 
 watch(() => mmdetParameter.selected_template, (newTemp) => {
@@ -3852,7 +4537,12 @@ const handleTempChange = () => {
 
 const handleTypeChange = () => {
   if (isMMDetSelected.value) {
+    addForm.temp = 'CNN'
     fetchMmdetInstanceDatasets()
+  } else if (isFixedRunnerSelected.value) {
+    addForm.temp = 'fixed'
+  } else {
+    addForm.temp = null
   }
 }
 
@@ -3860,28 +4550,44 @@ const handleTypeChange = () => {
 
 // 计算属性 - 可用的主干网选项
 const availableBackboneNetworks = computed(() => {
-  // 当选择DetectoRS时，只有ResNet可用，其他选项禁用
-  if (mmdetParameter.selected_template === "DetectoRS") {
-    return backboneNetwork.value.map(item => ({
-      value: item,
-      label: item,
-      disabled: item !== "ResNet"
-    }))
+  if (addForm.temp === 'YOLO') {
+    return [{ value: 'Darknet53', label: 'Darknet53', disabled: false }]
   }
-  
-  // 其他情况下所有选项都可用
+  // 当前落盘的 CNN/DETR 单文件模板均为 ResNet 版本；未提供对应模板结构前禁用其他主干。
   return backboneNetwork.value.map(item => ({
     value: item,
-    label: item,
-    disabled: false
+    label: item === 'ResNet' ? item : `${item}（模板暂缺）`,
+    disabled: item !== 'ResNet'
   }))
 })
+
+const applyStoredMmdetParams = (p) => {
+  restoringMmdetParams.value = true
+  addForm.temp = p.mmdetType || addForm.temp || 'CNN'
+  applyStoredTrainingPythonParams(p)
+  if (p.runner_mode === 'fixed') {
+    addForm.temp = 'fixed'
+    if (p.fixed_python_path !== undefined && p.fixed_python_path !== null) fixedRunnerParameter.python_path = p.fixed_python_path
+    if (p.fixed_exec_dir !== undefined && p.fixed_exec_dir !== null) fixedRunnerParameter.exec_dir = p.fixed_exec_dir
+    if (p.fixed_command_line !== undefined && p.fixed_command_line !== null) fixedRunnerParameter.command_line = p.fixed_command_line
+    if (p.fixed_work_root !== undefined && p.fixed_work_root !== null) fixedRunnerParameter.work_root = p.fixed_work_root
+    nextTick(() => { restoringMmdetParams.value = false })
+    return
+  }
+  mmdetTemplateSupportsStep.value = p.mmdet_step !== undefined && p.mmdet_step !== null && String(p.mmdet_step).trim() !== ''
+  applyMmdetParamPayload(p, { keepDataset: false, keepPretrained: false })
+  nextTick(() => { restoringMmdetParams.value = false })
+}
 
 // 监听模板选择变化
 watch(() => mmdetParameter.selected_template, (newVal) => {
   if (newVal === "DetectoRS" && mmdetParameter.selected_network !== "ResNet") {
     mmdetParameter.selected_network = "ResNet"
   }
+  if (newVal === 'YOLOv3' && mmdetParameter.selected_network !== 'Darknet53') {
+    mmdetParameter.selected_network = 'Darknet53'
+  }
+  loadMmdetTemplateDefaults(newVal)
 })
 
 
@@ -3895,6 +4601,50 @@ const saveMMdetRecord = () =>{
     ElMessage.warning('请选择模型类别')
     return;
   }
+  if (!String(trainingPythonPath.value || '').trim()) {
+    ElMessage.warning('请选择正式训练使用的 Python 解释器')
+    return
+  }
+
+  if (isFixedRunnerSelected.value) {
+    if (!fixedRunnerParameter.exec_dir ||
+      !fixedRunnerParameter.command_line || !fixedRunnerParameter.work_root) {
+      ElMessage.warning('请填写 fixed 模式的 Python路径、执行目录、命令行和输出根目录')
+      return
+    }
+    const params = {
+      taskName: addForm.name,
+      taskId: is_create.value ? null : cur_task_id.value,
+      remark: addForm.remark || '',
+      taskType: addForm.type,
+      mmdetType: '自定义',
+      runner_mode: 'fixed',
+      training_python_path: String(trainingPythonPath.value).trim(),
+      fixed_python_path: String(trainingPythonPath.value).trim(),
+      fixed_exec_dir: fixedRunnerParameter.exec_dir,
+      fixed_command_line: fixedRunnerParameter.command_line,
+      fixed_work_root: fixedRunnerParameter.work_root,
+    }
+    let fd = new FormData()
+    fd.append("params", JSON.stringify(params))
+    loading_saveRecord.value = true
+    TrainTaskService.addMMD(fd).then(res => {
+      if (res.code === 0) {
+        ElMessage.success(res.msg)
+        addVisible.value = false
+        queryUsers()
+        setTimeout(() => {
+          handleCurrentChange()
+        }, 1000)
+      } else {
+        ElMessage.warning(res.msg)
+      }
+      loading_saveRecord.value = false
+    }).catch(() => {
+      loading_saveRecord.value = false
+    })
+    return
+  }
 
   // if (!model_labels?.length) {
   //   ElMessage.warning('请选择模型标签')
@@ -3904,6 +4654,11 @@ const saveMMdetRecord = () =>{
   if (mmdetParameter.selected_template==null) {
     ElMessage.warning('请选择网络模板')
     return;
+  }
+  const selectedTemplate = templateCatalog.value.find(item => item.name === mmdetParameter.selected_template)
+  if (!selectedTemplate?.available) {
+    ElMessage.warning('当前网络模板文件不存在，请选择可用模板')
+    return
   }
   
 
@@ -3939,10 +4694,14 @@ const saveMMdetRecord = () =>{
   
   let params ={
     taskName: addForm.name,
+    taskId: is_create.value ? null : cur_task_id.value,
+    remark: addForm.remark || '',
 // 模型类别
     taskType: addForm.type,
 // 算法模板
     mmdetType:addForm.temp,
+    runner_mode: 'original',
+    training_python_path: String(trainingPythonPath.value).trim(),
 
     dataset:mmdetParameter.selected_dataset,
     mmdet_network:mmdetParameter.selected_template,
@@ -3960,7 +4719,6 @@ const saveMMdetRecord = () =>{
     mmdet_opt:mmdetParameter.optimizer,
     mmdet_inlr:mmdetParameter.stu_rate,
     mmdet_epoch:mmdetParameter.train_epoch,
-    mmdet_step:mmdetParameter.down_round,
     mmdet_weight_interval:mmdetParameter.weight_round,
     mmdet_val_interval:mmdetParameter.valid_round,
 
@@ -3994,6 +4752,9 @@ const saveMMdetRecord = () =>{
     mmdet_use_custom_pretrained: mmdetParameter.use_custom_pretrained,
     mmdet_pretrained_address: (mmdetParameter.pretrained_address || '').trim(),
 
+  }
+  if (mmdetTemplateSupportsStep.value && String(mmdetParameter.down_round || '').trim()) {
+    params.mmdet_step = String(mmdetParameter.down_round).trim()
   }
 
   let fd = new FormData();
@@ -4058,7 +4819,7 @@ const enqueueTask = (row) => {
 /**终止任务 */
 const stopTask = (row) => {
   ElMessageBox.confirm(
-    `确定要中止任务[${row.name}]?`,
+    `确定要中止任务[${row.name}]？这会终止 Runner 中的实际训练进程及其子进程。`,
     '',
     {
       confirmButtonText: '确定',
@@ -4066,17 +4827,26 @@ const stopTask = (row) => {
       type: 'warning',
     }
   )
-    .then(() => {
-      TrainTaskService.stop({ id: row.id }).then(res => {
+    .then(async () => {
+      stoppingTaskId.value = row.id
+      try {
+        const res = await TrainTaskService.stop({ id: row.id })
         if (res.code === 0) {
-          ElMessage.success(res.msg)
+          const pidText = res.data?.pid ? `（Runner PID ${res.data.pid} 已终止）` : ''
+          ElMessage.success(`${res.msg || '任务已停止'}${pidText}`)
           setTimeout(() => {
             handleCurrentChange()
-          }, 1000);
+          }, 1000)
         } else {
-          ElMessage.warning(res.msg)
+          ElMessage.warning(res.msg || '停止任务失败')
+          handleCurrentChange()
         }
-      })
+      } catch (e) {
+        ElMessage.error(`停止任务失败：${e?.msg || e?.message || String(e)}`)
+        refreshRunnerHealth()
+      } finally {
+        stoppingTaskId.value = null
+      }
     })
     .catch(() => {
     })
@@ -4548,6 +5318,7 @@ onMounted(() => {
   wsConnect();
   refreshRunnerHealth();
   runnerHealthTimer = setInterval(refreshRunnerHealth, 30000);
+  trainElapsedTimer = setInterval(() => { trainNowTick.value = Date.now() }, 1000)
   // 列表在 setup 时已请求一次；此处再拉一次避免登录态/Pinia 尚未就绪时首次为空
   nextTick(() => {
     queryUsers();
@@ -4556,6 +5327,10 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (trainElapsedTimer) {
+    clearInterval(trainElapsedTimer)
+    trainElapsedTimer = null
+  }
   if (runnerHealthTimer) {
     clearInterval(runnerHealthTimer);
     runnerHealthTimer = null;
@@ -4597,6 +5372,11 @@ const templateAlgorithmList = ref([])
 //监听模型类别 获取算法模板下拉数据  同时默认选中
 watch(() => addForm.type, async (newV) => {
   if (newV) {
+    if (isRunnerConfigSelected.value) {
+      templateAlgorithmList.value = []
+      templateAlgorithm.value = null
+      return
+    }
     templateAlgorithmList.value = (await apiRequest(trainService.allTrain, { alg_id: newV })) || []
     const findItem = templateAlgorithmList.value.find(val => val.id == templateAlgorithm.value?.id)
     if (!findItem) {
@@ -4703,34 +5483,309 @@ const labelsHandleClose = (val) => {
 <style scoped>
 .content-div {
   padding: 10px;
+  position: relative;
 }
 
-.runner-status-footer {
-  margin-top: 10px;
+.train-task-table :deep(.el-table__row) {
+  cursor: pointer;
 }
 
-.runner-status-footer :deep(.el-alert) {
+.task-status-tooltip-target {
+  display: inline-flex;
+  align-items: center;
+}
+
+.task-status-help {
+  cursor: help;
+}
+
+.train-task-row-actions {
+  flex-wrap: nowrap !important;
+}
+
+.task-overview {
+  --task-label-width: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.task-overview-row {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+
+.task-overview-item {
+  display: flex;
+  min-width: 0;
+  min-height: 36px;
+  overflow: hidden;
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 4px;
+  background: var(--el-fill-color-blank);
+}
+
+.task-overview-primary {
+  grid-template-columns: minmax(300px, 1.35fr) minmax(210px, .72fr) minmax(210px, .72fr) minmax(430px, 1.45fr);
+}
+
+.task-overview-primary .task-name-item {
+  min-width: 360px;
+}
+
+.task-overview-runtime {
+  grid-template-columns: minmax(170px, .72fr) minmax(170px, .72fr) minmax(270px, 1fr) minmax(270px, 1fr);
+}
+
+.task-overview-runtime .task-time-item {
+  min-width: 260px;
+}
+
+.task-overview-label {
+  box-sizing: border-box;
+  display: flex;
+  flex: 0 0 var(--task-label-width);
+  align-items: center;
+  width: var(--task-label-width);
+  padding: 6px 9px;
+  color: var(--el-text-color-regular);
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--el-fill-color-light);
+  border-right: 1px solid var(--el-border-color-lighter);
+}
+
+.required-label::before {
+  margin-right: 4px;
+  color: var(--el-color-danger);
+  content: '*';
+}
+
+.task-overview-content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  padding: 4px 8px;
+}
+
+.task-overview-content :deep(.el-select) {
+  width: 100%;
+}
+
+.task-python-content {
+  align-items: stretch;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+.python-path-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.python-path-desc {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-remark-item {
+  min-height: 122px;
+}
+
+.task-create-remark-item {
+  min-height: 98px;
+}
+
+.single-config-tip {
+  margin-bottom: 12px;
+}
+
+.task-remark-editor {
+  display: flex;
   align-items: flex-start;
+  gap: 8px;
+  width: 100%;
 }
 
-.runner-status-title {
-  font-weight: 500;
+:deep(.train-task-edit-dialog) {
+  display: flex;
+  flex-direction: column;
+  width: 94vw;
+  max-width: 1600px;
+  height: 90vh;
+  max-height: 90vh;
+  margin: 0 auto;
+  overflow: hidden;
 }
 
-.runner-status-row {
+:deep(.train-task-edit-dialog .el-dialog__header) {
+  flex: 0 0 auto;
+  margin-right: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+:deep(.train-task-edit-dialog .el-dialog__body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+:deep(.train-task-edit-dialog .el-dialog__footer) {
+  flex: 0 0 auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+@media (max-width: 1200px) {
+  .task-overview-primary,
+  .task-overview-runtime {
+    grid-template-columns: repeat(2, minmax(320px, 1fr));
+  }
+
+  .task-overview-primary .task-name-item,
+  .task-overview-runtime .task-time-item {
+    min-width: 0;
+  }
+}
+
+.runner-status-floating {
+  position: fixed;
+  top: 7px;
+  right: 250px;
+  z-index: 1800;
+  pointer-events: none;
+}
+
+.runner-status-chip {
+  pointer-events: auto;
+  width: 212px;
+  min-height: 42px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(12px);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 11px;
+  cursor: pointer;
+  color: #334155;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.runner-status-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.16);
+}
+
+.runner-status-chip__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  background: #909399;
+  box-shadow: 0 0 0 4px rgba(144, 147, 153, 0.14);
+}
+
+.runner-status-chip--success .runner-status-chip__dot,
+.runner-status-popover-dot--success {
+  background: #67c23a;
+  box-shadow: 0 0 0 4px rgba(103, 194, 58, 0.16);
+}
+
+.runner-status-chip--danger .runner-status-chip__dot,
+.runner-status-popover-dot--danger {
+  background: #f56c6c;
+  box-shadow: 0 0 0 4px rgba(245, 108, 108, 0.16);
+}
+
+.runner-status-chip--info .runner-status-chip__dot,
+.runner-status-popover-dot--info {
+  background: #909399;
+  box-shadow: 0 0 0 4px rgba(144, 147, 153, 0.14);
+}
+
+.runner-status-chip__main {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.15;
+}
+
+.runner-status-chip__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #172033;
+}
+
+.runner-status-chip__summary {
+  margin-top: 2px;
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.runner-status-chip__more {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: #409eff;
+}
+
+.runner-status-popover-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.runner-status-popover-title {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 4px;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #172033;
 }
 
-.runner-status-text {
-  flex: 1;
-  min-width: 200px;
-  color: var(--el-text-color-regular);
+.runner-status-popover-detail {
+  max-height: 160px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.runner-status-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+:global(.runner-status-popover) {
+  border-radius: 14px !important;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.16) !important;
 }
 
 .mmdet-instance-dataset-block {
@@ -4901,6 +5956,33 @@ const labelsHandleClose = (val) => {
   padding: 12px;
   margin-right: 15px;
   margin-left: 15px;
+}
+
+.text-viewer-wrap {
+  position: relative;
+}
+
+.text-viewer-wrap .preBox {
+  margin: 0;
+  padding-right: 52px;
+  scroll-behavior: smooth;
+}
+
+.log-scroll-actions {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.log-scroll-actions .el-button {
+  margin-left: 0;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
+  font-size: 18px;
+  font-weight: 700;
 }
 
 </style>

@@ -104,6 +104,25 @@ public class InstanceDatasetController {
         }
     }
 
+    @PostMapping("/instancedatasets/open-path")
+    public AjaxResult openInstanceDatasetPath(@RequestBody Map<String, Object> body) {
+        try {
+            Object idObj = body != null ? body.get("id") : null;
+            if (idObj == null) {
+                return AjaxResult.error("缺少实例数据集ID");
+            }
+            Long id = idObj instanceof Number
+                    ? ((Number) idObj).longValue()
+                    : Long.parseLong(String.valueOf(idObj).trim());
+            String path = instanceDatasetService.openInstanceDatasetPath(id);
+            Map<String, Object> data = new HashMap<>();
+            data.put("path", path);
+            return AjaxResult.success(data);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return AjaxResult.error("打开路径失败：" + (e.getMessage() != null ? e.getMessage() : "服务端错误"));
+        }
+    }
     @DeleteMapping("/instancedatasets/{id}")
     public AjaxResult deleteInstanceDataset(@PathVariable Long id) {
         try {

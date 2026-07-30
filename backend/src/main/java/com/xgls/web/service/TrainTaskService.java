@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
+import java.time.Duration;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -47,6 +48,7 @@ import org.springframework.web.multipart.MultipartFile;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.CharsetUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
 
@@ -211,7 +213,17 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         tr.setUserName(task.getUsername());
         tr.setModelType("mmdet");
         tr.setDataset("coco_small"); // 如需真实数据集名称，可在业务链路中补齐
-        tr.setTime(LocalDateTime.now());
+        LocalDateTime finishedAt = LocalDateTime.now();
+        tr.setTime(finishedAt);
+        try {
+            TrainTask currentTask = baseMapper.selectById(task.getId());
+            LocalDateTime startedAt = currentTask == null ? null : currentTask.getStarted_date();
+            if (startedAt != null && !finishedAt.isBefore(startedAt)) {
+                tr.setDurationSeconds(Duration.between(startedAt, finishedAt).getSeconds());
+            }
+        } catch (Exception e) {
+            log.warn("calculate train duration failed, taskId={}, detail={}", task.getId(), e.getMessage());
+        }
         tr.setNetworkName(networkName);
         tr.setMap(mAP);
         tr.setAp50(ap50);
@@ -361,7 +373,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         boolean ok = false;
         String remarkTail = "runner:unknown";
         try {
-            RunnerTrainResponse runnerResp = trainRunnerService.startByRunId(task.getName());
+            RunnerTrainResponse runnerResp = trainRunnerService.startByRunId(task.getName(), runnerOptionsForTask(task.getId()));
             ok = runnerResp.isOk();
             remarkTail = applyRunnerResult(task, runnerResp, "startTrain");
         } catch (Exception e) {
@@ -370,6 +382,37 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         } finally {
             updateStopStatus(id, null, ok ? CodeMap.TRAIN_FINISH_SUCCESS : CodeMap.TRAIN_FINISH_ERROR);
             appendTrainRemark(id, task.getRemark(), remarkTail);
+        }
+    }
+
+    public JSONObject runnerOptionsForTask(Integer taskId) {
+        JSONObject out = new JSONObject();
+        TrainExt ext = trainExtMapper.selectById(taskId);
+        if (ext == null || StrUtil.isBlank(ext.getParams())) {
+            out.set("runner_mode", "original");
+            return out;
+        }
+        try {
+            JSONObject params = JSONUtil.parseObj(ext.getParams());
+            String mode = StrUtil.blankToDefault(params.getStr("runner_mode"), "original");
+            out.set("runner_mode", mode);
+            copyIfPresent(params, out, "training_python_path");
+            if ("fixed".equalsIgnoreCase(mode)) {
+                copyIfPresent(params, out, "fixed_python_path");
+                copyIfPresent(params, out, "fixed_exec_dir");
+                copyIfPresent(params, out, "fixed_command_line");
+                copyIfPresent(params, out, "fixed_work_root");
+            }
+        } catch (Exception e) {
+            out.set("runner_mode", "original");
+        }
+        return out;
+    }
+
+    private void copyIfPresent(JSONObject src, JSONObject dst, String key) {
+        String value = StrUtil.trim(src.getStr(key));
+        if (StrUtil.isNotBlank(value)) {
+            dst.set(key, value);
         }
     }
 
@@ -622,7 +665,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         if (task == null) {
             return runnerResp.summary();
         }
-        if (runnerResp.getRawBody() != null) {
+        if (runnerResp.isOk() && runnerResp.getRawBody() != null) {
             try {
                 cn.hutool.json.JSONObject jo = cn.hutool.json.JSONUtil.parseObj(runnerResp.getRawBody());
                 saveCocoResultFromRunner(task, jo);
@@ -635,7 +678,8 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
     }
 
     private boolean isMmdetType(String type) {
-        return "mmdet".equalsIgnoreCase(type) || "1".equalsIgnoreCase(type);
+        return "mmdet".equalsIgnoreCase(type) || "custom".equalsIgnoreCase(type)
+                || "自定义".equalsIgnoreCase(type) || "1".equalsIgnoreCase(type);
     }
 
     private void updateStartStatus(Integer id, String expName) {

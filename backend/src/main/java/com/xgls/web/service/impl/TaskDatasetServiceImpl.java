@@ -8,12 +8,12 @@ import com.xgls.web.entity.TaskDataset;
 import com.xgls.web.mapper.TaskDatasetMapper;
 import com.xgls.web.service.ImgInfoService;
 import com.xgls.web.service.InstanceDatasetMidService;
+import com.xgls.web.utils.WorkspacePathUtil;
 import com.xgls.web.service.OriginalDataset1Service;
 import com.xgls.web.service.TaskDataset1Service;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 
@@ -39,9 +39,6 @@ public class TaskDatasetServiceImpl extends ServiceImpl<TaskDatasetMapper, TaskD
 
     @Autowired
     private InstanceDatasetMidService instanceDatasetMidService;
-
-    @Value("${sys.instancecfg.instancedata-mid-root:/home/omen1/AI_TT_Platform/data/instance_dataset_mid/}")
-    private String instanceDatasetMidRoot;
 
     // 内部类：带路径的图像信息
     @Data
@@ -150,7 +147,7 @@ public class TaskDatasetServiceImpl extends ServiceImpl<TaskDatasetMapper, TaskD
 
         // 5. 生成路径
         String instanceName = generateUniqueInstanceName(task.getName(),index);
-        String baseDir = Paths.get(instanceDatasetMidRoot.trim().replaceAll("/+$", ""), instanceName)
+        String baseDir = WorkspacePathUtil.instanceDatasetMidRoot().resolve(instanceName)
                 .toString()
                 .replace("\\", "/");
 
@@ -251,4 +248,3 @@ public class TaskDatasetServiceImpl extends ServiceImpl<TaskDatasetMapper, TaskD
         }
     }
 }
-

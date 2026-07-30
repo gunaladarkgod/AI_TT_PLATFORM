@@ -3,6 +3,8 @@
 Thumbs.db
 .idea/
 .vscode/
+.codegraph/*.db
+.codegraph/*.lock
 *.swp
 *.swo
 
@@ -26,6 +28,7 @@ mmdet_run/mmdet_runner_srv/.conda_runner/
 
 # ===================== 前端 Node 依赖 & 日志 =====================
 node_modules/
+.npm-cache/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -50,6 +53,7 @@ fronternd/dist/
 *.tmp
 tmp/
 temp/
+tools/redis/
 
 # ===================== 机器学习训练产物（权重、缓存、数据集） =====================
 runs/
