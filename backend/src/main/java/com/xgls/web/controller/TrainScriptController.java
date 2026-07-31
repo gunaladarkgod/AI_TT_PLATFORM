@@ -3,6 +3,10 @@ package com.xgls.web.controller;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -80,7 +84,36 @@ public class TrainScriptController {
         if (StrUtil.isNotBlank(query.getName())) {
             wrapper.like(TrainScript::getName, query.getName());
         }
-        return AjaxResult.success(trainScriptService.list(wrapper));
+        List<TrainScript> dbList = trainScriptService.list(wrapper);
+        if (!"train".equalsIgnoreCase(query.getType())) {
+            return AjaxResult.success(dbList);
+        }
+
+        List<Object> result = new ArrayList<>(dbList);
+        boolean hasMmdet = dbList.stream()
+                .anyMatch(item -> "mmdet".equalsIgnoreCase(item.getName()) || "mmdet".equalsIgnoreCase(item.getCmd()));
+        boolean hasCustom = dbList.stream()
+                .anyMatch(item -> "自定义".equals(item.getName()) || "fixed".equalsIgnoreCase(item.getCmd()));
+        if (!hasMmdet) {
+            result.add(defaultTrainScript("mmdet", "mmdet", "mmdet"));
+        }
+        if (!hasCustom) {
+            result.add(defaultTrainScript("custom", "自定义", "fixed"));
+        }
+        return AjaxResult.success(result);
+    }
+
+    private Map<String, Object> defaultTrainScript(String id, String name, String cmd) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", id);
+        item.put("type", "train");
+        item.put("name", name);
+        item.put("env", "project");
+        item.put("cmd", cmd);
+        item.put("main", "");
+        item.put("suff", FileUtil.isWindows() ? ".bat" : ".sh");
+        item.put("remark", "项目内置训练类型");
+        return item;
     }
 
     @Operation(summary = "添加", description = "添加")

@@ -2696,6 +2696,10 @@ const activeTab = ref('data-tab')
 const is_create = ref(false)   // 创建/编辑
 const is_add = ref(false) // 追加模式
 const cur_task_id = ref(0);
+const DEFAULT_TRAIN_ALG_LIST = [
+  { id: 'mmdet', type: 'train', name: 'mmdet', cmd: 'mmdet', env: 'project', main: '', remark: '项目内置训练类型' },
+  { id: 'custom', type: 'train', name: '自定义', cmd: 'fixed', env: 'project', main: '', remark: '项目内置训练类型' },
+]
 const algList = ref([])
 const templateList = ref(["CNN","DETR","YOLO"])
 const algMap = ref(Map);
@@ -2705,20 +2709,43 @@ const cur_type = computed(() => {
 const cur_cmd = computed(() => {
   return algMap.value.get(addForm.type)?.cmd;
 })
+const normalizeTrainAlgList = (list = []) => {
+  const merged = [...(Array.isArray(list) ? list : [])]
+  DEFAULT_TRAIN_ALG_LIST.forEach((fallback) => {
+    const exists = merged.some((item) =>
+      String(item?.id) === String(fallback.id) ||
+      item?.name === fallback.name ||
+      item?.cmd === fallback.cmd
+    )
+    if (!exists) merged.push({ ...fallback })
+  })
+  return merged
+}
+const applyTrainAlgList = (list = []) => {
+  const merged = normalizeTrainAlgList(list)
+  algList.value = merged
+  const map = new Map()
+  merged.forEach(item => {
+    map.set(item.id + '', item)
+  })
+  const mmdetAlg = merged.find((item) => item.name === 'mmdet' || item.cmd === 'mmdet')
+  if (mmdetAlg && !map.has('1')) {
+    map.set('1', mmdetAlg)
+  }
+  algMap.value = map
+  if (!addForm.type) {
+    addForm.type = mmdetAlg ? String(mmdetAlg.id) : String(merged[0]?.id || '')
+  }
+}
 const queryAlgs = () => {
   TrainScriptService.queryAll({ type: 'train' }).then(res => {
     if (res.code === 0) {
-      const list = [...(res.data || [])]
-      if (!list.some(item => item.id === 'custom' || item.name === '自定义')) {
-        list.push({ id: 'custom', name: '自定义', cmd: 'fixed' })
-      }
-      algList.value = list
-      let map = new Map;
-      list.forEach(item => {
-        map.set(item.id + '', item)
-      })
-      algMap.value = map;
+      applyTrainAlgList(res.data || [])
+    } else {
+      applyTrainAlgList([])
     }
+  }).catch(() => {
+    applyTrainAlgList([])
   })
 }
 
