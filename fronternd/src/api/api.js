@@ -10,6 +10,13 @@ export class AuthService {
     }
 }
 
+/** 项目文档 */
+export class DocumentationService {
+    static async usageGuide(type = 'usage') {
+        return request('/api/documentation/usage-guide', { type }, 'get');
+    }
+}
+
 /**用户管理接口 */
 export class UserService {
     static async queryList(params) {
@@ -576,6 +583,11 @@ export class InstanceDatasetService {
     static async queryList() {
         const res = await request('/instance/instancedatasets', {}, 'post');
         return res.data || [];
+    }
+
+    /** 从最终实例数据集实际目录读取训练/测试集数量、类别及训测比。 */
+    static async getDetail(id) {
+        return request(`/instanceDataset/${id}/detail`, {}, 'get', 'application/json', 'json')
     }
 
 

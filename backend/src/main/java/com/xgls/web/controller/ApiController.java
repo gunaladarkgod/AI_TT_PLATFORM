@@ -1,11 +1,14 @@
 package com.xgls.web.controller;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -20,6 +23,7 @@ import com.xgls.web.runner.TrainRunnerService;
 import com.xgls.web.service.EngineTaskService;
 import com.xgls.web.service.WebhookService;
 import com.xgls.web.utils.SessionUtil;
+import com.xgls.web.utils.WorkspacePathUtil;
 
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.json.JSONObject;
@@ -68,6 +72,35 @@ public class ApiController {
     @PostMapping("/runner/dependencies/install")
     public AjaxResult runnerDependenciesInstall() {
         return AjaxResult.success(trainRunnerService.installRunnerDependencies());
+    }
+
+    /**
+     * 读取项目内置使用说明。接口只读取固定文件，不接受外部路径，避免暴露任意本地文件。
+     */
+    @GetMapping("/documentation/usage-guide")
+    public AjaxResult usageGuide(@RequestParam(value = "type", defaultValue = "usage") String type) {
+        String documentName = switch (type == null ? "usage" : type.trim().toLowerCase()) {
+            case "usage" -> "使用说明文档v1.0.md";
+            case "technical" -> "技术说明文档.md";
+            default -> null;
+        };
+        if (documentName == null) {
+            return AjaxResult.error("不支持的文档类型：" + type);
+        }
+        Path guide = WorkspacePathUtil.workspaceRoot()
+                .resolve("docs")
+                .resolve("v1.0")
+                .resolve(documentName)
+                .normalize();
+        try {
+            if (!Files.isRegularFile(guide)) {
+                return AjaxResult.error("未找到使用说明文档：" + guide);
+            }
+            return AjaxResult.success(Files.readString(guide, StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            log.warn("Failed to read usage guide: {}", guide, e);
+            return AjaxResult.error("读取使用说明失败：" + e.getMessage());
+        }
     }
     @RequestMapping("webhook/project")
     public AjaxResult project(@RequestBody String body) {
