@@ -566,6 +566,7 @@
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { DatasetScope, notifyDatasetRefresh, useDatasetRefresh } from '@/composables/useDatasetRefresh'
 
 const props = defineProps({
   /** 嵌入「数据集管理（dev）」时收紧外边距 */
@@ -576,6 +577,11 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['midDatasetChanged'])
+
+function announceMidDatasetChanged() {
+  notifyDatasetRefresh([DatasetScope.TASK, DatasetScope.MID, DatasetScope.INSTANCE], 'mid-dataset-changed')
+  emit('midDatasetChanged') // 保留统合页旧事件的兼容
+}
 import { ArrowLeft, ArrowDown } from '@element-plus/icons-vue'
 import { InstanceDatasetService, PreprocessScriptService, SourceInstanceDatasetService, TaskDatasetDevService } from '@/api/api.js'
 
@@ -764,7 +770,7 @@ const clearSourceDataset = async (row) => {
     }
     ElMessage.success('已清除导出数据集')
     await loadSourceDatasetsForSelection()
-    emit('midDatasetChanged')
+    announceMidDatasetChanged()
   } catch (e) {
     ElMessage.error('清除失败：' + (e?.message || e))
   }
@@ -1114,22 +1120,11 @@ if (selectedAugmentationScript.value && selectedAugmentationScriptObj.value) {
           augmentParams: augmentParams,
           trainRatio: trainRatioPercent.value / 100
         };
-        console.log(' 发送预处理请求:', requestBody);
-        const response = await fetch('/develop/api/preprocess/run', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json;charset=utf-8' },
-          body: JSON.stringify(requestBody)
-        });
-        const result = await response.json();
+        const result = await InstanceDatasetService.runPreprocess(requestBody)
         if (result && (result.code === 200 || result.code === 0)) {
           ElMessage.success('实例数据集创建成功！');
           showCreateInstanceDialog.value = false;
-          setTimeout(() => {
-            //原本
-            // window.location.href = '/#/instanceDatabaseManage' 
-            //修改
-            window.location.href = '/#/intanceDatabase'
-          }, 500);
+          announceMidDatasetChanged()
         } else {
           ElMessage.error(result.msg || result.message || '创建失败');
         }
@@ -1152,7 +1147,7 @@ watch(selectedAugmentationScriptObj, () => {
 
 // 页面加载时自动加载
 loadPreprocessScripts()
-loadSourceDatasetsForSelection()
+useDatasetRefresh([DatasetScope.MID], loadSourceDatasetsForSelection)
 
 
 //上传脚本

@@ -721,6 +721,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { EngineProjectService, OriginalDatasetService } from '@/api/api'
+import { DatasetScope, notifyDatasetRefresh, useDatasetRefresh } from '@/composables/useDatasetRefresh'
 
 const props = defineProps({
   /** 嵌入「数据集管理（dev）」时：横向滚动托管在 .table-div，避免 fixed 列与父级 overflow 错位 */
@@ -732,6 +733,11 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:viewAsTable', 'update:sortMode', 'datasetChanged'])
+
+function announceOriginalDatasetChanged() {
+  notifyDatasetRefresh([DatasetScope.ORIGINAL, DatasetScope.TASK], 'original-dataset-changed')
+  emit('datasetChanged') // 保留对旧嵌入父组件的兼容
+}
 
 const internalViewAsTable = ref(true)
 const effectiveViewAsTable = computed({
@@ -1499,7 +1505,7 @@ async function confirmImport() {
         importDialogVisible.value = false
         clearDirectorySelection()
         await loadDatasets()
-        emit('datasetChanged')
+        announceOriginalDatasetChanged()
       } else {
         ElMessage.error(res?.msg || '导入失败')
       }
@@ -1525,7 +1531,7 @@ async function confirmImport() {
       ElMessage.success(res?.msg || '导入成功')
       importDialogVisible.value = false
       await loadDatasets()
-      emit('datasetChanged')
+      announceOriginalDatasetChanged()
     } else {
       ElMessage.error(res?.msg || '导入失败')
     }
@@ -1578,7 +1584,7 @@ async function confirmBatchImport() {
     }
     if (successCount) {
       await loadDatasets()
-      emit('datasetChanged')
+      announceOriginalDatasetChanged()
     }
     const failedCount = validItems.length - successCount
     if (!failedCount) {
@@ -1737,7 +1743,7 @@ async function handleDeleteDataset(row) {
           it => !(it.isExternal && it.name === row.name && it.externalPath === row.externalPath)
       )
       total.value = filtered.value.length
-      emit('datasetChanged')
+      announceOriginalDatasetChanged()
       return
     }
     ElMessage.error(res?.msg || '删除失败')
@@ -1766,10 +1772,11 @@ function safeUser(r) {
 function onKeydown(e) {
   if (e.key === 'Escape' && showPreview.value) closePreview()
 }
+useDatasetRefresh([DatasetScope.ORIGINAL], loadDatasets)
+
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', onWindowResize)
-  await loadDatasets()
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)

@@ -336,7 +336,8 @@ public class TrainTaskController {
         }
         int safeLines = lines == null ? 1000 : Math.max(10, Math.min(lines, 5000));
         try {
-            return AjaxResult.success(trainRunnerService.getLatestTrainLog(task.getName(), safeLines));
+            return AjaxResult.success(trainRunnerService.getLatestTrainLog(
+                    task.getName(), safeLines, taskService.runnerOptionsForTask(task.getId())));
         } catch (IllegalStateException e) {
             return AjaxResult.error(e.getMessage());
         }
@@ -658,6 +659,9 @@ public class TrainTaskController {
         String execDir = StrUtil.trim(params.getStr("fixed_exec_dir"));
         String commandLine = StrUtil.trim(params.getStr("fixed_command_line"));
         String workRoot = StrUtil.trim(params.getStr("fixed_work_root"));
+        if (StrUtil.isBlank(workRoot) || "artifacts/mmdet_runs".equalsIgnoreCase(workRoot.replace('\\', '/'))) {
+            workRoot = "artifacts/custom";
+        }
         if (StrUtil.isBlank(pythonPath)) return AjaxResult.error("缺少参数：fixed_python_path");
         if (StrUtil.isBlank(execDir)) return AjaxResult.error("缺少参数：fixed_exec_dir");
         if (StrUtil.isBlank(commandLine)) return AjaxResult.error("缺少参数：fixed_command_line");
@@ -666,6 +670,7 @@ public class TrainTaskController {
         params.set("runner_mode", "fixed");
         params.set("mmdetType", "自定义");
         params.set("taskType", taskType);
+        params.set("fixed_work_root", workRoot);
 
         TrainForm form = new TrainForm();
         form.setId(editingTaskId);

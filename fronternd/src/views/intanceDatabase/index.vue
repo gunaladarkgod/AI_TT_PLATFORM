@@ -611,6 +611,7 @@ import { useRouter } from 'vue-router'
 import { baseHost, request } from '@/api/axios'
 import DatasetPreviewDialog from '@/components/dataset/DatasetPreviewDialog.vue'
 import { ArrowDown } from '@element-plus/icons-vue'
+import { DatasetScope, notifyDatasetRefresh, useDatasetRefresh } from '@/composables/useDatasetRefresh'
 
 const router = useRouter()
 
@@ -624,6 +625,10 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:taskViewAsTable'])
+
+function announceInstanceDatasetChanged(reason = 'instance-dataset-changed') {
+  notifyDatasetRefresh([DatasetScope.TASK, DatasetScope.INSTANCE], reason)
+}
 
 const localTaskViewAsTable = ref(true)
 
@@ -1042,6 +1047,7 @@ const handleDelete = async (id) => {
     if (response && response.code === 0) {
       ElMessage.success('删除成功')
       await fetchAllInstanceDatasets()
+      announceInstanceDatasetChanged('instance-dataset-deleted')
     } else {
       ElMessage.error(response?.msg || '删除失败')
     }
@@ -1397,6 +1403,7 @@ async function submitInstanceRandomSplit() {
       )
       instanceSplitDialogVisible.value = false
       await fetchAllInstanceDatasets()
+      announceInstanceDatasetChanged('instance-dataset-split')
       if (instanceDetailRow.value?.id === row.id) {
         await openInstanceDetail(row)
       }
@@ -1489,6 +1496,7 @@ const saveTrainTestSplit = async () => {
     if (res?.code === 0) {
       ElMessage.success(`成功保存 ${allTestPlans.length} 个划分方案`)
       fetchAllInstanceDatasets()
+      announceInstanceDatasetChanged('task-train-test-split-saved')
       
       // 新增：保存成功后跳转到预处理页面
       drawerVisible.value = false
@@ -1565,12 +1573,15 @@ const selectDiversePlans = (allPlans, limit) => {
   return selected
 }
 
-// 初始化
-onMounted(() => {
-  fetchTaskList()
-  fetchAllInstanceDatasets()
-  loadMidClassSummaries()
-})
+async function refreshInstancePage() {
+  const [tasks, instances] = await Promise.allSettled([fetchTaskList(), fetchAllInstanceDatasets()])
+  if (tasks.status === 'rejected') ElMessage.warning(`任务数据集列表刷新失败：${tasks.reason?.message || tasks.reason}`)
+  if (instances.status === 'rejected') ElMessage.warning(`实例数据集列表刷新失败：${instances.reason?.message || instances.reason}`)
+  await loadMidClassSummaries()
+}
+
+// 初始化、回到已缓存页面、以及任一关联写操作完成后，都走同一读取入口。
+useDatasetRefresh([DatasetScope.TASK, DatasetScope.MID, DatasetScope.INSTANCE], refreshInstancePage)
 </script>
 
 <style scoped lang="scss">

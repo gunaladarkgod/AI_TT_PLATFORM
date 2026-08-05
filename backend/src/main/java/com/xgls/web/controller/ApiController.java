@@ -62,6 +62,12 @@ public class ApiController {
         return AjaxResult.success(trainRunnerService.startRunnerManually());
     }
 
+    @Operation(summary = "安全重启 MMDet Python Runner", description = "仅重启本机 8009 的 Runner；若有训练任务正在运行则拒绝重启")
+    @PostMapping("/runner/restart")
+    public AjaxResult runnerRestart() {
+        return AjaxResult.success(trainRunnerService.restartRunnerManually());
+    }
+
     @Operation(summary = "检测 Runner 最小依赖")
     @PostMapping("/runner/dependencies/check")
     public AjaxResult runnerDependenciesCheck() {

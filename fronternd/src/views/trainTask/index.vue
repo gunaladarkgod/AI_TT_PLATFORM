@@ -254,6 +254,7 @@
             <el-button type="primary" size="small" @click="refreshRunnerHealth">刷新</el-button>
             <el-button type="warning" size="small" :loading="runnerDependencyLoading" @click="checkRunnerDependencies">检测依赖</el-button>
             <el-button type="success" size="small" :loading="runnerStartLoading" @click="startRunner">启动</el-button>
+            <el-button type="danger" size="small" :loading="runnerRestartLoading" @click="restartRunner">重启</el-button>
           </div>
         </div>
       </el-popover>
@@ -1355,7 +1356,7 @@
           </el-form-item>
           <el-form-item label="输出根目录：" required>
             <el-input v-model="fixedRunnerParameter.work_root" :disabled="isSee"
-              placeholder="支持相对项目根目录，例如：artifacts/mmdet_runs" />
+              placeholder="支持相对项目根目录，例如：artifacts/custom" />
           </el-form-item>
           <div class="el-form-item__tip">
             可用占位符：{run_id} 为任务名称，{work_dir} 为本次训练输出目录。相对路径按 AI_TT_PLATFORM 项目根目录解析。
@@ -2466,6 +2467,7 @@ const showExt = ref(false)
 const runnerHealthOk = ref(null)
 const runnerHealthDetail = ref('正在检测 Runner 服务…')
 const runnerStartLoading = ref(false)
+const runnerRestartLoading = ref(false)
 const runnerDependencyLoading = ref(false)
 const runnerStatusPopoverVisible = ref(false)
 let runnerHealthTimer = null
@@ -2477,6 +2479,7 @@ const runnerStatusTone = computed(() => {
 })
 const runnerStatusSummary = computed(() => {
   if (runnerStartLoading.value) return '启动中'
+  if (runnerRestartLoading.value) return '重启中'
   if (runnerDependencyLoading.value) return '检测中'
   if (runnerHealthOk.value === true) return '正常'
   if (runnerHealthOk.value === false) return '不可用'
@@ -2719,6 +2722,40 @@ const normalizeTrainAlgList = (list = []) => {
   })
   return merged
 }
+
+const restartRunner = async () => {
+  if (runnerRestartLoading.value) return
+  try {
+    await ElMessageBox.confirm(
+      '将重启本机 Runner。若存在正在训练的任务，系统会拒绝重启以保护训练进程。是否继续？',
+      '重启 Runner',
+      { type: 'warning', confirmButtonText: '重启', cancelButtonText: '取消' }
+    )
+  } catch (_) {
+    return
+  }
+  runnerRestartLoading.value = true
+  runnerHealthDetail.value = '正在安全重启 Runner，请稍候…'
+  try {
+    const res = await TrainTaskService.restartRunner({})
+    const data = res?.data || {}
+    const detail = runnerStartDetailText(data)
+    runnerHealthOk.value = !!data.ok
+    runnerHealthDetail.value = data.ok ? `Runner 已重启。${data.pid ? ` PID ${data.pid}` : ''}` : detail
+    if (data.ok) {
+      ElMessage.success(data.message || 'Runner 重启成功')
+      await refreshRunnerHealth()
+    } else {
+      await ElMessageBox.alert(detail, 'Runner 重启失败', { type: 'error', dangerouslyUseHTMLString: false })
+    }
+  } catch (e) {
+    runnerHealthOk.value = false
+    runnerHealthDetail.value = 'Runner 重启请求失败：' + (e?.message || String(e))
+    await ElMessageBox.alert(runnerHealthDetail.value, 'Runner 重启失败', { type: 'error' })
+  } finally {
+    runnerRestartLoading.value = false
+  }
+}
 const applyTrainAlgList = (list = []) => {
   const merged = normalizeTrainAlgList(list)
   algList.value = merged
@@ -2764,6 +2801,7 @@ const fetchConfigTemplates = () => {
 /**新建模式 */
 const showAddModal = () => {
   isSee.value = false
+  resetFixedRunnerParameters()
   //算法模版初始化
   templateAlgorithm.value = null
   templateAlgorithmList.value = []
@@ -4267,8 +4305,14 @@ const fixedRunnerParameter = reactive({
   python_path: 'C:\\Users\\Guo Qinyao\\.conda\\envs\\openmmlab\\python.exe',
   exec_dir: 'mmdet_run/mmdetection-3.0.0',
   command_line: 'tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}',
-  work_root: 'artifacts/mmdet_runs',
+  work_root: 'artifacts/custom',
 })
+const resetFixedRunnerParameters = () => {
+  fixedRunnerParameter.python_path = 'C:\\Users\\Guo Qinyao\\.conda\\envs\\openmmlab\\python.exe'
+  fixedRunnerParameter.exec_dir = 'mmdet_run/mmdetection-3.0.0'
+  fixedRunnerParameter.command_line = 'tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}'
+  fixedRunnerParameter.work_root = 'artifacts/custom'
+}
 const trainingPythonPath = ref('')
 
 const classifyTrainingPythonPath = (value) => {
@@ -4566,6 +4610,7 @@ const handleTypeChange = () => {
     fetchMmdetInstanceDatasets()
   } else if (isFixedRunnerSelected.value) {
     addForm.temp = 'fixed'
+    resetFixedRunnerParameters()
   } else {
     addForm.temp = null
   }
