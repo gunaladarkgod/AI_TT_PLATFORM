@@ -94,13 +94,13 @@ public class PreprocessServiceImpl implements PreprocessService {
                 throw new RuntimeException("源实例数据集不存在: ID=" + sourceId);
             }
 
-            // 历史中间集只有集中式 instances.json。先在中间目录补齐逐图片 DOTA TXT，
-            // 确保后续增强/增广脚本从一开始拿到的就是统一的成对输入。
-            materializeStoredMidCoco(source.getTrainImagePath(), source.getTrainAnnoPath());
-            if (!Objects.equals(source.getTrainImagePath(), source.getTestImagePath())
-                    || !Objects.equals(source.getTrainAnnoPath(), source.getTestAnnoPath())) {
-                materializeStoredMidCoco(source.getTestImagePath(), source.getTestAnnoPath());
-            }
+            // 中间实例数据集是只读输入。所有 COCO 展开、随机划分都在临时副本中完成，
+            // 不能向 data/instance_dataset_mid 写入 txt 或修改用户的导出数据。
+            Path sourceTrainImgPath = resolveMidDatasetPath(source.getTrainImagePath());
+            Path sourceTrainAnnoPath = resolveMidDatasetPath(source.getTrainAnnoPath());
+            Path sourceTestImgPath = resolveMidDatasetPath(source.getTestImagePath());
+            Path sourceTestAnnoPath = resolveMidDatasetPath(source.getTestAnnoPath());
+            ensureSourcePairDirectories(sourceTrainImgPath, sourceTrainAnnoPath, "训练侧");
 
             // 2.2 落盘：{instancedata-root}/{任务数据集名}/{实例数据集名}/images|annotations/...
             String outputName = generateOutputName(source.getName());
@@ -120,134 +120,221 @@ public class PreprocessServiceImpl implements PreprocessService {
             Files.createDirectories(outputTestImgPath);
             Files.createDirectories(outputTestAnnoPath);
 
+            // 先将原图及标注复制到临时区域并划分。这样一张原图及其所有后续增广副本只会进入
+            // 训练集或测试集其中之一，不会因“先增广、后随机划分”泄漏到另一侧。
+            Path splitTempRoot = taskDir.resolve("temp_split_" + UUID.randomUUID());
+            Path splitTrainImgPath = splitTempRoot.resolve("images").resolve("train");
+            Path splitTrainAnnoPath = splitTempRoot.resolve("annotations").resolve("train");
+            Path splitTestImgPath = splitTempRoot.resolve("images").resolve("test");
+            Path splitTestAnnoPath = splitTempRoot.resolve("annotations").resolve("test");
+            Files.createDirectories(splitTrainImgPath);
+            Files.createDirectories(splitTrainAnnoPath);
+            Files.createDirectories(splitTestImgPath);
+            Files.createDirectories(splitTestAnnoPath);
+
             String outputTrainImgPathStr = pathWithTrailingSlash(outputTrainImgPath);
             String outputTrainAnnoPathStr = pathWithTrailingSlash(outputTrainAnnoPath);
             String outputTestImgPathStr = pathWithTrailingSlash(outputTestImgPath);
             String outputTestAnnoPathStr = pathWithTrailingSlash(outputTestAnnoPath);
 
-            // 2.3 训练集：按选择执行增强/增广；两个都不选时直接复制。
             List<String> enhanceArgs = enhanceScript == null
                     ? Collections.emptyList() : buildScriptArgs(enhanceScript, enhanceParams);
             List<String> augmentArgs = augmentScript == null
                     ? Collections.emptyList() : buildScriptArgs(augmentScript, augmentParams);
-
-            if (enhanceScript != null && augmentScript != null) {
-                Path tempRoot = taskDir.resolve("temp_preprocess_" + UUID.randomUUID());
-                Path tempEnhancedImgPath = tempRoot.resolve("images");
-                Path tempEnhancedAnnoPath = tempRoot.resolve("annotations");
-                Files.createDirectories(tempEnhancedImgPath);
-                Files.createDirectories(tempEnhancedAnnoPath);
-                String tempRootStr = pathWithTrailingSlash(tempRoot);
-                try {
-                    runPython(enhanceScript.getScript_path(),
-                            source.getTrainImagePath(), source.getTrainAnnoPath(),
-                            pathWithTrailingSlash(tempEnhancedImgPath), pathWithTrailingSlash(tempEnhancedAnnoPath),
-                            enhanceArgs.toArray(new String[0]));
-                    runPython(augmentScript.getScript_path(),
-                            pathWithTrailingSlash(tempEnhancedImgPath), pathWithTrailingSlash(tempEnhancedAnnoPath),
-                            outputTrainImgPathStr, outputTrainAnnoPathStr,
-                            augmentArgs.toArray(new String[0]));
-                } finally {
-                    deleteDirectory(tempRootStr);
-                }
-            } else if (enhanceScript != null) {
-                runPython(enhanceScript.getScript_path(),
-                        source.getTrainImagePath(), source.getTrainAnnoPath(),
-                        outputTrainImgPathStr, outputTrainAnnoPathStr,
-                        enhanceArgs.toArray(new String[0]));
-            } else if (augmentScript != null) {
-                runPython(augmentScript.getScript_path(),
-                        source.getTrainImagePath(), source.getTrainAnnoPath(),
-                        outputTrainImgPathStr, outputTrainAnnoPathStr,
-                        augmentArgs.toArray(new String[0]));
-            } else {
-                copyDirectory(source.getTrainImagePath(), outputTrainImgPathStr);
-                copyDirectory(source.getTrainAnnoPath(), outputTrainAnnoPathStr);
-            }
-
-            // ===========================================
-            // 测试集仅执行增强；未选择增强脚本时原样复制（增广不作用于测试集）。
-            // ===========================================
-            if (source.getTestImagePath() != null && !source.getTestImagePath().isEmpty()) {
-                if (enhanceScript != null) {
-                    runPython(enhanceScript.getScript_path(),
-                            source.getTestImagePath(), source.getTestAnnoPath(),
-                            outputTestImgPathStr, outputTestAnnoPathStr,
-                            enhanceArgs.toArray(new String[0]));
-                } else {
-                    copyDirectory(source.getTestImagePath(), outputTestImgPathStr);
-                    copyDirectory(source.getTestAnnoPath(), outputTestAnnoPathStr);
-                }
-            } else {
-                // 如果没有测试集，创建空目录（保持结构一致）
-                Files.createDirectories(outputTestImgPath);
-                Files.createDirectories(outputTestAnnoPath);
-            }
-
-            // 2.7 保存结果记录
-            InstanceDataset result = new InstanceDataset();
-            result.setFatherName(source.getFatherName());
-            result.setName(outputName);
-            result.setSensorType(source.getSensorType());
-            result.setTargetType(source.getTargetType());
-            result.setImgNum(source.getImgNum());
-            result.setAnnoNum(source.getAnnoNum());
-            result.setClassNum(source.getClassNum());
-            result.setClassList(source.getClassList());
-            applyTaskTargetSchemaClassList(result);
-            result.setTrainImagePath(pathWithTrailingSlash(instanceRoot, outputTrainImgPath));
-            result.setTrainAnnoPath(pathWithTrailingSlash(instanceRoot, outputTrainAnnoPath));
-            result.setTestImagePath(pathWithTrailingSlash(instanceRoot, outputTestImgPath));
-            result.setTestAnnoPath(pathWithTrailingSlash(instanceRoot, outputTestAnnoPath));
-            result.setDataFormat(source.getDataFormat());
-            result.setUsername(source.getUsername());
-            result.setCreatedTime(LocalDateTime.now());
-            result.setUpdatedTime(LocalDateTime.now());
-
-            // 预处理的最终产物必须直接可用于 MMDet：汇总所有输出后重新随机划分，
-            // 并确保 train/test 两侧均有图片和标注，再允许写入数据库。
-            materializeCocoAnnotations(outputTrainImgPath, outputTrainAnnoPath);
-            materializeCocoAnnotations(outputTestImgPath, outputTestAnnoPath);
-            Files.deleteIfExists(outputTrainAnnoPath.resolve("instances.json"));
-            Files.deleteIfExists(outputTestAnnoPath.resolve("instances.json"));
-            InstanceDatasetTrainTestRandomSplitUtil.SplitResult split;
             try {
-                split = InstanceDatasetTrainTestRandomSplitUtil.run(result, instanceRoot.toString(), effectiveTrainRatio);
+                copyDirectory(sourceTrainImgPath.toString(), splitTrainImgPath.toString());
+                copyDirectory(sourceTrainAnnoPath.toString(), splitTrainAnnoPath.toString());
+                boolean hasSeparateSourceTest = !sameDirectory(sourceTrainImgPath, sourceTestImgPath)
+                        || !sameDirectory(sourceTrainAnnoPath, sourceTestAnnoPath);
+                if (hasSeparateSourceTest && isDirectory(sourceTestImgPath) && isDirectory(sourceTestAnnoPath)) {
+                    copyDirectory(sourceTestImgPath.toString(), splitTestImgPath.toString());
+                    copyDirectory(sourceTestAnnoPath.toString(), splitTestAnnoPath.toString());
+                }
+                materializeCocoAnnotations(splitTrainImgPath, splitTrainAnnoPath);
+                materializeCocoAnnotations(splitTestImgPath, splitTestAnnoPath);
+                Files.deleteIfExists(splitTrainAnnoPath.resolve("instances.json"));
+                Files.deleteIfExists(splitTestAnnoPath.resolve("instances.json"));
+
+                InstanceDataset splitSource = buildDiskDataset(source, outputName,
+                        splitTrainImgPath, splitTrainAnnoPath, splitTestImgPath, splitTestAnnoPath, instanceRoot);
+                InstanceDatasetTrainTestRandomSplitUtil.SplitResult sourceSplit =
+                        InstanceDatasetTrainTestRandomSplitUtil.run(splitSource, instanceRoot.toString(), effectiveTrainRatio);
+
+                processTrainSet(splitTrainImgPath, splitTrainAnnoPath,
+                        outputTrainImgPath, outputTrainAnnoPath,
+                        enhanceScript, enhanceArgs, augmentScript, augmentArgs, taskDir);
+                processTestSet(splitTestImgPath, splitTestAnnoPath,
+                        outputTestImgPath, outputTestAnnoPath, enhanceScript, enhanceArgs);
+
+                materializeCocoAnnotations(outputTrainImgPath, outputTrainAnnoPath);
+                materializeCocoAnnotations(outputTestImgPath, outputTestAnnoPath);
+                Files.deleteIfExists(outputTrainAnnoPath.resolve("instances.json"));
+                Files.deleteIfExists(outputTestAnnoPath.resolve("instances.json"));
+                validatePairedDataset(outputTrainImgPath, outputTrainAnnoPath, "训练集");
+                validatePairedDataset(outputTestImgPath, outputTestAnnoPath, "测试集");
+
+                int finalTrainImages = InstanceDatasetTrainTestRandomSplitUtil.countImages(outputTrainImgPath);
+                int finalTestImages = InstanceDatasetTrainTestRandomSplitUtil.countImages(outputTestImgPath);
+                int trainAnnoCount = InstanceDatasetTrainTestRandomSplitUtil.countAnnoLabelFiles(outputTrainAnnoPath);
+                int testAnnoCount = InstanceDatasetTrainTestRandomSplitUtil.countAnnoLabelFiles(outputTestAnnoPath);
+
+                InstanceDataset result = buildDiskDataset(source, outputName,
+                        outputTrainImgPath, outputTrainAnnoPath, outputTestImgPath, outputTestAnnoPath, instanceRoot);
+                result.setImgNum(finalTrainImages + finalTestImages);
+                result.setAnnoNum(trainAnnoCount + testAnnoCount);
+
+                // 只记录实际执行的脚本；未使用脚本时保存空链路 []。
+                List<Map<String, Object>> configList = new ArrayList<>();
+                if (enhanceScript != null) {
+                    configList.add(scriptConfig(configList.size() + 1, enhanceScript.getName()));
+                }
+                if (augmentScript != null) {
+                    configList.add(scriptConfig(configList.size() + 1, augmentScript.getName()));
+                }
+                result.setConfigList(objectMapper.writeValueAsString(configList));
+
+                Map<String, Object> allParams = new HashMap<>();
+                allParams.put("enhance", enhanceParams);
+                allParams.put("augment", augmentParams);
+                allParams.put("trainRatio", effectiveTrainRatio);
+                allParams.put("splitBeforePreprocess", true);
+                allParams.put("sourceTrainImages", sourceSplit.trainImages());
+                allParams.put("sourceTestImages", sourceSplit.testImages());
+                result.setParamSchema(objectMapper.writeValueAsString(allParams));
+
+                instanceDatasetMapper.insert(result);
+                results.add(result);
             } catch (Exception e) {
-                deleteDirectory(pathWithTrailingSlash(datasetOut));
+                deleteDirectory(datasetOut.toString());
                 throw e;
+            } finally {
+                deleteDirectory(splitTempRoot.toString());
             }
-            int trainAnnoCount = InstanceDatasetTrainTestRandomSplitUtil.countAnnoLabelFiles(outputTrainAnnoPath);
-            int testAnnoCount = InstanceDatasetTrainTestRandomSplitUtil.countAnnoLabelFiles(outputTestAnnoPath);
-            if (split.trainImages() < 1 || split.testImages() < 1 || trainAnnoCount < 1 || testAnnoCount < 1) {
-                deleteDirectory(pathWithTrailingSlash(datasetOut));
-                throw new IllegalStateException("预处理输出无法用于 MMDet：训练集和测试集都必须至少包含一张图片及一份标注");
-            }
-            result.setImgNum(split.trainImages() + split.testImages());
-            result.setAnnoNum(trainAnnoCount + testAnnoCount);
-
-            // 只记录实际执行的脚本；未使用脚本时保存空链路 []。
-            List<Map<String, Object>> configList = new ArrayList<>();
-            if (enhanceScript != null) {
-                configList.add(scriptConfig(configList.size() + 1, enhanceScript.getName()));
-            }
-            if (augmentScript != null) {
-                configList.add(scriptConfig(configList.size() + 1, augmentScript.getName()));
-            }
-            result.setConfigList(objectMapper.writeValueAsString(configList));
-
-            // 实际参数记录
-            Map<String, Object> allParams = new HashMap<>();
-            allParams.put("enhance", enhanceParams);
-            allParams.put("augment", augmentParams);
-            allParams.put("trainRatio", effectiveTrainRatio);
-            result.setParamSchema(objectMapper.writeValueAsString(allParams));
-
-            instanceDatasetMapper.insert(result);
-            results.add(result);
         }
 
         return results;
+    }
+
+    private Path resolveMidDatasetPath(String rawPath) {
+        if (StrUtil.isBlank(rawPath)) return null;
+        Path path = Paths.get(rawPath).normalize();
+        if (path.isAbsolute()) return path;
+        return WorkspacePathUtil.instanceDatasetMidRoot().resolve(path).normalize();
+    }
+
+    private void ensureSourcePairDirectories(Path images, Path annotations, String side) {
+        if (!isDirectory(images) || !isDirectory(annotations)) {
+            throw new IllegalStateException("中间实例数据集" + side + "的图片或标注目录不存在");
+        }
+    }
+
+    private boolean isDirectory(Path path) {
+        return path != null && Files.isDirectory(path);
+    }
+
+    private boolean sameDirectory(Path a, Path b) {
+        return a != null && b != null && a.toAbsolutePath().normalize().equals(b.toAbsolutePath().normalize());
+    }
+
+    private InstanceDataset buildDiskDataset(
+            InstanceDatasetMid source,
+            String outputName,
+            Path trainImages,
+            Path trainAnnotations,
+            Path testImages,
+            Path testAnnotations,
+            Path instanceRoot) {
+        InstanceDataset result = new InstanceDataset();
+        result.setFatherName(source.getFatherName());
+        result.setName(outputName);
+        result.setSensorType(source.getSensorType());
+        result.setTargetType(source.getTargetType());
+        result.setClassNum(source.getClassNum());
+        result.setClassList(source.getClassList());
+        applyTaskTargetSchemaClassList(result);
+        result.setTrainImagePath(pathWithTrailingSlash(instanceRoot, trainImages));
+        result.setTrainAnnoPath(pathWithTrailingSlash(instanceRoot, trainAnnotations));
+        result.setTestImagePath(pathWithTrailingSlash(instanceRoot, testImages));
+        result.setTestAnnoPath(pathWithTrailingSlash(instanceRoot, testAnnotations));
+        result.setDataFormat(source.getDataFormat());
+        result.setUsername(source.getUsername());
+        result.setCreatedTime(LocalDateTime.now());
+        result.setUpdatedTime(LocalDateTime.now());
+        return result;
+    }
+
+    private void processTrainSet(
+            Path inputImages, Path inputAnnotations,
+            Path outputImages, Path outputAnnotations,
+            PreprocessScriptInfo enhanceScript, List<String> enhanceArgs,
+            PreprocessScriptInfo augmentScript, List<String> augmentArgs,
+            Path taskDir) throws Exception {
+        if (enhanceScript != null && augmentScript != null) {
+            Path tempRoot = taskDir.resolve("temp_preprocess_" + UUID.randomUUID());
+            Path tempImages = tempRoot.resolve("images");
+            Path tempAnnotations = tempRoot.resolve("annotations");
+            Files.createDirectories(tempImages);
+            Files.createDirectories(tempAnnotations);
+            try {
+                runPython(enhanceScript.getScript_path(), inputImages.toString(), inputAnnotations.toString(),
+                        tempImages.toString(), tempAnnotations.toString(), enhanceArgs.toArray(new String[0]));
+                runPython(augmentScript.getScript_path(), tempImages.toString(), tempAnnotations.toString(),
+                        outputImages.toString(), outputAnnotations.toString(), augmentArgs.toArray(new String[0]));
+            } finally {
+                deleteDirectory(tempRoot.toString());
+            }
+        } else if (enhanceScript != null) {
+            runPython(enhanceScript.getScript_path(), inputImages.toString(), inputAnnotations.toString(),
+                    outputImages.toString(), outputAnnotations.toString(), enhanceArgs.toArray(new String[0]));
+        } else if (augmentScript != null) {
+            runPython(augmentScript.getScript_path(), inputImages.toString(), inputAnnotations.toString(),
+                    outputImages.toString(), outputAnnotations.toString(), augmentArgs.toArray(new String[0]));
+        } else {
+            copyDirectory(inputImages.toString(), outputImages.toString());
+            copyDirectory(inputAnnotations.toString(), outputAnnotations.toString());
+        }
+    }
+
+    /** 测试集禁止增广；增强脚本必须是不会改变标签语义的确定性处理。 */
+    private void processTestSet(
+            Path inputImages, Path inputAnnotations,
+            Path outputImages, Path outputAnnotations,
+            PreprocessScriptInfo enhanceScript, List<String> enhanceArgs) throws Exception {
+        if (enhanceScript != null) {
+            runPython(enhanceScript.getScript_path(), inputImages.toString(), inputAnnotations.toString(),
+                    outputImages.toString(), outputAnnotations.toString(), enhanceArgs.toArray(new String[0]));
+        } else {
+            copyDirectory(inputImages.toString(), outputImages.toString());
+            copyDirectory(inputAnnotations.toString(), outputAnnotations.toString());
+        }
+    }
+
+    private void validatePairedDataset(Path imagesDir, Path annotationsDir, String side) throws IOException {
+        int images = 0;
+        try (var walk = Files.walk(imagesDir)) {
+            for (Path image : walk.filter(Files::isRegularFile).toList()) {
+                String name = image.getFileName().toString();
+                String lower = name.toLowerCase(Locale.ROOT);
+                if (!(lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png")
+                        || lower.endsWith(".bmp") || lower.endsWith(".tif") || lower.endsWith(".tiff"))) {
+                    continue;
+                }
+                images++;
+                Path rel = imagesDir.relativize(image);
+                String fileName = rel.getFileName().toString();
+                int dot = fileName.lastIndexOf('.');
+                String stem = dot > 0 ? fileName.substring(0, dot) : fileName;
+                Path parent = rel.getParent() == null ? annotationsDir : annotationsDir.resolve(rel.getParent());
+                if (!Files.isRegularFile(parent.resolve(stem + ".txt"))
+                        && !Files.isRegularFile(parent.resolve(stem + ".json"))
+                        && !Files.isRegularFile(parent.resolve(stem + ".xml"))) {
+                    throw new IllegalStateException(side + "存在图片但缺少同名标注: " + rel);
+                }
+            }
+        }
+        if (images < 1) {
+            throw new IllegalStateException(side + "没有可用图片");
+        }
     }
 
     private void materializeStoredMidCoco(String imagePath, String annotationPath) throws IOException {

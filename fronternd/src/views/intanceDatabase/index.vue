@@ -49,11 +49,11 @@
                   <span v-if="row.__rowType === 'parent'">{{ (currentPage - 1) * pageSize + row.__parentIndex + 1 }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="name" column-key="name" label="数据集名称" min-width="220" align="left" fixed="left" sortable="custom" show-overflow-tooltip />
+              <el-table-column prop="name" column-key="name" label="任务数据集名称 / 实例数据集名称" min-width="250" align="left" fixed="left" sortable="custom" show-overflow-tooltip />
               <el-table-column prop="classNum" column-key="classNum" label="类别数" align="center" width="96" sortable="custom">
                 <template #default="{ row }"><span v-if="row.__rowType === 'parent'">{{ displayCoreClassNum(row) }}</span></template>
               </el-table-column>
-              <el-table-column label="类别名称" align="center" min-width="260">
+              <el-table-column label="类别信息 / 实例数据集信息" align="center" min-width="280">
                 <template #default="{ row }">
                   <div v-if="row.__rowType === 'parent'" class="category-tags-container">
                     <el-tag v-for="(item, index) in getTaskCategoryList(row)" :key="`${row.treeKey}-${index}`" size="small" :type="getTagType(index)" style="margin: 2px; white-space: nowrap;">{{ item.name }}: {{ item.count ?? 0 }}</el-tag>
@@ -63,6 +63,8 @@
                     <el-tag size="small" type="success">样本：{{ row.annoNum ?? 0 }}</el-tag>
                     <el-tag size="small" type="warning">训/测：{{ row.__splitSummary || '点击查看详情' }}</el-tag>
                     <span class="instance-child-summary__config">{{ formatConfigList(row.configList) }}</span>
+                    <span class="instance-child-summary__time">创建：{{ formatInstanceTime(row.createdTime ?? row.created_time) }}</span>
+                    <span class="instance-child-summary__time">更新：{{ formatInstanceTime(row.updatedTime ?? row.updated_time) }}</span>
                   </div>
                 </template>
               </el-table-column>
@@ -237,11 +239,11 @@
                   <span v-if="row.__rowType === 'parent'">{{ (currentPage - 1) * pageSize + row.__parentIndex + 1 }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="name" column-key="name" label="数据集名称" min-width="220" align="left" fixed="left" sortable="custom" show-overflow-tooltip />
+              <el-table-column prop="name" column-key="name" label="任务数据集名称 / 实例数据集名称" min-width="250" align="left" fixed="left" sortable="custom" show-overflow-tooltip />
               <el-table-column prop="classNum" column-key="classNum" label="类别数" align="center" width="96" sortable="custom">
                 <template #default="{ row }"><span v-if="row.__rowType === 'parent'">{{ displayCoreClassNum(row) }}</span></template>
               </el-table-column>
-              <el-table-column label="类别名称" align="center" min-width="260">
+              <el-table-column label="类别信息 / 实例数据集信息" align="center" min-width="280">
                 <template #default="{ row }">
                   <div v-if="row.__rowType === 'parent'" class="category-tags-container">
                     <el-tag v-for="(item, index) in getTaskCategoryList(row)" :key="`${row.treeKey}-${index}`" size="small" :type="getTagType(index)" style="margin: 2px; white-space: nowrap;">{{ item.name }}: {{ item.count ?? 0 }}</el-tag>
@@ -251,6 +253,8 @@
                     <el-tag size="small" type="success">样本：{{ row.annoNum ?? 0 }}</el-tag>
                     <el-tag size="small" type="warning">训/测：{{ row.__splitSummary || '点击查看详情' }}</el-tag>
                     <span class="instance-child-summary__config">{{ formatConfigList(row.configList) }}</span>
+                    <span class="instance-child-summary__time">创建：{{ formatInstanceTime(row.createdTime ?? row.created_time) }}</span>
+                    <span class="instance-child-summary__time">更新：{{ formatInstanceTime(row.updatedTime ?? row.updated_time) }}</span>
                   </div>
                 </template>
               </el-table-column>
@@ -813,6 +817,15 @@ function formatConfigList(configStr) {
   if (!list.length) return '-'
   return list.map(item => item.name).filter(Boolean).join(' → ') || '-'
 }
+
+function formatInstanceTime(value) {
+  if (!value) return '-'
+  const raw = String(value).trim()
+  const date = new Date(raw.replace(' ', 'T'))
+  if (Number.isNaN(date.getTime())) return raw
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
 function clearInstanceToolbarFilters() {
   instanceToolbarSearch.value = ''
   colFilterSensor.value = []
@@ -1311,6 +1324,10 @@ const handleTaskRowClick = (row, _column, event) => {
     openInstanceDetail(row)
     return
   }
+  if (!Array.isArray(row?.children) || row.children.length === 0) {
+    ElMessage.info(`任务数据集“${row?.name || '未命名'}”还没有创建实例数据集`)
+    return
+  }
   handleTaskSelect(row)
   nextTick(() => {
     instanceTaskTableRef.value?.toggleRowExpansion?.(row)
@@ -1492,7 +1509,10 @@ const handleCloseDrawer = () => {
 // ✅ 行高亮（基于 number 类型比较）
 const getTreeRowClassName = ({ row }) => {
   if (row.__rowType === 'child') return 'instance-child-row'
-  return row.id === selectedTaskId.value ? 'selected-row' : ''
+  const classes = []
+  if (!Array.isArray(row.children) || row.children.length === 0) classes.push('instance-empty-parent-row')
+  if (row.id === selectedTaskId.value) classes.push('selected-row')
+  return classes.join(' ')
 }
 
 // 分页控制
@@ -1752,6 +1772,27 @@ onMounted(() => {
   line-height: 20px;
 }
 
+/* 没有子实例数据集的任务行：保留任务信息，但明确标识为不可展开状态。 */
+:deep(.instance-tree-table .instance-empty-parent-row > td.el-table__cell) {
+  background: #f5f6f8 !important;
+  color: #a8abb2 !important;
+  cursor: not-allowed;
+}
+
+:deep(.instance-tree-table .instance-empty-parent-row .cell),
+:deep(.instance-tree-table .instance-empty-parent-row .el-tag) {
+  color: #a8abb2 !important;
+}
+
+:deep(.instance-tree-table .instance-empty-parent-row .el-tag) {
+  border-color: #dcdfe6 !important;
+  background: #f2f3f5 !important;
+}
+
+:deep(.instance-tree-table .instance-empty-parent-row:hover > td.el-table__cell) {
+  background: #f5f6f8 !important;
+}
+
 /* 表格内单选：隐藏重复标签（卡片视图需显示名称） */
 .table-div :deep(.el-radio__label) {
   display: none !important;
@@ -1960,6 +2001,12 @@ onMounted(() => {
 .instance-inline-table {
   border-radius: 6px;
   overflow: hidden;
+}
+
+.instance-child-summary__time {
+  color: #909399;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .instance-detail-summary {

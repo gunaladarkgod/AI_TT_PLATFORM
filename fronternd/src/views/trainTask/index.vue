@@ -23,7 +23,6 @@
       <div>
 
         <el-space>
-          <logview type="train"></logview>
           <el-button type="primary" @click="showAddModal" size="small"><el-text size="small"
               class="text-white">创建训练任务</el-text>
           </el-button>
@@ -2296,7 +2295,6 @@ import { isNum } from "../../utils/regex";
 import { taskStatusMap, taskStatusList, perspectiveMap } from '../../utils/selfmaps'
 import { uuid } from 'vue-uuid'
 import authimg from '../../components/authimg.vue'
-import logview from '../../components/logger.vue'
 import AceEdit from '@/components/AceEdit/index.vue'
 import { showRemark } from "../../utils/str";
 import { add } from 'lodash';

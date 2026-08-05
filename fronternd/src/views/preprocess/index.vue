@@ -22,7 +22,7 @@
     <el-dialog
       v-model="showCreateInstanceDialog"
       title="创建实例数据集"
-      width="94vw"
+      width="min(920px, 92vw)"
       class="preprocess-create-dialog"
       align-center
       :close-on-click-modal="false"
@@ -201,8 +201,8 @@
           <span class="script-label">训练集占比：</span>
           <el-slider v-model="trainRatioPercent" :min="1" :max="99" :step="1" show-input style="max-width: 520px;" />
           <div class="split-ratio-hint">
-            预处理完成后自动随机划分为 images/train、images/test、annotations/train、annotations/test；
-            当前训练集 {{ trainRatioPercent }}%，测试集 {{ 100 - trainRatioPercent }}%。
+            会先按原始图片随机划分为 images/train、images/test、annotations/train、annotations/test，再执行预处理；
+            增广仅作用于训练集，避免同源图片进入测试集。当前原始图片训练集 {{ trainRatioPercent }}%，测试集 {{ 100 - trainRatioPercent }}%。
           </div>
         </div>
       </div>
@@ -1269,34 +1269,140 @@ const openUploadDialog = () => {
 }
 
 :deep(.preprocess-create-dialog) {
-  width: 94vw;
-  max-width: 1600px;
-  height: 90vh;
-  max-height: 90vh;
+  width: min(920px, 92vw) !important;
+  max-width: 920px;
+  max-height: min(680px, 86vh);
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(31, 45, 61, 0.16);
 }
 
 :deep(.preprocess-create-dialog .el-dialog__header) {
   flex: 0 0 auto;
   margin-right: 0;
-  padding-bottom: 12px;
+  padding: 18px 22px 14px;
   border-bottom: 1px solid var(--el-border-color-lighter);
+  font-size: 18px;
+  font-weight: 650;
 }
 
 :deep(.preprocess-create-dialog .el-dialog__body) {
   flex: 1 1 auto;
   min-height: 0;
+  max-height: calc(min(680px, 86vh) - 128px);
+  padding: 18px 22px;
   overflow-x: hidden;
   overflow-y: auto;
 }
 
 :deep(.preprocess-create-dialog .el-dialog__footer) {
   flex: 0 0 auto;
-  padding-top: 12px;
+  padding: 12px 22px 16px;
   border-top: 1px solid var(--el-border-color-lighter);
+}
+
+:deep(.preprocess-create-dialog .el-dialog__headerbtn) {
+  top: 18px;
+  right: 18px;
+}
+
+:deep(.preprocess-create-dialog .el-dialog__footer .el-button) {
+  min-width: 76px;
+}
+
+:deep(.preprocess-create-dialog .create-form) {
+  gap: 16px;
+}
+
+:deep(.preprocess-create-dialog .scripts-container) {
+  align-items: stretch;
+  gap: 14px;
+}
+
+:deep(.preprocess-create-dialog .script-column) {
+  padding: 14px;
+  border: 1px solid #e9eef5;
+  border-radius: 8px;
+  background: #fafcff;
+  gap: 10px;
+}
+
+:deep(.preprocess-create-dialog .script-selector) {
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+:deep(.preprocess-create-dialog .script-selector .el-select) {
+  width: 100% !important;
+  min-width: 0;
+}
+
+:deep(.preprocess-create-dialog .script-label) {
+  font-size: 14px;
+  color: #303133;
+}
+
+:deep(.preprocess-create-dialog .upload-actions) {
+  justify-content: center;
+  padding: 0 0 0 2px;
+}
+
+:deep(.preprocess-create-dialog .upload-actions .el-button) {
+  height: 32px;
+  padding: 0 12px;
+}
+
+:deep(.preprocess-create-dialog .script-params) {
+  gap: 8px;
+  padding-top: 2px;
+}
+
+:deep(.preprocess-create-dialog .param-item) {
+  gap: 8px;
+}
+
+:deep(.preprocess-create-dialog .param-item label) {
+  width: 88px;
+  font-size: 13px;
+}
+
+:deep(.preprocess-create-dialog .width-200) {
+  width: 170px !important;
+}
+
+:deep(.preprocess-create-dialog .split-ratio-section) {
+  padding: 14px;
+  border: 1px solid #e9eef5;
+  border-radius: 8px;
+  background: #fafcff;
+}
+
+:deep(.preprocess-create-dialog .split-ratio-section .el-slider) {
+  max-width: 400px !important;
+}
+
+:deep(.preprocess-create-dialog .split-ratio-hint) {
+  margin-top: 8px;
+  color: #7a8493;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+@media (max-width: 760px) {
+  :deep(.preprocess-create-dialog .scripts-container) {
+    flex-direction: column;
+  }
+
+  :deep(.preprocess-create-dialog .script-selector) {
+    flex-wrap: wrap;
+  }
+
+  :deep(.preprocess-create-dialog .upload-actions) {
+    align-items: flex-end;
+  }
 }
 
 .create-interface {

@@ -20,7 +20,7 @@
                 class="custom-menu-item"
                 :class="route.path === '/' + item.url ? 'my-active' : ''"
               >
-                <el-icon><i class="iconfont" :class="'icon-' + item.url" style="font-size: 14px"></i></el-icon>
+                <el-icon class="top-nav-icon"><component :is="getTopNavIcon(item.url)" /></el-icon>
                 <template #title>{{ item.name }}</template>
               </el-menu-item>
 
@@ -29,15 +29,15 @@
                 <template v-for="item in topNavigation.overflow" :key="item.url">
                   <el-menu-item
                     v-if="!item.children || item.children.length === 0"
-                    :index="'/' + item.url"
-                    :class="route.path === '/' + item.url ? 'my-active' : ''"
-                  >
-                    <el-icon><i class="iconfont" :class="'icon-' + item.url" style="font-size: 14px"></i></el-icon>
+                  :index="'/' + item.url"
+                  :class="route.path === '/' + item.url ? 'my-active' : ''"
+                >
+                    <el-icon><component :is="getTopNavIcon(item.url)" /></el-icon>
                     <template #title>{{ item.name }}</template>
                   </el-menu-item>
                   <el-sub-menu v-else :index="'/__top_nav_more__/' + item.url">
                     <template #title>
-                      <el-icon><i class="iconfont" :class="'icon-' + item.url" style="font-size: 14px"></i></el-icon>
+                      <el-icon><component :is="getTopNavIcon(item.url)" /></el-icon>
                       {{ item.name }}
                     </template>
                     <el-menu-item
@@ -46,6 +46,7 @@
                       :index="'/' + child.url"
                       :class="route.path === '/' + child.url ? 'my-active' : ''"
                     >
+                      <el-icon><component :is="getTopNavIcon(child.url)" /></el-icon>
                       {{ child.name }}
                     </el-menu-item>
                   </el-sub-menu>
@@ -217,7 +218,7 @@ import { ElMessage } from "element-plus";
 import { ref, reactive, onMounted, onUnmounted, nextTick, onBeforeUnmount, watch } from "vue";
 import { useRouter ,useRoute} from "vue-router";
 import { AuthService, UserService } from "../../api/api";
-import { Document } from '@element-plus/icons-vue';
+import { Collection, Cpu, DataAnalysis, Document, Files, FolderOpened, List, SetUp } from '@element-plus/icons-vue';
 import MarkdownIt from 'markdown-it';
 import usageGuideContent from 'virtual:project-usage-guide';
 import technicalGuideContent from 'virtual:project-technical-guide';
@@ -237,6 +238,17 @@ const isCollapse = ref(false);
 let timer = null
 const menuMode = ref(loginStore.menuMode);//'vertical'  'horizontal'
 const topNavigation = computed(() => buildTopNavigation(menuStore.menuRenderList))
+
+const topNavIconMap = {
+  originalDatasetManage: FolderOpened,
+  taskDatabaseManage: List,
+  preprocess: SetUp,
+  intanceDatabase: Collection,
+  trainTask: Cpu,
+  resultQuery: DataAnalysis,
+  datasetManageUnified: Files,
+}
+const getTopNavIcon = (routeName) => topNavIconMap[routeName] || Document
 
 const changeMenuMode = () => {
   menuMode.value = !menuMode.value
@@ -840,6 +852,12 @@ onBeforeUnmount(() => {
   /* 默认文字颜色 */
   transition: background-color 0.3s, color 0.3s;
   /* 平滑的背景色和文字色变化 */
+}
+
+.top-nav-icon {
+  margin-right: 6px;
+  font-size: 17px;
+  vertical-align: -2px;
 }
 
 .el-menu--horizontal>.custom-menu-item:hover {
