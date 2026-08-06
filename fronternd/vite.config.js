@@ -12,6 +12,7 @@ function projectDocumentationPlugin() {
     'virtual:project-usage-guide': fileURLToPath(new URL('../docs/v1.0/使用说明文档v1.0.md', import.meta.url)),
     'virtual:project-technical-guide': fileURLToPath(new URL('../docs/v1.0/技术说明文档.md', import.meta.url)),
     'virtual:project-github-workflow': fileURLToPath(new URL('../docs/v1.0/GitHub协作流程.md', import.meta.url)),
+    'virtual:project-algorithm-integration': fileURLToPath(new URL('../docs/v1.0/算法集成规范.md', import.meta.url)),
   }
   const documentPaths = new Set(Object.values(documents).map((path) => path.toLowerCase()))
 
