@@ -9,8 +9,6 @@ import java.nio.charset.StandardCharsets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.xgls.web.base.CodeMap;
-
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -18,11 +16,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 public class StreamGobbler extends Thread {
-    private static final Logger trainLogger = LoggerFactory.getLogger("trainLogger");
-    private static final Logger transLogger = LoggerFactory.getLogger("transLogger");
-    private static final Logger valLogger = LoggerFactory.getLogger("valLogger");
-    private static final Logger predictLogger = LoggerFactory.getLogger("predictLogger");
-    private static final Logger dataLogger = LoggerFactory.getLogger("dataLogger");
+    private static final Logger processLogger = LoggerFactory.getLogger(StreamGobbler.class);
     InputStream is;
     String type;
     String msg;
@@ -36,37 +30,9 @@ public class StreamGobbler extends Thread {
         try {
             InputStreamReader isr = new InputStreamReader(is, StandardCharsets.UTF_8);
             BufferedReader br = new BufferedReader(isr);
-            switch (type) {
-                case CodeMap.SCRIPT_TYPE_TRAIN:
-                    while ((msg = br.readLine()) != null) {
-                        trainLogger.info(msg);
-                    }
-                    break;
-                case CodeMap.SCRIPT_TYPE_TRANS:
-                    while ((msg = br.readLine()) != null) {
-                        transLogger.info(msg);
-                    }
-                    break;
-                case CodeMap.SCRIPT_TYPE_VAL:
-                    while ((msg = br.readLine()) != null) {
-                        valLogger.info(msg);
-                    }
-                    break;
-                case CodeMap.SCRIPT_TYPE_PREDICT:
-                    while ((msg = br.readLine()) != null) {
-                        predictLogger.info(msg);
-                    }
-                    break;
-                case CodeMap.SCRIPT_TYPE_DATA:
-                    while ((msg = br.readLine()) != null) {
-                        dataLogger.info(msg);
-                    }
-                    break;
-                default:
-                    while ((msg = br.readLine()) != null) {
-                        log.info(msg);
-                    }
-                    break;
+            while ((msg = br.readLine()) != null) {
+                // 旧版不同任务类型不再各自创建日志文件，统一写入主日志并保留来源。
+                processLogger.info("[{}] {}", type, msg);
             }
         } catch (IOException e) {
             log.error("streamgobble err:{}", e.getMessage());
