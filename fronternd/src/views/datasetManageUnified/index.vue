@@ -47,7 +47,6 @@
             <OriginalDatasetManage
               v-model:view-as-table="originalViewAsTable"
               :embed-mode="true"
-              @dataset-changed="handleOriginalDatasetChanged"
             />
           </div>
         </section>
@@ -77,10 +76,7 @@
           <div class="section-body section-embed section-embed--task">
             <TaskManagementUnifiedPanel
               v-model:task-view-as-table="taskViewAsTable"
-              :dataset-refresh-key="datasetRefreshKey"
-              :task-refresh-key="taskRefreshKey"
               :embed-mode="true"
-              @mid-dataset-changed="handleMidDatasetChanged"
             />
           </div>
         </section>
@@ -96,8 +92,6 @@
             <PreprocessPage
               :embed-mode="true"
               :embed-hide-create-title="true"
-              :source-refresh-key="preprocessSourceRefreshKey"
-              @mid-dataset-changed="handleMidDatasetChanged"
             />
           </div>
         </section>
@@ -140,18 +134,6 @@ import InstanceDatabasePage from '@/views/intanceDatabase/index.vue'
 const originalViewAsTable = ref(true)
 const taskViewAsTable = ref(true)
 const instanceViewAsTable = ref(true)
-const datasetRefreshKey = ref(0)
-const taskRefreshKey = ref(0)
-const preprocessSourceRefreshKey = ref(0)
-
-function handleOriginalDatasetChanged() {
-  datasetRefreshKey.value += 1
-}
-
-function handleMidDatasetChanged() {
-  taskRefreshKey.value += 1
-  preprocessSourceRefreshKey.value += 1
-}
 
 function scrollToAnchor(href) {
   if (!href || typeof href !== 'string') return

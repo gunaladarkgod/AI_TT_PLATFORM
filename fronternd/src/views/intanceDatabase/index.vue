@@ -49,11 +49,11 @@
                   <span v-if="row.__rowType === 'parent'">{{ (currentPage - 1) * pageSize + row.__parentIndex + 1 }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="name" column-key="name" label="数据集名称" min-width="220" align="left" fixed="left" sortable="custom" show-overflow-tooltip />
+              <el-table-column prop="name" column-key="name" label="任务数据集名称 / 实例数据集名称" min-width="250" align="left" fixed="left" sortable="custom" show-overflow-tooltip />
               <el-table-column prop="classNum" column-key="classNum" label="类别数" align="center" width="96" sortable="custom">
                 <template #default="{ row }"><span v-if="row.__rowType === 'parent'">{{ displayCoreClassNum(row) }}</span></template>
               </el-table-column>
-              <el-table-column label="类别名称" align="center" min-width="260">
+              <el-table-column label="类别信息 / 实例数据集信息" align="center" min-width="280">
                 <template #default="{ row }">
                   <div v-if="row.__rowType === 'parent'" class="category-tags-container">
                     <el-tag v-for="(item, index) in getTaskCategoryList(row)" :key="`${row.treeKey}-${index}`" size="small" :type="getTagType(index)" style="margin: 2px; white-space: nowrap;">{{ item.name }}: {{ item.count ?? 0 }}</el-tag>
@@ -61,7 +61,10 @@
                   <div v-else class="instance-child-summary">
                     <el-tag size="small" type="info">图片：{{ row.imgNum ?? 0 }}</el-tag>
                     <el-tag size="small" type="success">样本：{{ row.annoNum ?? 0 }}</el-tag>
+                    <el-tag size="small" type="warning">训/测：{{ row.__splitSummary || '点击查看详情' }}</el-tag>
                     <span class="instance-child-summary__config">{{ formatConfigList(row.configList) }}</span>
+                    <span class="instance-child-summary__time">创建：{{ formatInstanceTime(row.createdTime ?? row.created_time) }}</span>
+                    <span class="instance-child-summary__time">更新：{{ formatInstanceTime(row.updatedTime ?? row.updated_time) }}</span>
                   </div>
                 </template>
               </el-table-column>
@@ -77,8 +80,10 @@
                     </el-button>
                     <template #dropdown>
                       <el-dropdown-menu>
+                        <el-dropdown-item command="detail">查看详情</el-dropdown-item>
                         <el-dropdown-item command="preview">查看示例</el-dropdown-item>
                         <el-dropdown-item command="openPath">打开路径</el-dropdown-item>
+                        <el-dropdown-item command="split">随机训测划分</el-dropdown-item>
                         <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
@@ -234,11 +239,11 @@
                   <span v-if="row.__rowType === 'parent'">{{ (currentPage - 1) * pageSize + row.__parentIndex + 1 }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="name" column-key="name" label="数据集名称" min-width="220" align="left" fixed="left" sortable="custom" show-overflow-tooltip />
+              <el-table-column prop="name" column-key="name" label="任务数据集名称 / 实例数据集名称" min-width="250" align="left" fixed="left" sortable="custom" show-overflow-tooltip />
               <el-table-column prop="classNum" column-key="classNum" label="类别数" align="center" width="96" sortable="custom">
                 <template #default="{ row }"><span v-if="row.__rowType === 'parent'">{{ displayCoreClassNum(row) }}</span></template>
               </el-table-column>
-              <el-table-column label="类别名称" align="center" min-width="260">
+              <el-table-column label="类别信息 / 实例数据集信息" align="center" min-width="280">
                 <template #default="{ row }">
                   <div v-if="row.__rowType === 'parent'" class="category-tags-container">
                     <el-tag v-for="(item, index) in getTaskCategoryList(row)" :key="`${row.treeKey}-${index}`" size="small" :type="getTagType(index)" style="margin: 2px; white-space: nowrap;">{{ item.name }}: {{ item.count ?? 0 }}</el-tag>
@@ -246,7 +251,10 @@
                   <div v-else class="instance-child-summary">
                     <el-tag size="small" type="info">图片：{{ row.imgNum ?? 0 }}</el-tag>
                     <el-tag size="small" type="success">样本：{{ row.annoNum ?? 0 }}</el-tag>
+                    <el-tag size="small" type="warning">训/测：{{ row.__splitSummary || '点击查看详情' }}</el-tag>
                     <span class="instance-child-summary__config">{{ formatConfigList(row.configList) }}</span>
+                    <span class="instance-child-summary__time">创建：{{ formatInstanceTime(row.createdTime ?? row.created_time) }}</span>
+                    <span class="instance-child-summary__time">更新：{{ formatInstanceTime(row.updatedTime ?? row.updated_time) }}</span>
                   </div>
                 </template>
               </el-table-column>
@@ -262,8 +270,10 @@
                     </el-button>
                     <template #dropdown>
                       <el-dropdown-menu>
+                        <el-dropdown-item command="detail">查看详情</el-dropdown-item>
                         <el-dropdown-item command="preview">查看示例</el-dropdown-item>
                         <el-dropdown-item command="openPath">打开路径</el-dropdown-item>
+                        <el-dropdown-item command="split">随机训测划分</el-dropdown-item>
                         <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
@@ -458,6 +468,60 @@
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="instanceDetailDialogVisible"
+      :title="instanceDetailRow ? `实例数据集详情 - ${instanceDetailRow.name}` : '实例数据集详情'"
+      width="min(920px, 94vw)"
+      destroy-on-close
+    >
+      <el-skeleton v-if="instanceDetailLoading" :rows="8" animated />
+      <template v-else-if="instanceDetail">
+        <el-descriptions :column="4" border size="small" class="instance-detail-summary">
+          <el-descriptions-item label="所属任务" :span="2">{{ instanceDetail.fatherName || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="数据集名称" :span="2">{{ instanceDetail.name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="训测状态">
+            <el-tag :type="instanceDetail.hasTrainTestSplit ? 'success' : 'warning'" size="small">
+              {{ instanceDetail.hasTrainTestSplit ? '已划分' : '未划分' }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="训练 / 测试比">
+            {{ formatDetailRatio(instanceDetail.trainRatio) }} / {{ formatDetailRatio(instanceDetail.testRatio) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="总图片数">{{ instanceDetail.totalImages ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="总样本数">{{ instanceDetail.totalAnnotations ?? 0 }}</el-descriptions-item>
+        </el-descriptions>
+
+        <div class="instance-detail-parts">
+          <section v-for="part in instanceDetailParts" :key="part.key" class="instance-detail-part">
+            <div class="instance-detail-part__header">
+              <div>
+                <h4>{{ part.title }}</h4>
+                <span>图片 {{ part.data?.imageCount ?? 0 }} 张 · 标注 {{ part.data?.annotationCount ?? 0 }} 个</span>
+              </div>
+              <el-button
+                type="primary"
+                size="small"
+                :disabled="!(part.data?.imageCount > 0)"
+                @click="openInstancePreview(instanceDetailRow, part.key)"
+              >
+                查看{{ part.title }}示例
+              </el-button>
+            </div>
+            <div v-if="detailCategoryEntries(part.data).length" class="instance-detail-categories">
+              <el-tag v-for="([name, count], index) in detailCategoryEntries(part.data)" :key="name" :type="getTagType(index)" size="small">
+                {{ name }}：{{ count }}
+              </el-tag>
+            </div>
+            <el-empty v-else :image-size="42" description="暂无该分集标注" />
+          </section>
+        </div>
+      </template>
+      <el-empty v-else description="未能读取实例数据集详情" />
+      <template #footer>
+        <el-button @click="instanceDetailDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 训测划分 Drawer -->
     <el-drawer
       v-model="drawerVisible"
@@ -547,6 +611,7 @@ import { useRouter } from 'vue-router'
 import { baseHost, request } from '@/api/axios'
 import DatasetPreviewDialog from '@/components/dataset/DatasetPreviewDialog.vue'
 import { ArrowDown } from '@element-plus/icons-vue'
+import { DatasetScope, notifyDatasetRefresh, useDatasetRefresh } from '@/composables/useDatasetRefresh'
 
 const router = useRouter()
 
@@ -560,6 +625,10 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:taskViewAsTable'])
+
+function announceInstanceDatasetChanged(reason = 'instance-dataset-changed') {
+  notifyDatasetRefresh([DatasetScope.TASK, DatasetScope.INSTANCE], reason)
+}
 
 const localTaskViewAsTable = ref(true)
 
@@ -583,12 +652,18 @@ const selectedTaskId = ref(null)
 
 const instanceDatasetList = ref([])
 const allInstanceDatasetList = ref([])
+const instanceSplitSummaryById = ref({})
 const instanceLoading = ref(false)
 const instanceDrawerVisible = ref(false)
 const instanceSplitDialogVisible = ref(false)
 const instanceSplitRow = ref(null)
 const instanceSplitTrainRatio = ref(0.8)
 const instanceSplitLoading = ref(false)
+const instanceDetailDialogVisible = ref(false)
+const instanceDetailLoading = ref(false)
+const instanceDetailRow = ref(null)
+const instanceDetail = ref(null)
+const previewPart = ref('train')
 
 /** 默认按最近更新（与原先下拉「最近更新优先」一致）；表头再叠自定义排序 */
 const sortedTaskDatasetList = computed(() => {
@@ -722,7 +797,8 @@ const instanceDatasetChildrenByFather = computed(() => {
     map.get(father).push({
       ...item,
       __rowType: 'child',
-      treeKey: `instance-${item.id || item.name}`
+      treeKey: `instance-${item.id || item.name}`,
+      __splitSummary: instanceSplitSummaryById.value[item.id] || ''
     })
   }
   for (const list of map.values()) {
@@ -745,6 +821,15 @@ function formatConfigList(configStr) {
   const list = parseConfigList(configStr)
   if (!list.length) return '-'
   return list.map(item => item.name).filter(Boolean).join(' → ') || '-'
+}
+
+function formatInstanceTime(value) {
+  if (!value) return '-'
+  const raw = String(value).trim()
+  const date = new Date(raw.replace(' ', 'T'))
+  if (Number.isNaN(date.getTime())) return raw
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 function clearInstanceToolbarFilters() {
   instanceToolbarSearch.value = ''
@@ -962,6 +1047,7 @@ const handleDelete = async (id) => {
     if (response && response.code === 0) {
       ElMessage.success('删除成功')
       await fetchAllInstanceDatasets()
+      announceInstanceDatasetChanged('instance-dataset-deleted')
     } else {
       ElMessage.error(response?.msg || '删除失败')
     }
@@ -1002,15 +1088,74 @@ const loadInstancePreview = ({ perLabel = 3 } = {}) => {
   if (!previewRow.value?.id) throw new Error('缺少实例数据集ID')
   return request(
     `/instanceDataset/${previewRow.value.id}/preview`,
-    { perLabel },
+    { perLabel, part: previewPart.value },
     'get',
     'application/json'
   )
 }
 // 预览功能
-const openInstancePreview = async (row) => {
+const openInstancePreview = async (row, part = 'train') => {
   previewRow.value = row
+  previewPart.value = part === 'test' ? 'test' : 'train'
   previewDialogVisible.value = true
+}
+
+const instanceDetailParts = computed(() => [
+  { key: 'train', title: '训练集', data: instanceDetail.value?.train },
+  { key: 'test', title: '测试集', data: instanceDetail.value?.test }
+])
+
+function detailCategoryEntries(part) {
+  const source = part?.categoryCounts
+  if (!source || typeof source !== 'object') return []
+  return Object.entries(source).sort(([a], [b]) => a.localeCompare(b, 'zh-CN'))
+}
+
+function formatDetailRatio(value) {
+  return Number.isFinite(Number(value))
+    ? `${(Number(value) * 100).toFixed(1).replace(/\.0$/, '')}%`
+    : '-'
+}
+
+function detailRequestErrorMessage(error) {
+  if (typeof error === 'string') return error
+  const payload = error?.response?.data || error?.data || error
+  if (payload && typeof payload === 'object') {
+    const message = payload.msg || payload.message || payload.error
+    const status = payload.status ? `（HTTP ${payload.status}）` : ''
+    if (message) return `${message}${status}`
+    if (status) return status.slice(1, -1)
+  }
+  return error?.message || '未知错误'
+}
+
+async function openInstanceDetail(row) {
+  if (!row?.id) return
+  instanceDetailRow.value = row
+  instanceDetail.value = null
+  instanceDetailDialogVisible.value = true
+  instanceDetailLoading.value = true
+  try {
+    const res = await InstanceDatasetService.getDetail(row.id)
+    const response = typeof res === 'string' ? JSON.parse(res) : res
+    if (response?.code !== undefined && response.code !== 0) {
+      throw new Error(response?.msg || '读取实例数据集详情失败')
+    }
+    instanceDetail.value = response?.data || response
+    const train = instanceDetail.value?.trainRatio
+    const test = instanceDetail.value?.testRatio
+    const splitSummary = Number.isFinite(Number(train)) && Number.isFinite(Number(test))
+      ? `${formatDetailRatio(train)} / ${formatDetailRatio(test)}`
+      : '未划分'
+    instanceSplitSummaryById.value = {
+      ...instanceSplitSummaryById.value,
+      [row.id]: splitSummary
+    }
+  } catch (error) {
+    ElMessage.error('读取实例数据集详情失败：' + detailRequestErrorMessage(error))
+  } finally {
+    instanceDetailLoading.value = false
+  }
 }
 
 const refreshPreviewGroup = async (groupName) => {
@@ -1182,7 +1327,11 @@ const handleTaskRowClick = (row, _column, event) => {
     if (event.target.closest('button, .el-button, .el-dropdown, a, input, textarea')) return
   }
   if (row?.__rowType === 'child') {
-    openInstancePreview(row)
+    openInstanceDetail(row)
+    return
+  }
+  if (!Array.isArray(row?.children) || row.children.length === 0) {
+    ElMessage.info(`任务数据集“${row?.name || '未命名'}”还没有创建实例数据集`)
     return
   }
   handleTaskSelect(row)
@@ -1214,6 +1363,7 @@ const openInstanceDatasetPath = async (row) => {
 
 const handleInstanceRowCommand = async (command, row) => {
   if (!row) return
+  if (command === 'detail') return openInstanceDetail(row)
   if (command === 'preview') return openInstancePreview(row)
   if (command === 'openPath') return openInstanceDatasetPath(row)
   if (command === 'split') return openInstanceSplitDialog(row)
@@ -1253,6 +1403,10 @@ async function submitInstanceRandomSplit() {
       )
       instanceSplitDialogVisible.value = false
       await fetchAllInstanceDatasets()
+      announceInstanceDatasetChanged('instance-dataset-split')
+      if (instanceDetailRow.value?.id === row.id) {
+        await openInstanceDetail(row)
+      }
     } else {
       ElMessage.error(response?.msg || '划分失败')
     }
@@ -1342,6 +1496,7 @@ const saveTrainTestSplit = async () => {
     if (res?.code === 0) {
       ElMessage.success(`成功保存 ${allTestPlans.length} 个划分方案`)
       fetchAllInstanceDatasets()
+      announceInstanceDatasetChanged('task-train-test-split-saved')
       
       // 新增：保存成功后跳转到预处理页面
       drawerVisible.value = false
@@ -1362,7 +1517,10 @@ const handleCloseDrawer = () => {
 // ✅ 行高亮（基于 number 类型比较）
 const getTreeRowClassName = ({ row }) => {
   if (row.__rowType === 'child') return 'instance-child-row'
-  return row.id === selectedTaskId.value ? 'selected-row' : ''
+  const classes = []
+  if (!Array.isArray(row.children) || row.children.length === 0) classes.push('instance-empty-parent-row')
+  if (row.id === selectedTaskId.value) classes.push('selected-row')
+  return classes.join(' ')
 }
 
 // 分页控制
@@ -1415,12 +1573,15 @@ const selectDiversePlans = (allPlans, limit) => {
   return selected
 }
 
-// 初始化
-onMounted(() => {
-  fetchTaskList()
-  fetchAllInstanceDatasets()
-  loadMidClassSummaries()
-})
+async function refreshInstancePage() {
+  const [tasks, instances] = await Promise.allSettled([fetchTaskList(), fetchAllInstanceDatasets()])
+  if (tasks.status === 'rejected') ElMessage.warning(`任务数据集列表刷新失败：${tasks.reason?.message || tasks.reason}`)
+  if (instances.status === 'rejected') ElMessage.warning(`实例数据集列表刷新失败：${instances.reason?.message || instances.reason}`)
+  await loadMidClassSummaries()
+}
+
+// 初始化、回到已缓存页面、以及任一关联写操作完成后，都走同一读取入口。
+useDatasetRefresh([DatasetScope.TASK, DatasetScope.MID, DatasetScope.INSTANCE], refreshInstancePage)
 </script>
 
 <style scoped lang="scss">
@@ -1620,6 +1781,27 @@ onMounted(() => {
 /* small 表格行高与另两页观感接近 */
 .content :deep(.el-table--small .cell) {
   line-height: 20px;
+}
+
+/* 没有子实例数据集的任务行：保留任务信息，但明确标识为不可展开状态。 */
+:deep(.instance-tree-table .instance-empty-parent-row > td.el-table__cell) {
+  background: #f5f6f8 !important;
+  color: #a8abb2 !important;
+  cursor: not-allowed;
+}
+
+:deep(.instance-tree-table .instance-empty-parent-row .cell),
+:deep(.instance-tree-table .instance-empty-parent-row .el-tag) {
+  color: #a8abb2 !important;
+}
+
+:deep(.instance-tree-table .instance-empty-parent-row .el-tag) {
+  border-color: #dcdfe6 !important;
+  background: #f2f3f5 !important;
+}
+
+:deep(.instance-tree-table .instance-empty-parent-row:hover > td.el-table__cell) {
+  background: #f5f6f8 !important;
 }
 
 /* 表格内单选：隐藏重复标签（卡片视图需显示名称） */
@@ -1830,6 +2012,61 @@ onMounted(() => {
 .instance-inline-table {
   border-radius: 6px;
   overflow: hidden;
+}
+
+.instance-child-summary__time {
+  color: #909399;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.instance-detail-summary {
+  margin-bottom: 16px;
+}
+
+.instance-detail-parts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.instance-detail-part {
+  min-height: 170px;
+  padding: 14px;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  background: #fafcff;
+}
+
+.instance-detail-part__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.instance-detail-part__header h4 {
+  margin: 0 0 4px;
+  color: #303133;
+  font-size: 15px;
+}
+
+.instance-detail-part__header span {
+  color: #909399;
+  font-size: 13px;
+}
+
+.instance-detail-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .instance-detail-parts {
+    grid-template-columns: 1fr;
+  }
 }
 .instance-drawer-task-split-hint {
   margin: 0 0 10px;

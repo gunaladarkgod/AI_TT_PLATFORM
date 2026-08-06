@@ -20,7 +20,7 @@
                 class="custom-menu-item"
                 :class="route.path === '/' + item.url ? 'my-active' : ''"
               >
-                <el-icon><i class="iconfont" :class="'icon-' + item.url" style="font-size: 14px"></i></el-icon>
+                <el-icon class="top-nav-icon"><component :is="getTopNavIcon(item.url)" /></el-icon>
                 <template #title>{{ item.name }}</template>
               </el-menu-item>
 
@@ -29,15 +29,15 @@
                 <template v-for="item in topNavigation.overflow" :key="item.url">
                   <el-menu-item
                     v-if="!item.children || item.children.length === 0"
-                    :index="'/' + item.url"
-                    :class="route.path === '/' + item.url ? 'my-active' : ''"
-                  >
-                    <el-icon><i class="iconfont" :class="'icon-' + item.url" style="font-size: 14px"></i></el-icon>
+                  :index="'/' + item.url"
+                  :class="route.path === '/' + item.url ? 'my-active' : ''"
+                >
+                    <el-icon><component :is="getTopNavIcon(item.url)" /></el-icon>
                     <template #title>{{ item.name }}</template>
                   </el-menu-item>
                   <el-sub-menu v-else :index="'/__top_nav_more__/' + item.url">
                     <template #title>
-                      <el-icon><i class="iconfont" :class="'icon-' + item.url" style="font-size: 14px"></i></el-icon>
+                      <el-icon><component :is="getTopNavIcon(item.url)" /></el-icon>
                       {{ item.name }}
                     </template>
                     <el-menu-item
@@ -46,6 +46,7 @@
                       :index="'/' + child.url"
                       :class="route.path === '/' + child.url ? 'my-active' : ''"
                     >
+                      <el-icon><component :is="getTopNavIcon(child.url)" /></el-icon>
                       {{ child.name }}
                     </el-menu-item>
                   </el-sub-menu>
@@ -59,6 +60,10 @@
       </div>
       <div class="flex-end">
         <el-space :size="24">
+          <el-button class="header-doc-button" text @click="showDocumentation">
+            <el-icon><Document /></el-icon>
+            <span>帮助</span>
+          </el-button>
           <el-dropdown class="flex-center">
             <div class="userBox">
               <el-avatar :size="30" class="avatar-user"></el-avatar>
@@ -70,6 +75,7 @@
                     class="iconfont icon-yunhanghuanjingbushu fontSpan"></el-icon>切换主题</el-dropdown-item>
                 <el-dropdown-item @click="showPwdModal">
                   <el-icon class="iconfont icon-xiugaimima fontSpan"></el-icon>修改密码</el-dropdown-item>
+                <el-dropdown-item @click="switchAccount"><el-icon><SwitchButton /></el-icon>切换账户</el-dropdown-item>
                 <el-dropdown-item @click="logout"><el-icon
                     class="iconfont icon-pullleft fontSpan"></el-icon>退出登录</el-dropdown-item>
 
@@ -177,6 +183,35 @@
       <el-button @click="colorVisible = false" size="small">关闭</el-button>
     </div>
   </el-dialog>
+  <el-dialog
+    v-model="documentationVisible"
+    class="documentation-dialog"
+    :title="documentationTitle"
+    width="min(960px, 92vw)"
+    top="7vh"
+    append-to-body
+  >
+    <div class="documentation-switcher">
+      <el-button
+        :type="documentationType === 'usage' ? 'primary' : 'default'"
+        size="small"
+        @click="loadDocumentation('usage')"
+      >使用说明</el-button>
+      <el-button
+        :type="documentationType === 'technical' ? 'primary' : 'default'"
+        size="small"
+        @click="loadDocumentation('technical')"
+      >技术说明</el-button>
+    </div>
+    <el-scrollbar height="68vh" class="documentation-scrollbar">
+      <article
+        v-if="documentationContent"
+        class="documentation-content markdown-body"
+        v-html="renderedDocumentation"
+      ></article>
+      <el-empty v-else description="文档暂时无法读取" />
+    </el-scrollbar>
+  </el-dialog>
 </template>
 
 <script setup>
@@ -184,6 +219,10 @@ import { ElMessage } from "element-plus";
 import { ref, reactive, onMounted, onUnmounted, nextTick, onBeforeUnmount, watch } from "vue";
 import { useRouter ,useRoute} from "vue-router";
 import { AuthService, UserService } from "../../api/api";
+import { Collection, Cpu, DataAnalysis, Document, Files, FolderOpened, List, SetUp } from '@element-plus/icons-vue';
+import MarkdownIt from 'markdown-it';
+import usageGuideContent from 'virtual:project-usage-guide';
+import technicalGuideContent from 'virtual:project-technical-guide';
 import { useLoginStore, useTitleStore, useUserStore,useMenuStore } from "../../stores/index";
 import md5 from "js-md5";
 import { logoPath } from '../../api/axios'
@@ -200,6 +239,17 @@ const isCollapse = ref(false);
 let timer = null
 const menuMode = ref(loginStore.menuMode);//'vertical'  'horizontal'
 const topNavigation = computed(() => buildTopNavigation(menuStore.menuRenderList))
+
+const topNavIconMap = {
+  originalDatasetManage: FolderOpened,
+  taskDatabaseManage: List,
+  preprocess: SetUp,
+  intanceDatabase: Collection,
+  trainTask: Cpu,
+  resultQuery: DataAnalysis,
+  datasetManageUnified: Files,
+}
+const getTopNavIcon = (routeName) => topNavIconMap[routeName] || Document
 
 const changeMenuMode = () => {
   menuMode.value = !menuMode.value
@@ -268,6 +318,23 @@ setPrimaryColor(init_color)
 
 
 const colorVisible = ref(false);
+const documentationVisible = ref(false);
+const documentationContent = ref('');
+const documentationType = ref('usage');
+const documentationCache = {
+  usage: usageGuideContent,
+  technical: technicalGuideContent,
+};
+const markdownRenderer = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: true,
+  typographer: true,
+});
+const renderedDocumentation = computed(() => markdownRenderer.render(documentationContent.value || ''));
+const documentationTitle = computed(() => (
+  documentationType.value === 'technical' ? '技术说明文档 v1.0' : '使用说明文档 v1.0'
+));
 const colorTopic = ref(init_color);
 const predefineColors = ref([
   'hsla(209, 100%, 56%, 1)',
@@ -299,6 +366,14 @@ const onChangeColor = () => {
 const changTopic = () => {
   colorVisible.value = true
 }
+
+const loadDocumentation = (type = 'usage') => {
+  documentationType.value = type;
+  documentationVisible.value = true;
+  documentationContent.value = documentationCache[type] || '';
+}
+
+const showDocumentation = () => loadDocumentation('usage')
 
 const router = useRouter();
 const pwdForm = reactive({});
@@ -367,17 +442,33 @@ const sendMsg = () => {
 
 const msgCnt = ref(0); // 告警消息总数
 const msgList = ref([]); //最近的告警消息
-const logout = () => {
-  AuthService.logout().then((res) => {
-    if (res.code === 0) {
-      loginStore.$patch((state) => {
-        state.isLogin = false;
-        state.uuidLogin = "";
-        state.token = "";
-      });
-      router.replace({ path: "/" });
-    }
+const logout = async () => {
+  try {
+    await AuthService.logout();
+  } catch (_) {
+    // 即便服务端会话已失效，也必须完成本机退出，避免再次自动恢复旧账户。
+  }
+  loginStore.$patch((state) => {
+    state.isLogin = false;
+    state.uuidLogin = "";
+    state.token = "";
   });
+  menuStore.resetRouter();
+  router.replace({ path: '/login', query: { manualLogout: '1' } });
+};
+const switchAccount = async () => {
+  try {
+    await AuthService.logout();
+  } catch (_) {
+    // 服务端会话已失效时，仍允许用户回到登录页切换本机保存的账户。
+  }
+  loginStore.$patch((state) => {
+    state.isLogin = false;
+    state.uuidLogin = "";
+    state.token = "";
+  });
+  menuStore.resetRouter();
+  router.replace({ path: '/login', query: { switch: '1' } });
 };
 const showPwdModal = () => {
   pwdForm.pwd1 = "";
@@ -473,6 +564,138 @@ onBeforeUnmount(() => {
   align-items: center;
   padding: 0 15px;
   color: white;
+}
+
+.header-doc-button {
+  min-width: auto;
+  padding: 4px 2px;
+  color: #fff;
+  font-size: 15px;
+}
+
+.header-doc-button:hover,
+.header-doc-button:focus {
+  color: #eaf4ff;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.header-doc-button .el-icon {
+  margin-right: 5px;
+  font-size: 17px;
+}
+
+.documentation-scrollbar {
+  padding-right: 12px;
+}
+
+.documentation-switcher {
+  display: flex;
+  gap: 8px;
+  margin: -4px 0 12px;
+}
+
+.documentation-content {
+  box-sizing: border-box;
+  min-height: 100%;
+  margin: 0;
+  padding: 4px 8px 20px;
+  color: #25324a;
+  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-size: 14px;
+  line-height: 1.8;
+  word-break: break-word;
+}
+
+.documentation-content :deep(h1),
+.documentation-content :deep(h2),
+.documentation-content :deep(h3) {
+  color: #172033;
+  line-height: 1.35;
+}
+
+.documentation-content :deep(h1) {
+  margin: 0 0 22px;
+  padding-bottom: 12px;
+  font-size: 26px;
+  border-bottom: 1px solid #e6edf7;
+}
+
+.documentation-content :deep(h2) {
+  margin: 30px 0 14px;
+  font-size: 20px;
+}
+
+.documentation-content :deep(h3) {
+  margin: 22px 0 10px;
+  font-size: 16px;
+}
+
+.documentation-content :deep(p),
+.documentation-content :deep(ul),
+.documentation-content :deep(ol) {
+  margin: 10px 0;
+}
+
+.documentation-content :deep(ul),
+.documentation-content :deep(ol) {
+  padding-left: 24px;
+}
+
+.documentation-content :deep(li + li) {
+  margin-top: 4px;
+}
+
+.documentation-content :deep(a) {
+  color: var(--el-color-primary);
+}
+
+.documentation-content :deep(blockquote) {
+  margin: 14px 0;
+  padding: 8px 14px;
+  color: #5f6b7c;
+  background: #f6f9fd;
+  border-left: 4px solid #8dc5ff;
+}
+
+.documentation-content :deep(code) {
+  padding: 2px 5px;
+  color: #d14;
+  background: #f4f6f8;
+  border-radius: 4px;
+  font-family: Consolas, "Courier New", monospace;
+}
+
+.documentation-content :deep(pre) {
+  margin: 14px 0;
+  padding: 13px 15px;
+  overflow-x: auto;
+  color: #e5edf8;
+  background: #1f2937;
+  border-radius: 8px;
+}
+
+.documentation-content :deep(pre code) {
+  padding: 0;
+  color: inherit;
+  background: transparent;
+}
+
+.documentation-content :deep(table) {
+  width: 100%;
+  margin: 14px 0;
+  border-collapse: collapse;
+}
+
+.documentation-content :deep(th),
+.documentation-content :deep(td) {
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid #e1e8f1;
+}
+
+.documentation-content :deep(th) {
+  color: #334155;
+  background: #f5f8fc;
 }
 
 .avatar-name {
@@ -646,6 +869,12 @@ onBeforeUnmount(() => {
   /* 默认文字颜色 */
   transition: background-color 0.3s, color 0.3s;
   /* 平滑的背景色和文字色变化 */
+}
+
+.top-nav-icon {
+  margin-right: 6px;
+  font-size: 17px;
+  vertical-align: -2px;
 }
 
 .el-menu--horizontal>.custom-menu-item:hover {

@@ -28,7 +28,8 @@ _RUNNER_DIR = Path(__file__).resolve().parent
 _REPO_ROOT_DIR = _RUNNER_DIR.parent.parent
 _ACTIVE_PID_DIR = Path(os.getenv("MMDET_ACTIVE_PID_DIR", str(_REPO_ROOT_DIR / "mmdet_run" / "logs" / "active_pids")))
 
-# 训练解释器不属于 Runner 环境，必须由每个任务显式传入。
+# 新任务可为每个任务显式指定训练解释器；历史任务没有保存该字段时，
+# 使用启动 Runner 的 MMDet Python 作为兼容回退，避免发布后只留下空目录。
 # 1) mmdetection 仓库根目录
 REPO_ROOT = os.getenv("MMDET_REPO_ROOT", str(_REPO_ROOT_DIR / "mmdet_run" / "mmdetection-3.0.0"))
 # 3) train.py 路径（用 REPO_ROOT 拼出来，避免写两份）
@@ -37,6 +38,12 @@ TRAIN_PY = str(Path(REPO_ROOT) / "tools" / "train.py")
 ROOT_UPLOAD = os.getenv("MMDET_UPLOAD_ROOT", str(_REPO_ROOT_DIR / "mmdet_run" / "myfiles"))
 # 5) 训练产出目录根路径
 DEFAULT_WORK_ROOT = os.getenv("MMDET_WORK_ROOT", str(_REPO_ROOT_DIR / "artifacts" / "mmdet_runs"))
+DEFAULT_TRAINING_PYTHON = (
+    os.getenv("MMDET_TRAINING_PYTHON")
+    or os.getenv("MMDET_PY_EXE")
+    or os.getenv("RUNNER_PYTHON")
+    or sys.executable
+)
 
 # Runner 模式直接写在本文件中，不从环境变量或启动脚本读取。
 # 可选值："original"（MMDet 标准流程）/ "fixed"（固定命令流程）。
@@ -48,7 +55,7 @@ RUNNER_MODE = "original"
 FIXED_PYTHON_PATH = ""
 FIXED_EXEC_DIR = str(_REPO_ROOT_DIR / "mmdet_run" / "mmdetection-3.0.0")
 FIXED_COMMAND_LINE = "tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}"
-FIXED_WORK_ROOT = str(_REPO_ROOT_DIR / "artifacts" / "mmdet_runs")
+FIXED_WORK_ROOT = str(_REPO_ROOT_DIR / "artifacts" / "custom")
 
 # 追加的可选参数（保持你之前成功用过的设置）
 EXTRA_ARGS = ["--cfg-options", "default_scope=mmdet"]
@@ -109,11 +116,22 @@ def make_work_dir(run_id: str, mode_override: Optional[str] = None, root_overrid
     return Path(root) / f"{run_id}_from_pyserver_sync_{ts_for_path()}"
 
 
-def find_latest_train_log(run_id: str) -> Optional[Path]:
+def resolve_work_root(root_override: Optional[str], mode_override: Optional[str] = None) -> Path:
+    """解析并限制训练产物目录到项目 artifacts 下，避免日志/删除操作越界。"""
+    mode = current_runner_mode(mode_override)
+    raw_root = root_override or (FIXED_WORK_ROOT if mode == "fixed" else DEFAULT_WORK_ROOT)
+    root = Path(resolve_project_path(raw_root)).resolve()
+    artifacts_root = (_REPO_ROOT_DIR / "artifacts").resolve()
+    if root != artifacts_root and artifacts_root not in root.parents:
+        raise ValueError("workRoot must be inside the project artifacts directory")
+    return root
+
+
+def find_latest_train_log(run_id: str, work_root: Optional[str] = None) -> Optional[Path]:
     """查找该 runId 最近一次运行产生的 train.log。"""
     if not run_id or run_id in (".", "..") or any(c in run_id for c in ("/", "\\")):
         raise ValueError("invalid runId")
-    root = Path(FIXED_WORK_ROOT if current_runner_mode() == "fixed" else DEFAULT_WORK_ROOT)
+    root = resolve_work_root(work_root)
     if not root.is_dir():
         return None
     prefix = f"{run_id}_from_pyserver_sync_"
@@ -126,11 +144,13 @@ def find_latest_train_log(run_id: str) -> Optional[Path]:
     return max(candidates, key=lambda p: p.stat().st_mtime, default=None)
 
 
-def find_result_work_dir(run_id: str, finished_at: Optional[str]) -> Optional[Path]:
+def find_result_work_dir(
+    run_id: str, finished_at: Optional[str], work_root: Optional[str] = None
+) -> Optional[Path]:
     """在 Runner 输出根目录内定位与结果完成时间最接近的单个训练目录。"""
     if not run_id or run_id in (".", "..") or any(c in run_id for c in ("/", "\\")):
         raise ValueError("invalid runId")
-    root = Path(FIXED_WORK_ROOT if current_runner_mode() == "fixed" else DEFAULT_WORK_ROOT).resolve()
+    root = resolve_work_root(work_root)
     if not root.is_dir():
         return None
     prefix = f"{run_id}_from_pyserver_sync_"
@@ -464,34 +484,52 @@ def start_train(
             status_code=400,
         )
 
-    # 1) 原始模式读取生成的 MMDet 配置；固定模式执行代码中写死的测试脚本。
-    cfg_path = find_cfg_path(runId)
-    if mode == "original" and not cfg_path.exists():
-        return JSONResponse(
-            content=api_response(False, 400, "cfg_path not found", error=f"cfg_path not found: {str(cfg_path)}"),
-            status_code=400,
-        )
-
-    # 2) 准备 work_dir & 日志文件
+    # 每次发布都先创建独立运行目录和日志。这样即使参数校验未通过，
+    # artifacts 下也会保留可追踪的失败原因，而不会产生空目录。
     fixed_work_root = resolve_project_path(str(payload.get("fixed_work_root") or FIXED_WORK_ROOT))
     work_dir = make_work_dir(runId, mode, fixed_work_root if mode == "fixed" else None)
     ensure_dir(work_dir)
     log_path = work_dir / "train.log"
+    _append_log(log_path, f"[server] request_at={now_str()}")
+    _append_log(log_path, f"[server] run_id={runId}")
+    _append_log(log_path, f"[server] runner_mode={mode}")
+    _append_log(log_path, f"[server] work_dir={work_dir}")
 
-    # 3) 组装命令。original 分支保持原命令；fixed 分支完全使用固定值。
+    def reject_before_start(status_code: int, message: str, error: str) -> JSONResponse:
+        _append_log(log_path, "=== PROCESS NOT STARTED ===")
+        _append_log(log_path, f"[server] failure_stage=preflight")
+        _append_log(log_path, f"[server] message={message}")
+        _append_log(log_path, f"[server] error={error}")
+        return JSONResponse(
+            content=api_response(
+                False,
+                status_code,
+                message,
+                error=error,
+                work_dir=str(work_dir),
+                log=str(log_path),
+                runner_mode=mode,
+            ),
+            status_code=status_code,
+        )
+
+    # 原始模式读取生成的 MMDet 配置；固定模式执行代码中写死的测试脚本。
+    cfg_path = find_cfg_path(runId)
+    if mode == "original" and not cfg_path.exists():
+        return reject_before_start(400, "cfg_path not found", f"cfg_path not found: {str(cfg_path)}")
+
+    # 组装命令。original 分支保持原命令；fixed 分支完全使用固定值。
     if mode == "original":
         training_python = str(payload.get("training_python_path") or "").strip()
         if not training_python:
-            return JSONResponse(
-                content=api_response(False, 400, "training Python is required", error="missing training_python_path"),
-                status_code=400,
+            training_python = DEFAULT_TRAINING_PYTHON
+            _append_log(
+                log_path,
+                f"[server] training_python_path missing; fallback_to_runner_python={training_python}",
             )
         python_file = Path(training_python).expanduser()
         if not python_file.is_file():
-            return JSONResponse(
-                content=api_response(False, 400, "training Python not found", error=str(python_file)),
-                status_code=400,
-            )
+            return reject_before_start(400, "training Python not found", str(python_file))
         cmd = [str(python_file), "-u", TRAIN_PY, str(cfg_path), "--work-dir", str(work_dir), "--launcher", "none", *EXTRA_ARGS]
         process_cwd = REPO_ROOT
         executed_script = TRAIN_PY
@@ -508,18 +546,17 @@ def start_train(
                 work_dir,
             )
         except (ValueError, FileNotFoundError) as e:
-            return JSONResponse(
-                content=api_response(False, 500, "fixed runner configuration invalid", error=str(e)),
-                status_code=500,
-            )
+            return reject_before_start(500, "fixed runner configuration invalid", str(e))
         cfg_path = Path(executed_script)
     cmd_str = fmt_cmd(cmd)
 
-    # 4) 写日志并启动训练子进程。
-    ensure_dir(log_path.parent)
-    write_header(log_path, process_cwd, str(work_dir), str(cfg_path), cmd_str)
-    _append_log(log_path, f"[server] runner_mode={mode}")
-    _append_log(log_path, f"[server] executed_script={executed_script}")
+    # 写日志并启动训练子进程。
+    try:
+        ensure_dir(log_path.parent)
+        write_header(log_path, process_cwd, str(work_dir), str(cfg_path), cmd_str)
+        _append_log(log_path, f"[server] executed_script={executed_script}")
+    except Exception as e:
+        return reject_before_start(500, "failed to prepare training log", f"{type(e).__name__}: {e}")
 
     env = make_env()
 
@@ -553,8 +590,19 @@ def start_train(
                         _ACTIVE_PROCESSES.pop(runId, None)
                 clear_active_pid(runId, proc.pid)
     except Exception as e:
+        _append_log(log_path, "=== PROCESS START FAILED ===")
+        _append_log(log_path, f"[server] failure_stage=process_start")
+        _append_log(log_path, f"[server] error={type(e).__name__}: {e}")
         return JSONResponse(
-            content=api_response(False, 500, "failed to run process", error=f"failed to start or wait process: {e}"),
+            content=api_response(
+                False,
+                500,
+                "failed to run process",
+                error=f"failed to start or wait process: {e}",
+                work_dir=str(work_dir),
+                log=str(log_path),
+                runner_mode=mode,
+            ),
             status_code=500,
         )
     # 6) 读取日志并解析 COCO 指标
@@ -635,9 +683,10 @@ def stop_train(runId: str = Query(..., description="训练任务名称/runId")):
 def latest_train_log(
     runId: str = Query(..., description="训练任务名称/runId"),
     tailLines: int = Query(1000, ge=10, le=5000),
+    workRoot: Optional[str] = Query(None, description="任务输出根目录；固定模式任务使用保存的 artifacts/custom 路径"),
 ):
     try:
-        log_path = find_latest_train_log(runId)
+        log_path = find_latest_train_log(runId, workRoot)
     except ValueError as e:
         return JSONResponse(
             content=api_response(False, 400, "invalid runId", error=str(e)),
@@ -671,9 +720,10 @@ def latest_train_log(
 def delete_result_files(
     runId: str = Query(..., description="训练任务名称/runId"),
     finishedAt: Optional[str] = Query(None, description="结果完成时间，用于匹配对应训练目录"),
+    workRoot: Optional[str] = Query(None, description="任务输出根目录；用于定位自定义任务产物"),
 ):
     try:
-        work_dir = find_result_work_dir(runId, finishedAt)
+        work_dir = find_result_work_dir(runId, finishedAt, workRoot)
     except ValueError as e:
         return JSONResponse(
             content=api_response(False, 400, "invalid delete request", error=str(e)),
@@ -692,6 +742,40 @@ def delete_result_files(
             status_code=500,
         )
     return api_response(True, 0, "deleted", deleted=True, work_dir=str(work_dir))
+
+
+def open_local_directory(directory: Path) -> None:
+    """跨平台打开已由结果定位逻辑确认过的训练目录。"""
+    if sys.platform.startswith("win"):
+        os.startfile(str(directory))
+        return
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", str(directory)])
+        return
+    subprocess.Popen(["xdg-open", str(directory)])
+
+
+@app.post("/api/runner/result/open")
+def open_result_directory(
+    runId: str = Query(..., description="训练任务名称/runId"),
+    finishedAt: Optional[str] = Query(None, description="结果完成时间，用于匹配对应训练目录"),
+    workRoot: Optional[str] = Query(None, description="任务输出根目录；用于定位自定义任务产物"),
+):
+    try:
+        work_dir = find_result_work_dir(runId, finishedAt, workRoot)
+    except ValueError as e:
+        return JSONResponse(
+            content=api_response(False, 400, "invalid open request", error=str(e)),
+            status_code=400,
+        )
+    if work_dir is None:
+        return JSONResponse(
+            content=api_response(False, 404, "result files not found", run_id=runId),
+            status_code=404,
+        )
+    # Runner 仅负责定位目录；实际打开由 Java 后端调用系统文件浏览器，
+    # 避免 Windows 后台 Python 进程触发 WinError 5。
+    return api_response(True, 0, "resolved", work_dir=str(work_dir))
 
 
 # 健康检查

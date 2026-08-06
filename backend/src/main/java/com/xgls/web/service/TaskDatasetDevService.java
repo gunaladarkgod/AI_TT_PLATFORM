@@ -1713,29 +1713,7 @@ public class TaskDatasetDevService {
     }
 
     private void openDirectory(Path path) throws IOException {
-        Path normalized = path.toAbsolutePath().normalize();
-        if (!Files.isDirectory(normalized)) {
-            throw new IOException("目录不存在: " + normalized);
-        }
-        if (!GraphicsEnvironment.isHeadless() && Desktop.isDesktopSupported()
-                && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
-            try {
-                Desktop.getDesktop().open(normalized.toFile());
-                return;
-            } catch (IOException | UnsupportedOperationException ignored) {
-                // 某些 Windows/JDK 组合 Desktop.open 会返回不明确错误，继续使用 explorer.exe。
-            }
-        }
-        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        ProcessBuilder builder;
-        if (os.contains("win")) {
-            builder = new ProcessBuilder("explorer.exe", "/e,", normalized.toString());
-        } else if (os.contains("mac")) {
-            builder = new ProcessBuilder("open", normalized.toString());
-        } else {
-            builder = new ProcessBuilder("xdg-open", normalized.toString());
-        }
-        builder.start();
+        com.xgls.web.utils.SystemDirectoryOpener.openDirectory(path);
     }
 
     private void clearExportedMidByTask(String taskName) throws IOException {

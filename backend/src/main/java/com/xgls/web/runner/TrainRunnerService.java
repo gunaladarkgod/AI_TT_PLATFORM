@@ -2,6 +2,7 @@ package com.xgls.web.runner;
 
 import lombok.extern.slf4j.Slf4j;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,6 +26,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
@@ -327,6 +330,168 @@ public class TrainRunnerService {
 
     /** 获取指定 runId 最近一次运行产生的训练日志。 */
     public JSONObject getLatestTrainLog(String runId, int tailLines) {
+        return getLatestTrainLog(runId, tailLines, null);
+    }
+
+    /**
+     * 安全重启本机 Runner。只处理命令行中包含 mmdet_runner_server 且监听配置端口的 Python 进程；
+     * 训练进行中时明确拒绝，避免重启 Runner 导致训练子进程失去管理。
+     */
+    public synchronized Map<String, Object> restartRunnerManually() {
+        Map<String, Object> out = new LinkedHashMap<>();
+        Map<String, Object> before = probeHealth();
+        out.put("beforeHealth", before);
+        if (!Boolean.TRUE.equals(before.get("ok"))) {
+            Map<String, Object> started = startRunnerManually();
+            started.put("restarted", false);
+            started.put("message", Boolean.TRUE.equals(started.get("ok"))
+                    ? "Runner 原本未运行，已启动" : started.get("message"));
+            return started;
+        }
+
+        try {
+            List<String> activeRuns = activeRunnerRuns();
+            if (!activeRuns.isEmpty()) {
+                out.put("ok", false);
+                out.put("restarted", false);
+                out.put("activeRuns", activeRuns);
+                out.put("message", "Runner 正在执行训练，不能重启；请先停止任务：" + String.join(", ", activeRuns));
+                return out;
+            }
+
+            List<ProcessHandle> processes = findLocalRunnerProcesses();
+            if (processes.isEmpty()) {
+                out.put("ok", false);
+                out.put("restarted", false);
+                out.put("message", "Runner 健康检查正常，但未定位到本机 8009 的 Runner 进程");
+                out.put("error", "未从进程命令行或端口监听信息中获得 Runner PID");
+                return out;
+            }
+
+            List<Long> stoppedPids = terminateProcessTrees(processes);
+            out.put("stoppedPids", stoppedPids);
+            waitUntilRunnerStops();
+
+            Map<String, Object> started = startRunnerManually();
+            started.put("restarted", Boolean.TRUE.equals(started.get("ok")));
+            started.put("stoppedPids", stoppedPids);
+            if (Boolean.TRUE.equals(started.get("ok"))) started.put("message", "Runner 重启成功");
+            return started;
+        } catch (Exception e) {
+            out.put("ok", false);
+            out.put("restarted", false);
+            out.put("message", "Runner 重启失败");
+            out.put("error", e.getClass().getSimpleName() + ": " + e.getMessage());
+            return out;
+        }
+    }
+
+    private List<String> activeRunnerRuns() {
+        try {
+            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+            HttpRequest req = HttpRequest.newBuilder(runnerHealthUri()).timeout(Duration.ofSeconds(5)).GET().build();
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                throw new IllegalStateException("health HTTP " + resp.statusCode());
+            }
+            JSONArray runs = JSONUtil.parseObj(resp.body()).getJSONArray("active_runs");
+            List<String> result = new ArrayList<>();
+            if (runs != null) for (Object run : runs) result.add(String.valueOf(run));
+            return result;
+        } catch (Exception e) {
+            throw new IllegalStateException("无法确认 Runner 是否有运行中的训练，为安全起见未重启：" + e.getMessage(), e);
+        }
+    }
+
+    private List<ProcessHandle> findLocalRunnerProcesses() {
+        URI health = runnerHealthUri();
+        String host = health.getHost();
+        if (host == null || !("127.0.0.1".equals(host) || "localhost".equalsIgnoreCase(host) || "::1".equals(host))) {
+            throw new IllegalStateException("仅允许重启本机 Runner，当前地址为 " + health);
+        }
+        int port = health.getPort() < 0 ? 8009 : health.getPort();
+        String portText = String.valueOf(port);
+        List<ProcessHandle> byCommandLine = ProcessHandle.allProcesses()
+                .filter(ProcessHandle::isAlive)
+                .filter(p -> {
+                    ProcessHandle.Info info = p.info();
+                    String command = info.commandLine().orElse("");
+                    String args = String.join(" ", info.arguments().orElse(new String[0]));
+                    String text = (command + " " + args).toLowerCase(Locale.ROOT);
+                    return text.contains("mmdet_runner_server") && text.contains(portText);
+                })
+                .toList();
+        if (!byCommandLine.isEmpty()) return byCommandLine;
+
+        // Windows 常因权限限制而拿不到其他进程的 commandLine()/arguments()。
+        // 已确认 health 正常且无活跃训练后，回退为精确查找本机配置端口的监听 PID。
+        if (isWindows()) {
+            Long pid = findWindowsListeningPid(port);
+            if (pid != null) {
+                return ProcessHandle.of(pid)
+                        .filter(ProcessHandle::isAlive)
+                        .map(List::of)
+                        .orElseGet(List::of);
+            }
+        }
+        return List.of();
+    }
+
+    private Long findWindowsListeningPid(int port) {
+        Pattern linePattern = Pattern.compile("(?i)^\\s*TCP\\s+(127\\.0\\.0\\.1|\\[::1\\]):"
+                + port + "\\s+\\S+\\s+\\S+\\s+(\\d+)\\s*$");
+        try {
+            Process process = new ProcessBuilder("cmd.exe", "/c", "netstat -ano -p TCP")
+                    .redirectErrorStream(true)
+                    .start();
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            int exit = process.waitFor();
+            if (exit != 0) throw new IllegalStateException("netstat exit=" + exit + ": " + StrUtil.maxLength(output, 1000));
+            for (String line : output.split("\\R")) {
+                Matcher matcher = linePattern.matcher(line);
+                if (matcher.matches()) return Long.parseLong(matcher.group(2));
+            }
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("读取 Windows 端口监听信息被中断", e);
+        } catch (IOException e) {
+            throw new IllegalStateException("读取 Windows 端口监听信息失败：" + e.getMessage(), e);
+        }
+    }
+
+    private List<Long> terminateProcessTrees(List<ProcessHandle> roots) throws InterruptedException {
+        List<Long> pids = new ArrayList<>();
+        for (ProcessHandle root : roots) {
+            if (!root.isAlive()) continue;
+            pids.add(root.pid());
+            root.descendants().forEach(ProcessHandle::destroy);
+            root.destroy();
+        }
+        Thread.sleep(800L);
+        for (ProcessHandle root : roots) {
+            root.descendants().filter(ProcessHandle::isAlive).forEach(ProcessHandle::destroyForcibly);
+            if (root.isAlive()) root.destroyForcibly();
+        }
+        Thread.sleep(300L);
+        if (roots.stream().anyMatch(ProcessHandle::isAlive)) {
+            throw new IllegalStateException("Runner 进程未能终止：" + pids);
+        }
+        manualRunnerProcessRef.set(null);
+        return pids;
+    }
+
+    private void waitUntilRunnerStops() throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5_000L;
+        while (System.currentTimeMillis() < deadline) {
+            if (!Boolean.TRUE.equals(probeHealth().get("ok"))) return;
+            Thread.sleep(200L);
+        }
+        throw new IllegalStateException("Runner 进程已终止，但 8009 仍有服务响应，未执行新的启动操作");
+    }
+
+    /** 按任务保存的固定模式输出根目录读取日志，避免自定义任务误查 MMDet 输出目录。 */
+    public JSONObject getLatestTrainLog(String runId, int tailLines, JSONObject runnerOptions) {
         try {
             URI train = URI.create(runnerTrainUrl);
             int port = train.getPort();
@@ -335,6 +500,10 @@ public class TrainRunnerService {
             }
             String query = "runId=" + URLEncoder.encode(runId, StandardCharsets.UTF_8)
                     + "&tailLines=" + tailLines;
+            String workRoot = configuredFixedWorkRoot(runnerOptions);
+            if (StrUtil.isNotBlank(workRoot)) {
+                query += "&workRoot=" + URLEncoder.encode(workRoot, StandardCharsets.UTF_8);
+            }
             String endpoint = new URI(train.getScheme(), null, train.getHost(), port,
                     "/api/runner/log/latest", null, null).toString();
             URI uri = URI.create(endpoint + "?" + query);
@@ -355,6 +524,11 @@ public class TrainRunnerService {
 
     /** 删除某条训练结果对应的 Runner 本地产物目录。 */
     public boolean deleteResultFiles(String runId, LocalDateTime finishedAt) {
+        return deleteResultFiles(runId, finishedAt, null);
+    }
+
+    /** 按任务保存的输出根目录删除训练产物，支持 MMDet 与自定义任务分别存放。 */
+    public boolean deleteResultFiles(String runId, LocalDateTime finishedAt, JSONObject runnerOptions) {
         try {
             URI train = URI.create(runnerTrainUrl);
             int port = train.getPort();
@@ -364,6 +538,10 @@ public class TrainRunnerService {
             String query = "runId=" + URLEncoder.encode(runId, StandardCharsets.UTF_8);
             if (finishedAt != null) {
                 query += "&finishedAt=" + URLEncoder.encode(finishedAt.toString(), StandardCharsets.UTF_8);
+            }
+            String workRoot = configuredFixedWorkRoot(runnerOptions);
+            if (StrUtil.isNotBlank(workRoot)) {
+                query += "&workRoot=" + URLEncoder.encode(workRoot, StandardCharsets.UTF_8);
             }
             String endpoint = new URI(train.getScheme(), null, train.getHost(), port,
                     "/api/runner/result/delete", null, null).toString();
@@ -389,6 +567,49 @@ public class TrainRunnerService {
     }
 
     /** 请求 Runner 停止指定训练进程及其子进程。 */
+    /** 打开某次训练结果的实际产物目录，目录定位与删除逻辑共用同一组 runId/完成时间规则。 */
+    public JSONObject openResultDirectory(String runId, LocalDateTime finishedAt, JSONObject runnerOptions) {
+        try {
+            URI train = URI.create(runnerTrainUrl);
+            int port = train.getPort();
+            if (port < 0) {
+                port = "https".equalsIgnoreCase(train.getScheme()) ? 443 : 80;
+            }
+            String query = "runId=" + URLEncoder.encode(runId, StandardCharsets.UTF_8);
+            if (finishedAt != null) {
+                query += "&finishedAt=" + URLEncoder.encode(finishedAt.toString(), StandardCharsets.UTF_8);
+            }
+            String workRoot = configuredFixedWorkRoot(runnerOptions);
+            if (StrUtil.isNotBlank(workRoot)) {
+                query += "&workRoot=" + URLEncoder.encode(workRoot, StandardCharsets.UTF_8);
+            }
+            String endpoint = new URI(train.getScheme(), null, train.getHost(), port,
+                    "/api/runner/result/open", null, null).toString();
+            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+            HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint + "?" + query))
+                    .timeout(Duration.ofSeconds(15))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<String> response = client.send(
+                    request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            JSONObject body = JSONUtil.parseObj(response.body());
+            if (response.statusCode() < 200 || response.statusCode() >= 300
+                    || !body.getBool("ok", false)) {
+                throw new IllegalStateException(body.getStr("error", body.getStr("message", "打开训练结果目录失败")));
+            }
+            return body;
+        } catch (Exception e) {
+            throw new IllegalStateException("打开训练结果目录失败: " + e.getMessage(), e);
+        }
+    }
+
+    private String configuredFixedWorkRoot(JSONObject runnerOptions) {
+        if (runnerOptions == null || !"fixed".equalsIgnoreCase(runnerOptions.getStr("runner_mode"))) {
+            return null;
+        }
+        return StrUtil.trimToNull(runnerOptions.getStr("fixed_work_root"));
+    }
+
     public JSONObject stopByRunId(String runId) {
         Exception lastError = null;
         for (int attempt = 0; attempt < 5; attempt++) {

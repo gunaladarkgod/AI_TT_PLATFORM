@@ -10,6 +10,13 @@ export class AuthService {
     }
 }
 
+/** 项目文档 */
+export class DocumentationService {
+    static async usageGuide(type = 'usage') {
+        return request('/api/documentation/usage-guide', { type }, 'get');
+    }
+}
+
 /**用户管理接口 */
 export class UserService {
     static async queryList(params) {
@@ -187,6 +194,9 @@ export class TrainTaskService {
     }
     static async startRunner(params) {
         return request('/api/runner/start', params || {}, 'post');
+    }
+    static async restartRunner(params) {
+        return request('/api/runner/restart', params || {}, 'post');
     }
     static async checkRunnerDependencies() {
         return request('/api/runner/dependencies/check', {}, 'post');
@@ -578,6 +588,11 @@ export class InstanceDatasetService {
         return res.data || [];
     }
 
+    /** 从最终实例数据集实际目录读取训练/测试集数量、类别及训测比。 */
+    static async getDetail(id) {
+        return request(`/instanceDataset/${id}/detail`, {}, 'get', 'application/json', 'json')
+    }
+
 
     static async getNames() {
         return request('/instance/getNames', {}, 'post');
@@ -698,5 +713,25 @@ export class ResultQueryService {
 
     static async deleteResult(id) {
         return request('/trainResult/del', { id }, 'post');
+    }
+
+    static async deleteResults(ids) {
+        return request('/trainResult/del/batch', { ids }, 'post', 'application/json;charset=UTF-8');
+    }
+
+    static async openResultPath(id) {
+        return request('/trainResult/open-path', { id }, 'post');
+    }
+
+    static async getResultDetail(id) {
+        return request('/trainResult/detail', { id }, 'post');
+    }
+
+    static async updateResultMetadata(payload) {
+        return request('/trainResult/meta/update', payload, 'post', 'application/json;charset=UTF-8', 'json');
+    }
+
+    static async readResultConfig(id) {
+        return request('/trainResult/config/read', { id, includeText: true }, 'post');
     }
 }

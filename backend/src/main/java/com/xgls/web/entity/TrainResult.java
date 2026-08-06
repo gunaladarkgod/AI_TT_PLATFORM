@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @TableName("train_result")
@@ -58,6 +59,19 @@ public class TrainResult implements Serializable {
 
     @TableField("network_name")
     private String networkName;
+
+    /** 结果自身的显示名称、备注、标签均保存到 artifacts/result_metadata，不新增数据库字段。 */
+    @TableField(exist = false)
+    private String resultName;
+
+    @TableField(exist = false)
+    private String remark;
+
+    @TableField(exist = false)
+    private List<String> tags;
+
+    @TableField(exist = false)
+    private String configPath;
 
     /** 仅用于结果查询实时展示，不对应数据库字段。 */
     @TableField(exist = false)

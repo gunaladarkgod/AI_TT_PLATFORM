@@ -859,6 +859,7 @@ import { ArrowDown } from '@element-plus/icons-vue'
 import { OriginalDatasetService, TaskDatasetDevService } from '@/api/api'
 import { baseHost } from '@/api/axios'
 import DatasetPreviewDialog from '@/components/dataset/DatasetPreviewDialog.vue'
+import { DatasetScope, notifyDatasetRefresh, useDatasetRefresh } from '@/composables/useDatasetRefresh'
 
 const props = defineProps({
   /** 与统合父页同步（列表/卡片） */
@@ -869,6 +870,14 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['midDatasetChanged'])
+
+function announceTaskOrMidDatasetChanged(
+  reason = 'task-dataset-changed',
+  scopes = [DatasetScope.TASK, DatasetScope.MID, DatasetScope.INSTANCE]
+) {
+  notifyDatasetRefresh(scopes, reason)
+  emit('midDatasetChanged') // 保留统合页旧事件的兼容
+}
 
 const viewAsTable = computed(() => props.taskViewAsTable)
 const embedMode = computed(() => props.embedMode)
@@ -1588,6 +1597,7 @@ async function createTask() {
     }
     ElMessage.success('任务创建成功')
     tasks.value = Array.isArray(res?.data) ? res.data : []
+    announceTaskOrMidDatasetChanged('task-created', [DatasetScope.TASK])
     selectedTaskName.value = name
     createForm.value = {
       name: '',
@@ -1649,9 +1659,10 @@ async function deleteTask(task) {
       alsoDeleteLocal ? '已删除任务记录，并已清理本地导出数据' : '已删除任务记录（本地导出目录未删除）'
     )
     tasks.value = Array.isArray(res?.data) ? res.data : []
-    if (alsoDeleteLocal) {
-      emit('midDatasetChanged')
-    }
+    announceTaskOrMidDatasetChanged(
+      alsoDeleteLocal ? 'task-delete-with-local-data' : 'task-deleted',
+      alsoDeleteLocal ? [DatasetScope.TASK, DatasetScope.MID, DatasetScope.INSTANCE] : [DatasetScope.TASK]
+    )
     if (selectedTaskName.value === task.name) {
       selectedTaskName.value = ''
     }
@@ -1689,7 +1700,7 @@ async function clearTask(task) {
     }
     ElMessage.success('已清除导出数据集，任务记录仍保留，可重新导出')
     tasks.value = Array.isArray(res?.data) ? res.data : []
-    emit('midDatasetChanged')
+    announceTaskOrMidDatasetChanged('mid-dataset-cleared')
   } catch (e) {
     ElMessage.error(`清除失败：${e?.message || e}`)
   }
@@ -1987,7 +1998,7 @@ async function exportTask(task) {
     }
     ElMessage.success('已导出到中间实例数据集（instance_dataset_mid）')
     tasks.value = Array.isArray(res?.data) ? res.data : []
-    emit('midDatasetChanged')
+    announceTaskOrMidDatasetChanged('mid-dataset-exported')
     if (selectedTaskName.value === task.name) {
       clearIssueHighlight()
     }
@@ -2264,6 +2275,7 @@ async function submitEditTask() {
     }
     ElMessage.success('任务信息已更新')
     tasks.value = Array.isArray(res?.data) ? res.data : []
+    announceTaskOrMidDatasetChanged('task-updated', [DatasetScope.TASK])
     if (selectedTaskName.value === originalName) {
       selectedTaskName.value = name
     }
@@ -2305,6 +2317,7 @@ async function saveMappingRules() {
     }
     ElMessage.success('映射规则已保存')
     tasks.value = Array.isArray(res?.data) ? res.data : []
+    announceTaskOrMidDatasetChanged('task-mapping-updated', [DatasetScope.TASK])
     const name = String(selectedTaskName.value || '').trim()
     const t = name ? tasks.value.find((x) => x.name === name) : null
     if (t?.mapping_status_code === 'ok' && t?.name) {
@@ -2338,10 +2351,7 @@ function onTaskListSectionResize() {
   })
 }
 
-onMounted(async () => {
-  onTaskListSectionResize()
-  window.addEventListener('resize', onTaskListSectionResize, { passive: true })
-
+async function refreshTaskPage() {
   const [datasetRes, taskRes] = await Promise.allSettled([loadDatasets(), loadTasks()])
   if (taskRes.status === 'rejected') {
     ElMessage.error(`任务定义加载失败：${taskRes.reason?.message || taskRes.reason || '请确认后端已重启并加载新接口'}`)
@@ -2349,6 +2359,14 @@ onMounted(async () => {
   if (datasetRes.status === 'rejected') {
     ElMessage.warning(`数据集列表加载失败：${datasetRes.reason?.message || datasetRes.reason}`)
   }
+  scheduleTaskListTableLayout()
+}
+
+useDatasetRefresh([DatasetScope.ORIGINAL, DatasetScope.TASK, DatasetScope.MID], refreshTaskPage)
+
+onMounted(() => {
+  onTaskListSectionResize()
+  window.addEventListener('resize', onTaskListSectionResize, { passive: true })
   scheduleTaskListTableLayout()
 })
 

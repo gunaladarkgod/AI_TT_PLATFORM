@@ -23,7 +23,6 @@
       <div>
 
         <el-space>
-          <logview type="train"></logview>
           <el-button type="primary" @click="showAddModal" size="small"><el-text size="small"
               class="text-white">创建训练任务</el-text>
           </el-button>
@@ -255,6 +254,7 @@
             <el-button type="primary" size="small" @click="refreshRunnerHealth">刷新</el-button>
             <el-button type="warning" size="small" :loading="runnerDependencyLoading" @click="checkRunnerDependencies">检测依赖</el-button>
             <el-button type="success" size="small" :loading="runnerStartLoading" @click="startRunner">启动</el-button>
+            <el-button type="danger" size="small" :loading="runnerRestartLoading" @click="restartRunner">重启</el-button>
           </div>
         </div>
       </el-popover>
@@ -1356,7 +1356,7 @@
           </el-form-item>
           <el-form-item label="输出根目录：" required>
             <el-input v-model="fixedRunnerParameter.work_root" :disabled="isSee"
-              placeholder="支持相对项目根目录，例如：artifacts/mmdet_runs" />
+              placeholder="支持相对项目根目录，例如：artifacts/custom" />
           </el-form-item>
           <div class="el-form-item__tip">
             可用占位符：{run_id} 为任务名称，{work_dir} 为本次训练输出目录。相对路径按 AI_TT_PLATFORM 项目根目录解析。
@@ -2296,7 +2296,6 @@ import { isNum } from "../../utils/regex";
 import { taskStatusMap, taskStatusList, perspectiveMap } from '../../utils/selfmaps'
 import { uuid } from 'vue-uuid'
 import authimg from '../../components/authimg.vue'
-import logview from '../../components/logger.vue'
 import AceEdit from '@/components/AceEdit/index.vue'
 import { showRemark } from "../../utils/str";
 import { add } from 'lodash';
@@ -2468,6 +2467,7 @@ const showExt = ref(false)
 const runnerHealthOk = ref(null)
 const runnerHealthDetail = ref('正在检测 Runner 服务…')
 const runnerStartLoading = ref(false)
+const runnerRestartLoading = ref(false)
 const runnerDependencyLoading = ref(false)
 const runnerStatusPopoverVisible = ref(false)
 let runnerHealthTimer = null
@@ -2479,6 +2479,7 @@ const runnerStatusTone = computed(() => {
 })
 const runnerStatusSummary = computed(() => {
   if (runnerStartLoading.value) return '启动中'
+  if (runnerRestartLoading.value) return '重启中'
   if (runnerDependencyLoading.value) return '检测中'
   if (runnerHealthOk.value === true) return '正常'
   if (runnerHealthOk.value === false) return '不可用'
@@ -2696,6 +2697,10 @@ const activeTab = ref('data-tab')
 const is_create = ref(false)   // 创建/编辑
 const is_add = ref(false) // 追加模式
 const cur_task_id = ref(0);
+const DEFAULT_TRAIN_ALG_LIST = [
+  { id: 'mmdet', type: 'train', name: 'mmdet', cmd: 'mmdet', env: 'project', main: '', remark: '项目内置训练类型' },
+  { id: 'custom', type: 'train', name: '自定义', cmd: 'fixed', env: 'project', main: '', remark: '项目内置训练类型' },
+]
 const algList = ref([])
 const templateList = ref(["CNN","DETR","YOLO"])
 const algMap = ref(Map);
@@ -2705,20 +2710,77 @@ const cur_type = computed(() => {
 const cur_cmd = computed(() => {
   return algMap.value.get(addForm.type)?.cmd;
 })
+const normalizeTrainAlgList = (list = []) => {
+  const merged = [...(Array.isArray(list) ? list : [])]
+  DEFAULT_TRAIN_ALG_LIST.forEach((fallback) => {
+    const exists = merged.some((item) =>
+      String(item?.id) === String(fallback.id) ||
+      item?.name === fallback.name ||
+      item?.cmd === fallback.cmd
+    )
+    if (!exists) merged.push({ ...fallback })
+  })
+  return merged
+}
+
+const restartRunner = async () => {
+  if (runnerRestartLoading.value) return
+  try {
+    await ElMessageBox.confirm(
+      '将重启本机 Runner。若存在正在训练的任务，系统会拒绝重启以保护训练进程。是否继续？',
+      '重启 Runner',
+      { type: 'warning', confirmButtonText: '重启', cancelButtonText: '取消' }
+    )
+  } catch (_) {
+    return
+  }
+  runnerRestartLoading.value = true
+  runnerHealthDetail.value = '正在安全重启 Runner，请稍候…'
+  try {
+    const res = await TrainTaskService.restartRunner({})
+    const data = res?.data || {}
+    const detail = runnerStartDetailText(data)
+    runnerHealthOk.value = !!data.ok
+    runnerHealthDetail.value = data.ok ? `Runner 已重启。${data.pid ? ` PID ${data.pid}` : ''}` : detail
+    if (data.ok) {
+      ElMessage.success(data.message || 'Runner 重启成功')
+      await refreshRunnerHealth()
+    } else {
+      await ElMessageBox.alert(detail, 'Runner 重启失败', { type: 'error', dangerouslyUseHTMLString: false })
+    }
+  } catch (e) {
+    runnerHealthOk.value = false
+    runnerHealthDetail.value = 'Runner 重启请求失败：' + (e?.message || String(e))
+    await ElMessageBox.alert(runnerHealthDetail.value, 'Runner 重启失败', { type: 'error' })
+  } finally {
+    runnerRestartLoading.value = false
+  }
+}
+const applyTrainAlgList = (list = []) => {
+  const merged = normalizeTrainAlgList(list)
+  algList.value = merged
+  const map = new Map()
+  merged.forEach(item => {
+    map.set(item.id + '', item)
+  })
+  const mmdetAlg = merged.find((item) => item.name === 'mmdet' || item.cmd === 'mmdet')
+  if (mmdetAlg && !map.has('1')) {
+    map.set('1', mmdetAlg)
+  }
+  algMap.value = map
+  if (!addForm.type) {
+    addForm.type = mmdetAlg ? String(mmdetAlg.id) : String(merged[0]?.id || '')
+  }
+}
 const queryAlgs = () => {
   TrainScriptService.queryAll({ type: 'train' }).then(res => {
     if (res.code === 0) {
-      const list = [...(res.data || [])]
-      if (!list.some(item => item.id === 'custom' || item.name === '自定义')) {
-        list.push({ id: 'custom', name: '自定义', cmd: 'fixed' })
-      }
-      algList.value = list
-      let map = new Map;
-      list.forEach(item => {
-        map.set(item.id + '', item)
-      })
-      algMap.value = map;
+      applyTrainAlgList(res.data || [])
+    } else {
+      applyTrainAlgList([])
     }
+  }).catch(() => {
+    applyTrainAlgList([])
   })
 }
 
@@ -2739,6 +2801,7 @@ const fetchConfigTemplates = () => {
 /**新建模式 */
 const showAddModal = () => {
   isSee.value = false
+  resetFixedRunnerParameters()
   //算法模版初始化
   templateAlgorithm.value = null
   templateAlgorithmList.value = []
@@ -4242,8 +4305,14 @@ const fixedRunnerParameter = reactive({
   python_path: 'C:\\Users\\Guo Qinyao\\.conda\\envs\\openmmlab\\python.exe',
   exec_dir: 'mmdet_run/mmdetection-3.0.0',
   command_line: 'tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}',
-  work_root: 'artifacts/mmdet_runs',
+  work_root: 'artifacts/custom',
 })
+const resetFixedRunnerParameters = () => {
+  fixedRunnerParameter.python_path = 'C:\\Users\\Guo Qinyao\\.conda\\envs\\openmmlab\\python.exe'
+  fixedRunnerParameter.exec_dir = 'mmdet_run/mmdetection-3.0.0'
+  fixedRunnerParameter.command_line = 'tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}'
+  fixedRunnerParameter.work_root = 'artifacts/custom'
+}
 const trainingPythonPath = ref('')
 
 const classifyTrainingPythonPath = (value) => {
@@ -4541,6 +4610,7 @@ const handleTypeChange = () => {
     fetchMmdetInstanceDatasets()
   } else if (isFixedRunnerSelected.value) {
     addForm.temp = 'fixed'
+    resetFixedRunnerParameters()
   } else {
     addForm.temp = null
   }

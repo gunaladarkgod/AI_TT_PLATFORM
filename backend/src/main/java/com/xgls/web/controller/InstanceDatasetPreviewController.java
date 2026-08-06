@@ -119,6 +119,36 @@ public class InstanceDatasetPreviewController {
         return buildOk(data);
     }
 
+    /**
+     * 实例数据集的磁盘统计。训练、测试两侧均从实际 images / annotations 目录读取，
+     * 因此不会依赖数据库中可能已过期的图片数、样本数字段。
+     */
+    @GetMapping("/{id}/detail")
+    public Map<String, Object> detail(@PathVariable("id") Long id) {
+        InstanceDataset ds = instanceDatasetMapper.selectById(id);
+        if (ds == null) {
+            return buildError("实例数据集不存在，id=" + id);
+        }
+
+        DatasetPartStat train = buildPartStat(ds.getTrainImagePath(), ds.getTrainAnnoPath());
+        DatasetPartStat test = buildPartStat(ds.getTestImagePath(), ds.getTestAnnoPath());
+        int totalImages = train.getImageCount() + test.getImageCount();
+        int totalAnnotations = train.getAnnotationCount() + test.getAnnotationCount();
+
+        InstanceDatasetDetail data = new InstanceDatasetDetail();
+        data.setId(ds.getId());
+        data.setName(ds.getName());
+        data.setFatherName(ds.getFatherName());
+        data.setTrain(train);
+        data.setTest(test);
+        data.setTotalImages(totalImages);
+        data.setTotalAnnotations(totalAnnotations);
+        data.setHasTrainTestSplit(test.getImageCount() > 0);
+        data.setTrainRatio(totalImages > 0 ? roundRatio((double) train.getImageCount() / totalImages) : null);
+        data.setTestRatio(totalImages > 0 ? roundRatio((double) test.getImageCount() / totalImages) : null);
+        return buildOk(data);
+    }
+
     @GetMapping("/{id}/image")
     public void image(
             @PathVariable("id") Long id,
@@ -213,6 +243,103 @@ public class InstanceDatasetPreviewController {
         Path found = tryFindImageFile(imageDir, baseName(Paths.get(img).getFileName().toString()));
         if (found == null) throw new IOException("image not found: " + img);
         return found;
+    }
+
+    private DatasetPartStat buildPartStat(String imagePath, String annotationPath) {
+        DatasetPartStat stat = new DatasetPartStat();
+        if (!StringUtils.hasText(imagePath) || !StringUtils.hasText(annotationPath)) {
+            return stat;
+        }
+        Path imageDir = resolveInstanceDatasetPath(imagePath);
+        Path annoDir = resolveInstanceDatasetPath(annotationPath);
+        stat.setAvailable(Files.isDirectory(imageDir) && Files.isDirectory(annoDir));
+        stat.setImageCount(countImageFiles(imageDir));
+        if (!stat.isAvailable()) {
+            return stat;
+        }
+
+        // 预处理生成的最终实例数据集默认使用 COCO。只有不存在有效 COCO 时才退回 DOTA txt，
+        // 避免同一标注在两个格式中同时存在时被重复计数。
+        if (!collectCocoStat(annoDir, stat)) {
+            collectDotaStat(annoDir, stat);
+        }
+        return stat;
+    }
+
+    private int countImageFiles(Path imageDir) {
+        if (!Files.isDirectory(imageDir)) return 0;
+        try (var walk = Files.walk(imageDir)) {
+            return (int) walk.filter(Files::isRegularFile)
+                    .filter(path -> {
+                        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                        return name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png")
+                                || name.endsWith(".bmp") || name.endsWith(".tif") || name.endsWith(".tiff");
+                    })
+                    .count();
+        } catch (IOException e) {
+            log.warn("统计实例数据集图片失败: {}", imageDir, e);
+            return 0;
+        }
+    }
+
+    private boolean collectCocoStat(Path annoDir, DatasetPartStat stat) {
+        boolean found = false;
+        try (var walk = Files.walk(annoDir)) {
+            for (Path json : walk.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".json"))
+                    .toList()) {
+                JsonNode root;
+                try {
+                    root = OBJECT_MAPPER.readTree(Files.readString(json, StandardCharsets.UTF_8));
+                } catch (Exception ignored) {
+                    continue;
+                }
+                JsonNode annotations = root.path("annotations");
+                JsonNode categories = root.path("categories");
+                if (!annotations.isArray() || !categories.isArray()) {
+                    continue;
+                }
+                found = true;
+                Map<Long, String> categoryNames = new HashMap<>();
+                for (JsonNode category : categories) {
+                    long categoryId = category.path("id").asLong(Long.MIN_VALUE);
+                    String categoryName = category.path("name").asText("未知类别");
+                    if (categoryId != Long.MIN_VALUE) {
+                        categoryNames.put(categoryId, categoryName);
+                        stat.getCategoryCounts().putIfAbsent(categoryName, 0);
+                    }
+                }
+                for (JsonNode annotation : annotations) {
+                    long categoryId = annotation.path("category_id").asLong(Long.MIN_VALUE);
+                    String categoryName = categoryNames.getOrDefault(categoryId, "未知类别");
+                    stat.getCategoryCounts().merge(categoryName, 1, Integer::sum);
+                    stat.setAnnotationCount(stat.getAnnotationCount() + 1);
+                }
+            }
+        } catch (IOException e) {
+            log.warn("统计实例数据集 COCO 标注失败: {}", annoDir, e);
+        }
+        return found;
+    }
+
+    private void collectDotaStat(Path annoDir, DatasetPartStat stat) {
+        try (var walk = Files.walk(annoDir)) {
+            for (Path txt : walk.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".txt"))
+                    .toList()) {
+                for (DotaObject object : parseDotaFile(txt)) {
+                    String label = StringUtils.hasText(object.getName()) ? object.getName() : "未知类别";
+                    stat.getCategoryCounts().merge(label, 1, Integer::sum);
+                    stat.setAnnotationCount(stat.getAnnotationCount() + 1);
+                }
+            }
+        } catch (IOException e) {
+            log.warn("统计实例数据集 DOTA 标注失败: {}", annoDir, e);
+        }
+    }
+
+    private Double roundRatio(double value) {
+        return Math.round(value * 10000d) / 10000d;
     }
 
     private int[] readImageWH(Path imgPath) {
@@ -803,5 +930,27 @@ public class InstanceDatasetPreviewController {
         private double y4;
         private String name;
         private List<List<Double>> points;
+    }
+
+    @Data
+    public static class DatasetPartStat {
+        private boolean available;
+        private int imageCount;
+        private int annotationCount;
+        private Map<String, Integer> categoryCounts = new TreeMap<>();
+    }
+
+    @Data
+    public static class InstanceDatasetDetail {
+        private Long id;
+        private String name;
+        private String fatherName;
+        private boolean hasTrainTestSplit;
+        private Double trainRatio;
+        private Double testRatio;
+        private int totalImages;
+        private int totalAnnotations;
+        private DatasetPartStat train;
+        private DatasetPartStat test;
     }
 }

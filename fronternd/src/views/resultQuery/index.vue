@@ -15,14 +15,49 @@
           clearable
           class="result-search"
         />
+        <el-button size="small" type="primary" class="result-manage-button" @click="toggleManageMode">
+          {{ manageMode ? '完成管理' : '管理' }}
+        </el-button>
+        <el-button
+          v-if="manageMode"
+          size="small"
+          type="danger"
+          :disabled="!selectedResults.length || batchDeleting"
+          :loading="batchDeleting"
+          @click="deleteSelectedResults"
+        >批量删除{{ selectedResults.length ? ` (${selectedResults.length})` : '' }}</el-button>
       </div>
     </div>
 
     <div class="table-div app-list-table">
       <el-table ref="tableRef" :row-key="resultRowKey" class="my-table" :data="pageData" stripe style="width: 100%" size="small"
-        v-loading="loading" @filter-change="onTableFilterChange" @sort-change="onTableSortChange"
+        v-loading="loading" @filter-change="onTableFilterChange" @sort-change="onTableSortChange" @row-click="openResultDetail"
+        @selection-change="handleSelectionChange"
         v-el-height-adaptive-table="{ bottomOffset: 110, isUse: true }">
 
+        <el-table-column
+          v-if="manageMode"
+          type="selection"
+          width="48"
+          fixed="left"
+          :selectable="canSelectResult"
+          :reserve-selection="true"
+        />
+
+        <el-table-column prop="resultName" label="项目名称" align="center" fixed="left" width="260"
+          column-key="resultName" sortable="custom" :filters="resultNameFilterOptions"
+          :filter-method="tableColumnFilterPassAll">
+          <template #default="{ row }">{{ row.resultName || row.taskName }}</template>
+        </el-table-column>
+
+        <el-table-column label="标签" align="center" width="180">
+          <template #default="{ row }">
+            <div class="result-tags-cell">
+              <el-tag v-for="tag in (row.tags || [])" :key="tag" size="small" effect="plain">{{ tag }}</el-tag>
+              <el-text v-if="!(row.tags || []).length" size="small" type="info">-</el-text>
+            </div>
+          </template>
+        </el-table-column>
 
         <el-table-column prop="taskName" label="任务名称" align="center" fixed="left" width="260"
           column-key="taskName" sortable="custom" :filters="taskNameFilterOptions"
@@ -65,10 +100,29 @@
 
         <el-table-column prop="apl" label="APl" align="center" width="80" sortable="custom"/>
 
-        <el-table-column label="操作" align="center" width="90" fixed="right">
+        <el-table-column label="操作" align="center" width="185" fixed="right">
           <template #default="{ row }">
-            <el-tag v-if="row.training" type="warning" size="small">训练中</el-tag>
-            <el-button v-else type="danger" link size="small" @click="deleteResult(row)">删除</el-button>
+            <div class="result-action-group" @click.stop>
+              <el-dropdown trigger="click" @command="command => handleResultCommand(command, row)">
+                <el-button type="primary" size="small" class="result-operation-button">
+                  其他操作<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item :disabled="logLoadingTaskId === row.taskId" command="log">
+                      <el-icon><View /></el-icon>查看日志
+                    </el-dropdown-item>
+                    <el-dropdown-item :disabled="configLoadingTaskId === row.taskId" command="config">
+                      <el-icon><Document /></el-icon>查看配置
+                    </el-dropdown-item>
+                    <el-dropdown-item :disabled="openPathLoadingId === row.id" command="path">
+                      <el-icon><FolderOpened /></el-icon>打开路径
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+              <el-button v-if="!row.training" type="danger" size="small" @click="deleteResult(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
 
@@ -80,14 +134,51 @@
         :page-sizes="[5, 10, 20, 30, 40, 50]" layout="total, sizes, prev, pager, next, jumper" :total="total"
         @size-change="handlePageSizeChange" />
     </div>
+
+    <el-dialog v-model="detailVisible" width="min(760px, 92vw)" top="8vh" :title="`结果详情 - ${detailForm.resultName || detailForm.taskName || ''}`">
+      <div v-loading="detailLoading" class="result-detail-dialog">
+        <el-form label-width="92px" class="result-detail-form">
+          <el-form-item label="项目名称">
+            <el-input v-model="detailForm.resultName" :disabled="detailForm.training" maxlength="120" show-word-limit />
+          </el-form-item>
+          <el-form-item label="标签">
+            <el-select v-model="detailForm.tags" multiple filterable allow-create default-first-option
+              :disabled="detailForm.training" placeholder="输入后按 Enter 添加标签" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="备注">
+            <el-input v-model="detailForm.remark" type="textarea" :rows="3" :disabled="detailForm.training"
+              maxlength="500" show-word-limit placeholder="填写该次训练结果的备注" />
+          </el-form-item>
+        </el-form>
+        <el-descriptions :column="2" border size="small" class="result-detail-info">
+          <el-descriptions-item label="训练任务">{{ detailForm.taskName || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="模型类别">{{ detailForm.modelType || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="完成时间">{{ showDateTime(detailForm.time) || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="耗时">{{ formatDuration(detailForm.durationSeconds) }}</el-descriptions-item>
+          <el-descriptions-item label="配置快照" :span="2">{{ detailConfigStatus || detailForm.configPath || '-' }}</el-descriptions-item>
+        </el-descriptions>
+      </div>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+        <el-button v-if="!detailForm.training" type="primary" :loading="detailSaving" @click="saveResultDetail">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="textVisible" width="min(960px, 90vw)" top="6vh" :title="textTitle" draggable>
+      <pre class="result-text-viewer">{{ textContent }}</pre>
+      <template #footer>
+        <el-button @click="textVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
     import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
     import { ElMessage, ElMessageBox } from 'element-plus';
+    import { ArrowDown, Document, FolderOpened, View } from '@element-plus/icons-vue';
     import dayjs   from 'dayjs'
-    import { ResultQueryService } from "../../api/api";
+    import { ResultQueryService, TrainTaskService } from "../../api/api";
 
     const searchName = ref("");
 
@@ -95,6 +186,23 @@
     const currentSize = ref(10);
     const tableRef = ref(null);
     const loading = ref(false);
+    const manageMode = ref(false);
+    const selectedResults = ref([]);
+    const batchDeleting = ref(false);
+    const textVisible = ref(false);
+    const textTitle = ref('查看');
+    const textContent = ref('');
+    const logLoadingTaskId = ref(null);
+    const configLoadingTaskId = ref(null);
+    const openPathLoadingId = ref(null);
+    const detailVisible = ref(false);
+    const detailLoading = ref(false);
+    const detailSaving = ref(false);
+    const detailConfigStatus = ref('');
+    const detailForm = ref({
+      id: null, resultName: '', taskName: '', remark: '', tags: [], training: false,
+      modelType: '', time: null, durationSeconds: null, configPath: '',
+    });
 
 
     const showDateTime = (time) => {
@@ -123,6 +231,7 @@
     const tableData = ref([])
     const deletingId = ref(null)
     const columnFilters = ref({
+      resultName: [],
       taskName: [],
       userName: [],
       modelType: [],
@@ -137,6 +246,7 @@
         .map(value => ({ text: String(value), value }))
     );
     const userFilterOptions = makeFilterOptions('userName');
+    const resultNameFilterOptions = makeFilterOptions('resultName');
     const taskNameFilterOptions = makeFilterOptions('taskName');
     const modelTypeFilterOptions = makeFilterOptions('modelType');
     const datasetFilterOptions = makeFilterOptions('dataset');
@@ -151,7 +261,7 @@
         if (!filterPass) return false;
         if (!q) return true;
         return [
-          row.id, row.taskId, row.taskName, row.userName, row.modelType,
+          row.id, row.taskId, row.resultName, row.taskName, row.remark, (row.tags || []).join(' '), row.userName, row.modelType,
           row.dataset, row.networkName, row.time, row.map, row.ap50,
           row.ap75, row.aps, row.apm, row.apl, row.durationSeconds,
         ].join(' ').toLowerCase().includes(q);
@@ -235,6 +345,16 @@
     };
     const handlePageSizeChange = () => { currentPage.value = 1; };
 
+    const canSelectResult = (row) => !row.training && !!row.id;
+    const handleSelectionChange = (rows) => {
+      selectedResults.value = Array.isArray(rows) ? rows.filter(canSelectResult) : [];
+    };
+    const toggleManageMode = () => {
+      manageMode.value = !manageMode.value;
+      selectedResults.value = [];
+      nextTick(() => tableRef.value?.clearSelection?.());
+    };
+
     watch(searchName, () => { currentPage.value = 1; });
 
     const deleteResult = async (row) => {
@@ -269,6 +389,213 @@
       }
     };
 
+    const deleteSelectedResults = async () => {
+      const rows = selectedResults.value.filter(canSelectResult);
+      if (!rows.length || batchDeleting.value) return;
+      try {
+        await ElMessageBox.confirm(
+          `确定删除已选中的 ${rows.length} 条训练结果吗？对应的本地训练文件也会一并删除，此操作不可恢复。`,
+          '批量删除结果',
+          { confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning' }
+        );
+        batchDeleting.value = true;
+        const res = await ResultQueryService.deleteResults(rows.map(row => row.id));
+        if (res.code !== 0) {
+          ElMessage.error(res.msg || '批量删除失败');
+          return;
+        }
+        const data = res.data || {};
+        const deletedCount = Number(data.deletedCount || 0);
+        const errors = Array.isArray(data.errors) ? data.errors : [];
+        if (errors.length) {
+          ElMessage.warning(`已删除 ${deletedCount} 条，${errors.length} 条删除失败：${errors[0]}`);
+        } else {
+          ElMessage.success(`已删除 ${deletedCount} 条训练结果及对应本地文件`);
+        }
+        selectedResults.value = [];
+        tableRef.value?.clearSelection?.();
+        if (pageData.value.length === rows.length && currentPage.value > 1) currentPage.value -= 1;
+        await loadResults();
+      } catch (error) {
+        if (error !== 'cancel' && error !== 'close') ElMessage.error(error?.msg || '批量删除失败');
+      } finally {
+        batchDeleting.value = false;
+      }
+    };
+
+    const applyResultDetail = (record = {}, extra = {}) => {
+      detailForm.value = {
+        id: record.id ?? null,
+        resultName: record.resultName || record.taskName || '',
+        taskName: record.taskName || '',
+        remark: record.remark || '',
+        tags: Array.isArray(record.tags) ? [...record.tags] : [],
+        training: !!record.training,
+        modelType: record.modelType || '',
+        time: record.time || null,
+        durationSeconds: record.durationSeconds ?? null,
+        configPath: extra.configPath || record.configPath || '',
+      };
+      detailConfigStatus.value = extra.configStatus || '';
+    };
+
+    const openResultDetail = async (row) => {
+      if (!row) return;
+      detailVisible.value = true;
+      detailLoading.value = true;
+      applyResultDetail(row);
+      if (row.training || !row.id) {
+        detailConfigStatus.value = '训练中的项目尚未生成结果配置快照';
+        detailLoading.value = false;
+        return;
+      }
+      try {
+        const res = await ResultQueryService.getResultDetail(row.id);
+        if (res.code !== 0) {
+          ElMessage.warning(res.msg || '读取结果详情失败');
+          return;
+        }
+        const data = res.data || {};
+        applyResultDetail(data.result || row, data);
+      } catch (error) {
+        ElMessage.error(error?.msg || error?.message || '读取结果详情失败');
+      } finally {
+        detailLoading.value = false;
+      }
+    };
+
+    const saveResultDetail = async () => {
+      if (!detailForm.value.id || detailSaving.value) return;
+      detailSaving.value = true;
+      try {
+        const res = await ResultQueryService.updateResultMetadata({
+          id: detailForm.value.id,
+          resultName: detailForm.value.resultName,
+          remark: detailForm.value.remark,
+          tags: detailForm.value.tags,
+        });
+        if (res.code !== 0) {
+          ElMessage.warning(res.msg || '保存结果详情失败');
+          return;
+        }
+        const data = res.data || {};
+        applyResultDetail(data.result || detailForm.value, data);
+        const index = tableData.value.findIndex(item => item.id === detailForm.value.id);
+        if (index >= 0) tableData.value[index] = { ...tableData.value[index], ...detailForm.value };
+        ElMessage.success('结果详情已保存');
+      } catch (error) {
+        ElMessage.error(error?.msg || error?.message || '保存结果详情失败');
+      } finally {
+        detailSaving.value = false;
+      }
+    };
+
+    const viewResultLog = async (row) => {
+      if (!row.taskId) {
+        ElMessage.warning('该结果没有关联训练任务，无法读取日志');
+        return;
+      }
+      logLoadingTaskId.value = row.taskId;
+      try {
+        const res = await TrainTaskService.latestTrainLog({ id: row.taskId, lines: 2000 });
+        if (res.code !== 0 || !res.data) {
+          ElMessage.warning(res.msg || '该任务还没有训练日志');
+          return;
+        }
+        const log = res.data;
+        textTitle.value = `最新训练日志 - ${row.taskName}`;
+        textContent.value = [
+          `日志文件：${log.log_path || '-'}`,
+          `更新时间：${log.modified_time || '-'}`,
+          `显示行数：${log.returned_lines || 0} / ${log.total_lines || 0}`,
+          '',
+          log.content || '(日志为空)'
+        ].join('\n');
+        textVisible.value = true;
+      } catch (error) {
+        ElMessage.error('读取训练日志失败');
+      } finally {
+        logLoadingTaskId.value = null;
+      }
+    };
+    const viewResultConfigSnapshot = async (row) => {
+      if (!row?.id || row.training) {
+        ElMessage.warning('训练中的项目尚未生成配置快照');
+        return;
+      }
+      configLoadingTaskId.value = row.taskId || row.id;
+      try {
+        const res = await ResultQueryService.readResultConfig(row.id);
+        if (res.code !== 0 || !res.data) {
+          ElMessage.warning(res.msg || '该结果没有可查看的配置快照');
+          return;
+        }
+        const config = res.data;
+        textTitle.value = `结果配置快照 - ${row.resultName || row.taskName}`;
+        textContent.value = [
+          `配置副本：${config.config_path || '-'}`,
+          '',
+          config.text || '(配置文件为空)'
+        ].join('\n');
+        textVisible.value = true;
+      } catch (error) {
+        ElMessage.error(error?.msg || error?.message || '读取结果配置快照失败');
+      } finally {
+        configLoadingTaskId.value = null;
+      }
+    };
+
+    const viewResultConfig = async (row) => {
+      if (!row.taskId) {
+        ElMessage.warning('该结果没有关联训练任务，无法读取配置');
+        return;
+      }
+      configLoadingTaskId.value = row.taskId;
+      try {
+        const res = await TrainTaskService.readConfig({ id: row.taskId, includeText: true });
+        if (res.code !== 0 || !res.data) {
+          ElMessage.warning(res.msg || '该任务还没有生成配置文件');
+          return;
+        }
+        const config = res.data;
+        textTitle.value = `训练配置 - ${row.taskName}`;
+        textContent.value = [
+          `配置文件：${config.config_path || '-'}`,
+          '',
+          config.text || '(配置文件为空)'
+        ].join('\n');
+        textVisible.value = true;
+      } catch (error) {
+        ElMessage.error('读取训练配置失败');
+      } finally {
+        configLoadingTaskId.value = null;
+      }
+    };
+    const openResultPath = async (row) => {
+      if (!row.id || row.training) {
+        ElMessage.warning('训练中的任务暂不支持打开结果目录');
+        return;
+      }
+      openPathLoadingId.value = row.id;
+      try {
+        const res = await ResultQueryService.openResultPath(row.id);
+        if (res.code !== 0) {
+          ElMessage.warning(res.msg || '打开路径失败');
+          return;
+        }
+        ElMessage.success(`已打开：${res.data?.path || '结果目录'}`);
+      } catch (error) {
+        ElMessage.error(error?.msg || '打开路径失败');
+      } finally {
+        openPathLoadingId.value = null;
+      }
+    };
+    const handleResultCommand = (command, row) => {
+      if (command === 'log') return viewResultLog(row);
+      if (command === 'config') return viewResultConfigSnapshot(row);
+      if (command === 'path') return openResultPath(row);
+    };
+
 const refreshTimer = window.setInterval(() => loadResults(true), 2000);
 const elapsedTimer = window.setInterval(() => { nowTick.value = Date.now(); }, 1000);
 onBeforeUnmount(() => {
@@ -283,9 +610,8 @@ loadResults();
 <style scoped>
 
     .content {
-    padding: 10px;
-    background-color: #f5f7fa;
-    
+    padding: 0;
+    background: transparent;
     }
 
     .flex-between {
@@ -309,6 +635,40 @@ loadResults();
     width: 220px;
     }
 
+    .result-manage-button {
+    margin-left: 8px;
+    }
+
+    .result-operation-button {
+    min-width: 86px;
+    }
+
+    .result-action-group {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    }
+
+    .result-tags-cell {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+    }
+
+    .result-detail-dialog {
+    padding: 2px 4px;
+    }
+
+    .result-detail-form {
+    margin-bottom: 12px;
+    }
+
+    .result-detail-info :deep(.el-descriptions__label) {
+    width: 100px;
+    }
+
     .table-div {
     padding-top: 8px;
     padding-bottom: 8px;
@@ -322,14 +682,19 @@ loadResults();
     border-radius: 4px;
     }
 
-    .content ::v-deep(.el-table) {
-    box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+    .result-text-viewer {
+    min-height: 360px;
+    max-height: 68vh;
+    margin: 0;
+    padding: 16px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.55;
+    color: #303133;
+    background: #f7f9fc;
+    border: 1px solid #e4e7ed;
     border-radius: 8px;
-    overflow: hidden;
-    }
-
-    .content ::v-deep(.el-table__header) {
-    background-color: #fafafa;
     }
 
 

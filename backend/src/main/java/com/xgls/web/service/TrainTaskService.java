@@ -61,6 +61,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
     String rootPath;
 
     @Autowired private TrainResultService trainResultService;
+    @Autowired private TrainResultArtifactService trainResultArtifactService;
     @Autowired TrainArgsMapper tArgsMapper;
     @Autowired TrainDataMapper tDataMapper;
     @Autowired TrainScriptMapper tScriptMapper;
@@ -211,7 +212,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         tr.setTaskId(task.getId());
         tr.setTaskName(task.getName());
         tr.setUserName(task.getUsername());
-        tr.setModelType("mmdet");
+        tr.setModelType(isFixedRunnerTask(task) ? "自定义" : "mmdet");
         tr.setDataset("coco_small"); // 如需真实数据集名称，可在业务链路中补齐
         LocalDateTime finishedAt = LocalDateTime.now();
         tr.setTime(finishedAt);
@@ -235,6 +236,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
 
         try {
             trainResultService.save(tr);
+            trainResultArtifactService.createSnapshot(tr, task, jo);
             log.info("[train_result] saved: taskId={}, runId={}, mAP={}, AP50={}, AP75={}, APs={}, APm={}, APl={}",
                     task.getId(), task.getName(), mAP, ap50, ap75, aps, apm, apl);
         } catch (Exception e) {
@@ -407,6 +409,12 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
             out.set("runner_mode", "original");
         }
         return out;
+    }
+
+    private boolean isFixedRunnerTask(TrainTask task) {
+        if (task == null) return false;
+        if ("custom".equalsIgnoreCase(task.getType()) || "自定义".equals(task.getType())) return true;
+        return "fixed".equalsIgnoreCase(runnerOptionsForTask(task.getId()).getStr("runner_mode"));
     }
 
     private void copyIfPresent(JSONObject src, JSONObject dst, String key) {

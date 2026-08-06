@@ -69,6 +69,7 @@ rem Windows defaults derived from this repository; explicit environment variable
 if not defined MMDET_REPO_ROOT set "MMDET_REPO_ROOT=%REPO_ROOT%\mmdet_run\mmdetection-3.0.0"
 if not defined MMDET_UPLOAD_ROOT set "MMDET_UPLOAD_ROOT=%REPO_ROOT%\mmdet_run\myfiles"
 if not defined MMDET_WORK_ROOT set "MMDET_WORK_ROOT=%REPO_ROOT%\artifacts\mmdet_runs"
+if not defined MMDET_PY_EXE set "MMDET_PY_EXE=%PY%"
 
 if not exist "%MMDET_UPLOAD_ROOT%" mkdir "%MMDET_UPLOAD_ROOT%"
 if not exist "%MMDET_WORK_ROOT%" mkdir "%MMDET_WORK_ROOT%"
