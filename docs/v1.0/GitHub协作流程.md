@@ -70,6 +70,7 @@ git status
 - 文档：`docs/文档名称`，如 `docs/github-workflow`
 - 重构：`refactor/范围名称`，如 `refactor/dataset-refresh`
 - 工程维护：`chore/事项名称`，如 `chore/update-dependencies`
+- 尚未明确开发方向的临时探索：`dev/姓名简称`，如 `dev/gqy`
 
 命名规则：
 
@@ -79,6 +80,8 @@ git status
 4. 有任务编号时可加入编号，例如 `feature/123-result-export`。
 
 正确示例：`feature/result-export`、`fix/runner-startup`。不推荐：`guoqinyao-test`、`feature_结果导出`、`update`。
+
+`dev/姓名简称` 只用于需求尚未明确时的个人探索、验证或原型开发。方向明确后，应从该分支整理出符合规范的 `feature/`、`fix/` 等分支再创建 PR；不要将模糊、混杂的 `dev/` 分支直接合并到 `main`。
 
 ### 示例与操作
 

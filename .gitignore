@@ -1,23 +1,40 @@
-# ===================== IDE / 系统隐藏文件 =====================
+# 编辑器与操作系统文件
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
-.codegraph/*.db
-.codegraph/*.lock
 *.swp
 *.swo
 
-# ===================== 日志文件 =====================
-*.log
+# 日志与临时文件（均为运行时生成）
 logs/
-backend/logs/
-backend/logs/main/
+mmdet_run/logs/
+*.log
+*.pid
+*.seed
+*.stackdump
+*.tmp
+tmp/
+temp/
 
-# ===================== Python 环境 & 缓存 =====================
+# 前端依赖与构建产物
+node_modules/
+.npm-cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+fronternd/dist/
+
+# Java 构建产物
+**/target/
+*.class
+*.jar
+*.war
+
+# Python 环境、缓存与测试产物
 __pycache__/
 *.py[cod]
-*.pyc
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -26,55 +43,24 @@ venv/
 env/
 mmdet_run/mmdet_runner_srv/.conda_runner/
 
-# ===================== 前端 Node 依赖 & 日志 =====================
-node_modules/
-.npm-cache/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# ===================== Java Maven 编译产物 =====================
-target/
-backend/target/
-*.class
-*.jar
-
-# ===================== 打包/构建输出目录 =====================
-dist/
-build/
-out/
-fronternd/dist/
-
-# ===================== 临时运行文件 =====================
-*.pid
-*.seed
-*.stackdump
-*.tmp
-tmp/
-temp/
-tools/redis/
-
-# ===================== 机器学习训练产物（权重、缓存、数据集） =====================
+# 本机生成的数据、训练产物与任务配置
+/data/
+/artifacts/
+mmdet_run/myfiles/modelcfg/
 runs/
 wandb/
 mlruns/
 datasets/
 checkpoints/
 weights/
-artifacts/
-mmdet_run/myfiles/modelcfg/
 *.pt
 *.pth
 *.onnx
 *.engine
 *.ckpt
 
-# ===================== 数据集/业务临时导出数据 =====================
-/data/
-
-# ===================== 本地密钥、环境配置（只忽略本地私有配置，保留example模板） =====================
-backend/env.clearml.local
-backend/.env
+# 本地凭据与环境变量；保留示例文件以便协作成员复制
 .env
-.env.local
+.env.*
+!.env.example
+backend/env.clearml.local
