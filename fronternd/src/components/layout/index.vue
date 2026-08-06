@@ -75,6 +75,7 @@
                     class="iconfont icon-yunhanghuanjingbushu fontSpan"></el-icon>切换主题</el-dropdown-item>
                 <el-dropdown-item @click="showPwdModal">
                   <el-icon class="iconfont icon-xiugaimima fontSpan"></el-icon>修改密码</el-dropdown-item>
+                <el-dropdown-item @click="switchAccount"><el-icon><SwitchButton /></el-icon>切换账户</el-dropdown-item>
                 <el-dropdown-item @click="logout"><el-icon
                     class="iconfont icon-pullleft fontSpan"></el-icon>退出登录</el-dropdown-item>
 
@@ -441,17 +442,33 @@ const sendMsg = () => {
 
 const msgCnt = ref(0); // 告警消息总数
 const msgList = ref([]); //最近的告警消息
-const logout = () => {
-  AuthService.logout().then((res) => {
-    if (res.code === 0) {
-      loginStore.$patch((state) => {
-        state.isLogin = false;
-        state.uuidLogin = "";
-        state.token = "";
-      });
-      router.replace({ path: "/" });
-    }
+const logout = async () => {
+  try {
+    await AuthService.logout();
+  } catch (_) {
+    // 即便服务端会话已失效，也必须完成本机退出，避免再次自动恢复旧账户。
+  }
+  loginStore.$patch((state) => {
+    state.isLogin = false;
+    state.uuidLogin = "";
+    state.token = "";
   });
+  menuStore.resetRouter();
+  router.replace({ path: '/login', query: { manualLogout: '1' } });
+};
+const switchAccount = async () => {
+  try {
+    await AuthService.logout();
+  } catch (_) {
+    // 服务端会话已失效时，仍允许用户回到登录页切换本机保存的账户。
+  }
+  loginStore.$patch((state) => {
+    state.isLogin = false;
+    state.uuidLogin = "";
+    state.token = "";
+  });
+  menuStore.resetRouter();
+  router.replace({ path: '/login', query: { switch: '1' } });
 };
 const showPwdModal = () => {
   pwdForm.pwd1 = "";
