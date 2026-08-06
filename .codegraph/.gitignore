@@ -1,5 +1,0 @@
-.venv/
-pip-cache/
-pkg-inspect/
-*.html
-*.csv
