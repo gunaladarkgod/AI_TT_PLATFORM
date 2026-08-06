@@ -202,6 +202,11 @@
         size="small"
         @click="loadDocumentation('technical')"
       >技术说明</el-button>
+      <el-button
+        :type="documentationType === 'github' ? 'primary' : 'default'"
+        size="small"
+        @click="loadDocumentation('github')"
+      >GitHub 协作</el-button>
     </div>
     <el-scrollbar height="68vh" class="documentation-scrollbar">
       <article
@@ -223,6 +228,7 @@ import { Collection, Cpu, DataAnalysis, Document, Files, FolderOpened, List, Set
 import MarkdownIt from 'markdown-it';
 import usageGuideContent from 'virtual:project-usage-guide';
 import technicalGuideContent from 'virtual:project-technical-guide';
+import githubWorkflowContent from 'virtual:project-github-workflow';
 import { useLoginStore, useTitleStore, useUserStore,useMenuStore } from "../../stores/index";
 import md5 from "js-md5";
 import { logoPath } from '../../api/axios'
@@ -324,6 +330,7 @@ const documentationType = ref('usage');
 const documentationCache = {
   usage: usageGuideContent,
   technical: technicalGuideContent,
+  github: githubWorkflowContent,
 };
 const markdownRenderer = new MarkdownIt({
   html: false,
@@ -333,7 +340,11 @@ const markdownRenderer = new MarkdownIt({
 });
 const renderedDocumentation = computed(() => markdownRenderer.render(documentationContent.value || ''));
 const documentationTitle = computed(() => (
-  documentationType.value === 'technical' ? '技术说明文档 v1.0' : '使用说明文档 v1.0'
+  documentationType.value === 'technical'
+    ? '技术说明文档 v1.0'
+    : documentationType.value === 'github'
+      ? 'GitHub 协作流程 v1.0'
+      : '使用说明文档 v1.0'
 ));
 const colorTopic = ref(init_color);
 const predefineColors = ref([

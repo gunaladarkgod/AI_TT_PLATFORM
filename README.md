@@ -71,3 +71,4 @@ artifacts/mmdet_runs/         # 训练日志、权重与运行产物
 
 - [使用说明文档 v1.0](docs/v1.0/使用说明文档v1.0.md)
 - [技术说明文档](docs/v1.0/技术说明文档.md)
+- [GitHub 协作流程](docs/v1.0/GitHub协作流程.md)
