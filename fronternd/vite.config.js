@@ -11,7 +11,10 @@ function projectDocumentationPlugin() {
   const documents = {
     'virtual:project-usage-guide': fileURLToPath(new URL('../docs/v1.0/使用说明文档v1.0.md', import.meta.url)),
     'virtual:project-technical-guide': fileURLToPath(new URL('../docs/v1.0/技术说明文档.md', import.meta.url)),
+    'virtual:project-github-workflow': fileURLToPath(new URL('../docs/v1.0/GitHub协作流程.md', import.meta.url)),
+    'virtual:project-algorithm-integration': fileURLToPath(new URL('../docs/v1.0/算法集成规范.md', import.meta.url)),
   }
+  const documentPaths = new Set(Object.values(documents).map((path) => path.toLowerCase()))
 
   return {
     name: 'project-documentation',
@@ -21,6 +24,18 @@ function projectDocumentationPlugin() {
     load(id) {
       const documentPath = documents[id.slice(1)]
       return documentPath ? `export default ${JSON.stringify(readFileSync(documentPath, 'utf8'))}` : null
+    },
+    // docs 位于前端根目录之外，显式监听后才能在开发模式修改 Markdown 时刷新帮助页面。
+    configureServer(server) {
+      server.watcher.add([...documentPaths])
+      server.watcher.on('change', (file) => {
+        if (!documentPaths.has(String(file).toLowerCase())) return
+        Object.keys(documents).forEach((id) => {
+          const module = server.moduleGraph.getModuleById(`\0${id}`)
+          if (module) server.moduleGraph.invalidateModule(module)
+        })
+        server.ws.send({ type: 'full-reload' })
+      })
     },
   }
 }

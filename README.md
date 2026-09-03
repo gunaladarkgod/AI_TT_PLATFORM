@@ -54,20 +54,26 @@ $env:RUNNER_PYTHON = "C:\\你的环境\\python.exe"
 
 Runner 启动成功后监听 `http://127.0.0.1:8009/health`。`start_runner.cmd` 会优先使用 `RUNNER_PYTHON`，其次尝试项目内环境、`.venv`、`%USERPROFILE%\.conda\envs\openmmlab` 与系统 Python。
 
-## 目录约定
+## 项目根目录说明
 
 ```text
-data/
-├─ instance_dataset_mid/  # 标签映射导出后的中间实例数据集
-└─ instance_dataset/      # 预处理完成的最终实例数据集
-mmdet_run/myfiles/template/   # 内置 MMDet 配置模板
-mmdet_run/myfiles/modelcfg/   # 按任务生成的 config.py
-artifacts/mmdet_runs/         # 训练日志、权重与运行产物
+backend/       # Spring Boot 后端、数据库迁移与业务接口
+fronternd/     # Vue 3 前端
+mmdet_run/     # MMDetection、Runner、模板与任务生成配置
+yolo_run/      # 独立 YOLO/Ultralytics 运行目录
+data/          # 中间实例数据集、最终实例数据集和预处理脚本
+artifacts/     # MMDet/自定义训练的日志、权重、结果快照与元数据
+logs/          # 后端主日志与历史归档
+docs/          # 使用、技术、协作和算法集成文档
 ```
 
 原始数据集可以位于任意本地路径；平台只保存其路径引用，不复制原始图片和标注。
+
+`.git/`、`.idea/`、`.vscode/`、`.agents/`、`.codex/`、`.npm-cache/` 与 `.tmp/` 是 Git、编辑器或本机工具的配置/缓存目录，不属于业务源码；完整说明见 [GitHub 协作流程](docs/v1.0/GitHub协作流程.md#11-项目根目录说明)。
 
 ## 文档
 
 - [使用说明文档 v1.0](docs/v1.0/使用说明文档v1.0.md)
 - [技术说明文档](docs/v1.0/技术说明文档.md)
+- [GitHub 协作流程](docs/v1.0/GitHub协作流程.md)
+- [算法集成规范](docs/v1.0/算法集成规范.md)
