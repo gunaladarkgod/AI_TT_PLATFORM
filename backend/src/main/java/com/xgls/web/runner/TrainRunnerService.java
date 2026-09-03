@@ -11,8 +11,10 @@ import org.springframework.stereotype.Service;
 import com.xgls.web.utils.WorkspacePathUtil;
 
 import java.io.IOException;
+import java.net.ConnectException;
 import java.net.URI;
 import java.net.URLEncoder;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -518,7 +520,7 @@ public class TrainRunnerService {
             }
             return body;
         } catch (Exception e) {
-            throw new IllegalStateException("读取最新训练日志失败: " + e.getMessage(), e);
+            throw new IllegalStateException(runnerRequestFailureMessage("读取最新训练日志失败", e), e);
         }
     }
 
@@ -562,7 +564,7 @@ public class TrainRunnerService {
             }
             return body.getBool("deleted", false);
         } catch (Exception e) {
-            throw new IllegalStateException("删除训练文件失败: " + e.getMessage(), e);
+            throw new IllegalStateException(runnerRequestFailureMessage("删除训练文件失败", e), e);
         }
     }
 
@@ -599,8 +601,32 @@ public class TrainRunnerService {
             }
             return body;
         } catch (Exception e) {
-            throw new IllegalStateException("打开训练结果目录失败: " + e.getMessage(), e);
+            throw new IllegalStateException(runnerRequestFailureMessage("打开训练结果目录失败", e), e);
         }
+    }
+
+    /**
+     * 日志、结果目录等能力由独立 Runner 提供。仅在连接失败时补充启动指引，
+     * 保留目录不存在、参数错误等 Runner 已返回的原始原因，避免产生误导。
+     */
+    private String runnerRequestFailureMessage(String action, Exception exception) {
+        String detail = StrUtil.blankToDefault(exception.getMessage(), exception.getClass().getSimpleName());
+        if (isRunnerConnectionFailure(exception)) {
+            return action + ": " + detail
+                    + "；该功能需要启动 Runner，请先检查模型训练中 Runner 是否正常启动";
+        }
+        return action + ": " + detail;
+    }
+
+    private boolean isRunnerConnectionFailure(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof ConnectException || current instanceof HttpConnectTimeoutException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private String configuredFixedWorkRoot(JSONObject runnerOptions) {
