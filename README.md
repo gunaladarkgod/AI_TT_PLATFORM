@@ -63,6 +63,7 @@ mmdet_run/     # MMDetection、Runner、模板与任务生成配置
 yolo_run/      # 独立 YOLO/Ultralytics 运行目录
 data/          # 中间实例数据集、最终实例数据集和预处理脚本
 artifacts/     # MMDet/自定义训练的日志、权重、结果快照与元数据
+research/      # 研究方向、算法基线、改进包及其项目内清单
 logs/          # 后端主日志与历史归档
 docs/          # 使用、技术、协作和算法集成文档
 ```

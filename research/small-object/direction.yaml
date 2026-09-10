@@ -1,0 +1,5 @@
+schema_version: 1
+id: small-object
+name: 小目标检测
+description: 面向小尺度目标检测的基线与改进方法。
+status: active
