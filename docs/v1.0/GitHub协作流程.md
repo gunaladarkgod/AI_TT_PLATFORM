@@ -258,8 +258,8 @@ git push origin --delete fix/123-result-open-path
 | --- | --- | --- |
 | `backend/` | Spring Boot 后端、数据库迁移、业务接口 | 提交源码与迁移脚本；不提交 `target/` |
 | `fronternd/` | Vue 3 + Vite 前端 | 提交源码与配置；不提交 `node_modules/`、`dist/` |
-| `mmdet_run/` | MMDetection、Python Runner、训练模板与生成配置目录 | 提交 Runner 与模板；不提交运行日志和生成配置 |
-| `yolo_run/` | 独立 YOLO/Ultralytics 运行目录 | 提交运行脚本与说明；不提交数据、权重和运行输出 |
+| `engines/mmdet_run/` | MMDetection、Python Runner、训练模板与生成配置目录 | 提交 Runner 与模板；不提交运行日志和生成配置 |
+| `engines/yolo_run/` | 独立 YOLO/Ultralytics 运行目录 | 提交运行脚本与说明；不提交数据、权重和运行输出 |
 | `data/` | 中间实例数据集、最终实例数据集、预处理脚本等本地数据 | 运行数据，不提交 |
 | `artifacts/` | MMDet、自定义算法的日志、权重、结果配置快照与结果元数据 | 运行产物，不提交 |
 | `research/` | 研究方向、基线、改进包和项目内算法清单 | 提交算法定义与源码；不提交 `.runtime_cache/` |

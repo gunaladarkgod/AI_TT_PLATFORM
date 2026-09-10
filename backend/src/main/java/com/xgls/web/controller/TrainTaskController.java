@@ -418,7 +418,7 @@ public class TrainTaskController {
         } catch (IllegalStateException e) {
             trace.put("runnerError", e.getMessage());
             log.warn("[config-read] local and runner lookup failed: {}", JSONUtil.toJsonStr(trace));
-            return AjaxResult.error("未找到任务配置文件：mmdet_run/myfiles/modelcfg/" + task.getName()
+            return AjaxResult.error("未找到任务配置文件：engines/mmdet_run/myfiles/modelcfg/" + task.getName()
                     + "/config.py。Runner 信息：" + e.getMessage(), trace);
         }
     }
@@ -739,7 +739,7 @@ public class TrainTaskController {
 
     /** MMDet 单文件配置根目录：固定跟随当前工作区，而不是使用 /home/... 这类机器绝对路径。 */
     private Path mmdetMyfilesRoot() {
-        return WorkspacePathUtil.resolveConfiguredPath(rootPath, "mmdet_run/myfiles");
+        return WorkspacePathUtil.resolveConfiguredPath(rootPath, "engines/mmdet_run/myfiles");
     }
 
     private void saveMmdetParams(Integer taskId, JSONObject params) {

@@ -47,7 +47,7 @@ npm run dev
 后端默认会尝试自动启动 Runner；也可以在“模型训练”页面点击 Runner 区域的“启动”。若需手动启动，在项目根目录执行：
 
 ```powershell
-cd mmdet_run\mmdet_runner_srv
+cd engines\mmdet_run\mmdet_runner_srv
 $env:RUNNER_PYTHON = "C:\\你的环境\\python.exe"
 .\start_runner.cmd
 ```
@@ -59,8 +59,9 @@ Runner 启动成功后监听 `http://127.0.0.1:8009/health`。`start_runner.cmd`
 ```text
 backend/       # Spring Boot 后端、数据库迁移与业务接口
 fronternd/     # Vue 3 前端
-mmdet_run/     # MMDetection、Runner、模板与任务生成配置
-yolo_run/      # 独立 YOLO/Ultralytics 运行目录
+engines/       # 可扩展的训练引擎目录
+  mmdet_run/   # MMDetection、Runner、模板与任务生成配置
+  yolo_run/    # 独立 YOLO/Ultralytics 运行目录
 data/          # 中间实例数据集、最终实例数据集和预处理脚本
 artifacts/     # MMDet/自定义训练的日志、权重、结果快照与元数据
 research/      # 研究方向、算法基线、改进包及其项目内清单

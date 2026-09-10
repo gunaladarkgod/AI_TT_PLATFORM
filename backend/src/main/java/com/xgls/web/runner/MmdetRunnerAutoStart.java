@@ -135,12 +135,12 @@ public class MmdetRunnerAutoStart implements ApplicationListener<ApplicationRead
             addSiblingWithName(candidates, configured, "start_runner.cmd");
             addSiblingWithName(candidates, configured, "start_runner.bat");
             addSiblingWithName(candidates, configured, "start_runner.ps1");
-            candidates.add(Path.of("mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
-            candidates.add(Path.of("..", "mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
+            candidates.add(Path.of("engines", "mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
+            candidates.add(Path.of("..", "engines", "mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
         } else {
             addSiblingWithName(candidates, configured, "start_runner.sh");
-            candidates.add(Path.of("mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
-            candidates.add(Path.of("..", "mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
+            candidates.add(Path.of("engines", "mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
+            candidates.add(Path.of("..", "engines", "mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
         }
         return candidates;
     }
@@ -169,9 +169,9 @@ public class MmdetRunnerAutoStart implements ApplicationListener<ApplicationRead
         Path workspace = WorkspacePathUtil.workspaceRoot();
         pb.environment().putIfAbsent("APP_WORKSPACE_ROOT", workspace.toString());
         pb.environment().putIfAbsent("MMDET_REPO_ROOT",
-                workspace.resolve("mmdet_run").resolve("mmdetection-3.0.0").toString());
+                workspace.resolve("engines").resolve("mmdet_run").resolve("mmdetection-3.0.0").toString());
         pb.environment().putIfAbsent("MMDET_UPLOAD_ROOT",
-                workspace.resolve("mmdet_run").resolve("myfiles").toString());
+                workspace.resolve("engines").resolve("mmdet_run").resolve("myfiles").toString());
         pb.environment().putIfAbsent("MMDET_WORK_ROOT",
                 workspace.resolve("artifacts").resolve("mmdet_runs").toString());
     }

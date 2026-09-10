@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="content-div">
     <div class="search-div flex-between">
       <div class="flex-start">
@@ -1348,7 +1348,7 @@
           <span class="mmdet-file-title">fixed runner · 运行参数</span>
           <el-form-item label="执行目录：" required>
             <el-input v-model="fixedRunnerParameter.exec_dir" :disabled="isSee"
-              placeholder="支持相对项目根目录，例如：mmdet_run/mmdetection-3.0.0" />
+              placeholder="支持相对项目根目录，例如：engines/mmdet_run/mmdetection-3.0.0" />
           </el-form-item>
           <el-form-item label="命令行：" required>
             <el-input v-model="fixedRunnerParameter.command_line" :disabled="isSee" type="textarea" :rows="3"
@@ -2329,7 +2329,7 @@ const weightFileList = ref([])
 const instanceReadinessList = ref([])
 const instanceReadinessLoading = ref(false)
 const qualifiedMmdetDatasetCount = computed(() => instanceReadinessList.value.filter((r) => r.qualified).length)
-// 网络模板以 mmdet_run/myfiles/template 中是否存在实际文件为准。
+// 网络模板以 engines/mmdet_run/myfiles/template 中是否存在实际文件为准。
 const templateCatalog = ref([
   { name: 'Faster R-CNN', group: 'CNN', available: true },
   { name: 'Cascade R-CNN', group: 'CNN', available: false },
@@ -2499,7 +2499,7 @@ const refreshRunnerHealth = async () => {
       if (d.bodyPreview) bits.push(d.bodyPreview)
       if (d.error) bits.push(d.error)
       runnerHealthDetail.value = d.ok
-        ? `Runner 正常，MMDet 训练可发起。${bits.length ? ' ' + bits.join(' · ') : ''} 若仍失败请手动执行 mmdet_run/mmdet_runner_srv/start_runner.sh 或检查 8009 端口。`
+        ? `Runner 正常，MMDet 训练可发起。${bits.length ? ' ' + bits.join(' · ') : ''} 若仍失败请手动执行 engines/mmdet_run/mmdet_runner_srv/start_runner.sh 或检查 8009 端口。`
         : `Runner 不可用，发布 mmdet 任务将很快失败。${d.error ? ' ' + d.error : bits.length ? ' ' + bits.join(' · ') : ' 请启动 Runner（IDE 可设 RUNNER_AUTO_START=true）或执行 start_runner.sh；停止后端时 Runner 默认保留。'}`
     } else {
       runnerHealthOk.value = false
@@ -3848,7 +3848,7 @@ const viewTaskConfig = async (row) => {
           textViewerMode.value = 'config'
           txtTitle.value = `训练配置 - ${row.name}`
           cur_text.value = [
-            `配置文件：mmdet_run/myfiles/modelcfg/${row.name}/config.py`,
+            `配置文件：engines/mmdet_run/myfiles/modelcfg/${row.name}/config.py`,
             '',
             text
           ].join('\n')
@@ -3876,7 +3876,7 @@ const viewTaskConfig = async (row) => {
         JSON.stringify(trace || {
           taskId: row.id,
           taskName: row.name,
-          staticConfigPath: `mmdet_run/myfiles/modelcfg/${row.name}/config.py`,
+          staticConfigPath: `engines/mmdet_run/myfiles/modelcfg/${row.name}/config.py`,
           staticReadError,
           traceRequestError,
           conclusion: '配置文件存在时仍出现此结果，说明当前 Java 后端/静态资源服务未指向本工作区或尚未重启。'
@@ -4303,13 +4303,13 @@ const mmdetParameter = reactive({
 
 const fixedRunnerParameter = reactive({
   python_path: 'C:\\Users\\Guo Qinyao\\.conda\\envs\\openmmlab\\python.exe',
-  exec_dir: 'mmdet_run/mmdetection-3.0.0',
+  exec_dir: 'engines/mmdet_run/mmdetection-3.0.0',
   command_line: 'tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}',
   work_root: 'artifacts/custom',
 })
 const resetFixedRunnerParameters = () => {
   fixedRunnerParameter.python_path = 'C:\\Users\\Guo Qinyao\\.conda\\envs\\openmmlab\\python.exe'
-  fixedRunnerParameter.exec_dir = 'mmdet_run/mmdetection-3.0.0'
+  fixedRunnerParameter.exec_dir = 'engines/mmdet_run/mmdetection-3.0.0'
   fixedRunnerParameter.command_line = 'tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}'
   fixedRunnerParameter.work_root = 'artifacts/custom'
 }
