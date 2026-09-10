@@ -81,7 +81,18 @@ parameters: []
 
 改进的 `parent`、`direction`、`engine`、`engine_version` 和 `data_format` 必须与父基线匹配。目录扫描阶段会返回校验错误，但不会执行配置或源码。
 
-## 4. 动态参数协议
+## 4. 改进包组合规则
+
+训练页面会调用目录接口解析“基线 + 已勾选改进包”。解析顺序为 `stack.priority` 从小到大、同优先级按包 ID 排序。保存任务与启动训练前都会重复校验，不能仅依赖前端。
+
+- `stack.enabled` 为 `true` 的包才可以勾选。
+- `requires` 中的完整改进包 ID 必须同时被选择。
+- `conflicts` 中的包不能同时被选择。
+- 两个包声明相同 `override_paths` 时会被拒绝，避免覆盖顺序不明确。
+- 基线和全部已选改进包的参数 `key` 必须唯一；最终参数列表才会渲染到前端。
+- Runner 只接受最终参数列表中声明的 key，前端请求中额外拼接的训练参数会被拒绝。
+
+## 5. 动态参数协议
 
 仅在 `parameters` 中显式声明的字段才能显示给训练人员。不要从任意 Python 配置自动开放所有字段。
 
@@ -105,7 +116,7 @@ parameters:
 
 允许的 `type`：`number`、`integer`、`boolean`、`select`、`string`、`json`。后续参数渲染器会根据该字段生成控件、校验范围并写入对应引擎配置。
 
-## 5. 生命周期和目录安全
+## 6. 生命周期和目录安全
 
 - 仅 `published` 算法包可供普通训练人员选择。
 - 已有训练记录引用的包不得删除；应改为 `deprecated` 或 `archived`。

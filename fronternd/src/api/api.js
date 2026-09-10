@@ -749,4 +749,10 @@ export class ResearchCatalogService {
     static async baselines(params) {
         return request('/api/research/baselines', params, 'get', null, 'json');
     }
+    static async improvements(params) {
+        return request('/api/research/improvements', params, 'get', null, 'json');
+    }
+    static async resolveStack(payload) {
+        return request('/api/research/stack/resolve', payload, 'post', 'application/json');
+    }
 }

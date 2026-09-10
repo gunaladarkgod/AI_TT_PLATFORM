@@ -297,14 +297,25 @@ def build_ultralytics_execution(payload: Dict[str, Any], work_dir: Path) -> Tupl
             "task training Python has an unsupported ultralytics version; "
             f"expected=8.4.115, actual={installed_version or 'unknown'}"
         )
-    allowed = {"epochs", "imgsz", "batch", "device", "workers", "patience", "optimizer", "lr0", "lrf", "seed", "pretrained"}
+    legacy_allowed = {"epochs", "imgsz", "batch", "device", "workers", "patience", "optimizer", "lr0", "lrf", "seed", "pretrained"}
+    declared = payload.get("ultralytics_allowed_parameters")
+    if declared is None:
+        # Historical tasks predate research manifests; keep their established whitelist.
+        allowed = legacy_allowed
+    elif not isinstance(declared, list) or not all(isinstance(key, str) and key.strip() for key in declared):
+        raise ValueError("ultralytics_allowed_parameters must be a list of declared parameter keys")
+    else:
+        allowed = {key.strip() for key in declared}
     parameters = payload.get("ultralytics_parameters") or {}
     if not isinstance(parameters, dict):
         raise ValueError("ultralytics_parameters must be an object")
-    parameters = {key: value for key, value in parameters.items() if key in allowed}
+    undeclared = sorted(str(key) for key in parameters if key not in allowed)
+    if undeclared:
+        raise ValueError("Ultralytics task contains undeclared parameters: " + ", ".join(undeclared))
     spec_path = work_dir / "ultralytics_run.json"
     spec_path.write_text(json.dumps({"model": model, "data": str(data_path), "work_dir": str(work_dir),
-                                     "parameters": parameters}, ensure_ascii=False), encoding="utf-8")
+                                     "parameters": parameters,
+                                     "improvements": payload.get("ultralytics_improvement_ids") or []}, ensure_ascii=False), encoding="utf-8")
     worker = _RUNNER_DIR / "ultralytics_train_worker.py"
     if not worker.is_file():
         raise FileNotFoundError(f"Ultralytics worker not found: {worker}")

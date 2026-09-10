@@ -780,6 +780,21 @@ public class TrainTaskController {
         if (!direction.equals(baseline.get("direction")) || !"ultralytics".equals(baseline.get("engine"))) {
             return AjaxResult.error("所选研究方向与基线不匹配，或该基线不使用 Ultralytics 引擎");
         }
+        List<String> improvementIds = jsonStringList(params.get("ultralytics_improvement_ids"));
+        Map<String, Object> stack = researchCatalogService.resolveStack(baselineId, improvementIds);
+        if (!Boolean.TRUE.equals(stack.get("valid"))) {
+            return AjaxResult.error("改进包组合不可用：" + String.join("；", jsonStringList(stack.get("errors"))));
+        }
+        List<String> declaredParameterKeys = new ArrayList<>();
+        Object rawParameters = stack.get("parameters");
+        if (rawParameters instanceof Collection<?> definitions) {
+            for (Object definition : definitions) {
+                if (definition instanceof Map<?, ?> map) {
+                    String key = StrUtil.trim(String.valueOf(map.get("key")));
+                    if (StrUtil.isNotBlank(key)) declaredParameterKeys.add(key);
+                }
+            }
+        }
         String[] baselineParts = baselineId.split("/");
         String baselineSlug = baselineParts[baselineParts.length - 1];
 
@@ -808,6 +823,10 @@ public class TrainTaskController {
         params.set("research_direction", direction);
         params.set("research_baseline", baselineSlug);
         params.set("research_baseline_id", baselineId);
+        params.set("ultralytics_improvement_ids", improvementIds);
+        // Runner only accepts parameters declared by the selected baseline and improvement stack.
+        // This prevents an edited browser request from injecting arbitrary Ultralytics CLI arguments.
+        params.set("ultralytics_allowed_parameters", declaredParameterKeys);
         params.set("ultralytics_data", dataYaml.toString().replace("\\", "/"));
         params.set("taskType", "ultralytics");
 
@@ -860,6 +879,16 @@ public class TrainTaskController {
         taskService.updateById(ready);
         return AjaxResult.success(Map.of("taskId", taskId, "taskName", taskName, "engine", "ultralytics",
                 "dataYaml", params.getStr("ultralytics_data")));
+    }
+
+    private List<String> jsonStringList(Object raw) {
+        if (!(raw instanceof Collection<?> values)) return List.of();
+        List<String> out = new ArrayList<>();
+        for (Object value : values) {
+            String text = StrUtil.trim(String.valueOf(value));
+            if (StrUtil.isNotBlank(text)) out.add(text);
+        }
+        return out;
     }
 
     /** MMDet 单文件配置根目录：固定跟随当前工作区，而不是使用 /home/... 这类机器绝对路径。 */

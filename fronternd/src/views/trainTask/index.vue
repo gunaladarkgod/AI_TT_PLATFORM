@@ -1381,12 +1381,29 @@
                 </el-form-item>
                 <el-form-item label="算法基线" required>
                   <el-select v-model="ultralyticsForm.baselineId" :disabled="isSee || ultraBaselinesLoading"
-                    placeholder="仅显示 Ultralytics + YOLO 格式基线" @change="applyUltraBaselineDefaults">
+                    placeholder="仅显示 Ultralytics + YOLO 格式基线" @change="handleUltraBaselineChange">
                     <el-option v-for="item in ultralyticsBaselines" :key="item.id" :label="item.name" :value="item.id">
                       <span>{{ item.name }}</span>
                       <span style="float:right;color:var(--el-text-color-secondary);font-size:12px">{{ item.engine_version }}</span>
                     </el-option>
                   </el-select>
+                </el-form-item>
+                <el-form-item label="叠加改进包">
+                  <div class="ultralytics-improvement-list">
+                    <el-checkbox-group v-model="ultralyticsForm.improvementIds"
+                      :disabled="isSee || ultraImprovementsLoading || !ultralyticsForm.baselineId"
+                      @change="handleUltraImprovementsChange">
+                      <el-checkbox v-for="item in ultralyticsImprovements" :key="item.id" :label="item.id">
+                        <span>{{ item.name }}</span>
+                        <span class="ultralytics-improvement-meta">优先级 {{ item.stack?.priority ?? 0 }}</span>
+                      </el-checkbox>
+                    </el-checkbox-group>
+                    <span v-if="ultralyticsForm.baselineId && !ultraImprovementsLoading && !ultralyticsImprovements.length"
+                      class="ultralytics-improvement-empty">当前基线没有可叠加的改进包</span>
+                    <div v-if="ultralyticsStack.errors.length" class="ultralytics-stack-errors">
+                      {{ ultralyticsStack.errors.join('；') }}
+                    </div>
+                  </div>
                 </el-form-item>
                 <el-form-item label="实例数据集" required>
                   <el-select v-model="ultralyticsForm.dataset" :disabled="isSee || instanceReadinessLoading"
@@ -1427,8 +1444,10 @@
                     <el-select v-else-if="item.type === 'select'" v-model="ultralyticsForm.parameters[item.key]" :disabled="isSee">
                       <el-option v-for="option in item.options || []" :key="option.value || option" :label="option.label || option" :value="option.value || option" />
                     </el-select>
+                    <el-switch v-else-if="item.type === 'boolean'" v-model="ultralyticsForm.parameters[item.key]" :disabled="isSee" />
                     <el-input v-else v-model="ultralyticsForm.parameters[item.key]" :disabled="isSee" />
                   </el-tooltip>
+                  <span v-if="item.package_name" class="ultralytics-parameter-source">{{ item.package_name }}</span>
                 </el-form-item>
               </div>
             </el-col>
@@ -4414,13 +4433,18 @@ const trainingPythonPath = ref('')
 const trainingEngine = ref('mmdet')
 const researchDirections = ref([])
 const ultralyticsBaselines = ref([])
+const ultralyticsImprovements = ref([])
 const researchLoading = ref(false)
 const ultraBaselinesLoading = ref(false)
+const ultraImprovementsLoading = ref(false)
 const ultralyticsEnvChecking = ref(false)
 const ultralyticsEnvironment = reactive({ ok: false, text: '' })
+const ultralyticsStack = reactive({ valid: true, errors: [], parameters: [] })
+const lastValidUltraImprovementIds = ref([])
 const ultralyticsForm = reactive({
   direction: '',
   baselineId: '',
+  improvementIds: [],
   dataset: '',
   dataYaml: '',
   model: 'yolo11n.pt',
@@ -4428,16 +4452,22 @@ const ultralyticsForm = reactive({
 })
 const isUltralyticsSelected = computed(() => trainingEngine.value === 'ultralytics')
 const selectedUltraBaseline = computed(() => ultralyticsBaselines.value.find(item => item.id === ultralyticsForm.baselineId) || null)
-const selectedUltraParameters = computed(() => Array.isArray(selectedUltraBaseline.value?.parameters)
-  ? selectedUltraBaseline.value.parameters : [])
+const selectedUltraParameters = computed(() => Array.isArray(ultralyticsStack.parameters)
+  ? ultralyticsStack.parameters : [])
 
 const resetUltralyticsForm = () => {
   ultralyticsForm.direction = ''
   ultralyticsForm.baselineId = ''
+  ultralyticsForm.improvementIds = []
   ultralyticsForm.dataset = ''
   ultralyticsForm.dataYaml = ''
   ultralyticsForm.model = 'yolo11n.pt'
   ultralyticsForm.parameters = {}
+  ultralyticsImprovements.value = []
+  lastValidUltraImprovementIds.value = []
+  ultralyticsStack.valid = true
+  ultralyticsStack.errors = []
+  ultralyticsStack.parameters = []
   ultralyticsEnvironment.ok = false
   ultralyticsEnvironment.text = ''
 }
@@ -4456,8 +4486,14 @@ const loadResearchDirections = async () => {
 
 const handleUltraDirectionChange = async () => {
   ultralyticsForm.baselineId = ''
+  ultralyticsForm.improvementIds = []
   ultralyticsForm.parameters = {}
   ultralyticsBaselines.value = []
+  ultralyticsImprovements.value = []
+  lastValidUltraImprovementIds.value = []
+  ultralyticsStack.valid = true
+  ultralyticsStack.errors = []
+  ultralyticsStack.parameters = []
   if (!ultralyticsForm.direction) return
   ultraBaselinesLoading.value = true
   try {
@@ -4472,13 +4508,75 @@ const handleUltraDirectionChange = async () => {
   }
 }
 
-const applyUltraBaselineDefaults = () => {
-  const baseline = selectedUltraBaseline.value
+const applyUltraStackDefaults = (parameters = [], preserveCurrent = true) => {
   const next = {}
-  for (const item of baseline?.parameters || []) {
-    next[item.key] = item.default ?? ''
+  for (const item of parameters) {
+    const key = item?.key
+    if (!key) continue
+    next[key] = preserveCurrent && Object.prototype.hasOwnProperty.call(ultralyticsForm.parameters, key)
+      ? ultralyticsForm.parameters[key]
+      : (item.default ?? '')
   }
   ultralyticsForm.parameters = next
+}
+
+const resolveUltraStack = async ({ preserveCurrent = true, notifyOnFailure = false } = {}) => {
+  if (!ultralyticsForm.baselineId) return false
+  try {
+    const res = await ResearchCatalogService.resolveStack({
+      baselineId: ultralyticsForm.baselineId,
+      improvementIds: [...ultralyticsForm.improvementIds],
+    })
+    const stack = res?.code === 0 ? res.data : null
+    if (!stack) throw new Error(res?.msg || '改进包组合校验失败')
+    ultralyticsStack.valid = !!stack.valid
+    ultralyticsStack.errors = Array.isArray(stack.errors) ? stack.errors : []
+    if (!stack.valid) {
+      if (notifyOnFailure) ElMessage.warning(ultralyticsStack.errors.join('；') || '改进包组合不可用')
+      return false
+    }
+    ultralyticsStack.parameters = Array.isArray(stack.parameters) ? stack.parameters : []
+    applyUltraStackDefaults(ultralyticsStack.parameters, preserveCurrent)
+    return true
+  } catch (error) {
+    ultralyticsStack.valid = false
+    ultralyticsStack.errors = [error?.message || '改进包组合校验请求失败']
+    if (notifyOnFailure) ElMessage.warning(ultralyticsStack.errors[0])
+    return false
+  }
+}
+
+const loadUltraImprovements = async () => {
+  ultralyticsImprovements.value = []
+  if (!ultralyticsForm.baselineId) return
+  ultraImprovementsLoading.value = true
+  try {
+    const res = await ResearchCatalogService.improvements({ baselineId: ultralyticsForm.baselineId })
+    ultralyticsImprovements.value = res?.code === 0
+      ? (res.data || []).filter(item => item.valid !== false && item.stack?.enabled === true)
+      : []
+  } catch (_) {
+    ultralyticsImprovements.value = []
+  } finally {
+    ultraImprovementsLoading.value = false
+  }
+}
+
+const handleUltraBaselineChange = async () => {
+  ultralyticsForm.improvementIds = []
+  ultralyticsForm.parameters = {}
+  lastValidUltraImprovementIds.value = []
+  await loadUltraImprovements()
+  await resolveUltraStack({ preserveCurrent: false })
+}
+
+const handleUltraImprovementsChange = async () => {
+  const accepted = await resolveUltraStack({ preserveCurrent: true, notifyOnFailure: true })
+  if (accepted) {
+    lastValidUltraImprovementIds.value = [...ultralyticsForm.improvementIds]
+    return
+  }
+  ultralyticsForm.improvementIds = [...lastValidUltraImprovementIds.value]
 }
 
 const checkUltralyticsEnvironment = async () => {
@@ -4881,7 +4979,7 @@ watch(() => mmdetParameter.selected_template, (newVal) => {
 })
 
 
-const saveUltralyticsRecord = () => {
+const saveUltralyticsRecord = async () => {
   if (!addForm.name) {
     ElMessage.warning('任务名称不能为空')
     return
@@ -4906,6 +5004,9 @@ const saveUltralyticsRecord = () => {
     ElMessage.warning('请填写 Ultralytics 预训练模型')
     return
   }
+  if (!await resolveUltraStack({ preserveCurrent: true, notifyOnFailure: true })) {
+    return
+  }
   const params = {
     engine: 'ultralytics',
     taskName: addForm.name,
@@ -4917,6 +5018,7 @@ const saveUltralyticsRecord = () => {
     training_python_path: String(trainingPythonPath.value).trim(),
     research_direction: ultralyticsForm.direction,
     research_baseline_id: ultralyticsForm.baselineId,
+    ultralytics_improvement_ids: [...ultralyticsForm.improvementIds],
     dataset: ultralyticsForm.dataset,
     ultralytics_model: String(ultralyticsForm.model).trim(),
     ultralytics_data: String(ultralyticsForm.dataYaml).trim(),
@@ -4949,7 +5051,10 @@ const applyStoredUltralyticsParams = async (p) => {
   if (ultralyticsForm.direction) await handleUltraDirectionChange()
   ultralyticsForm.baselineId = p.research_baseline_id || (p.research_direction && p.research_baseline
     ? `${p.research_direction}/${p.research_baseline}` : '')
-  applyUltraBaselineDefaults()
+  ultralyticsForm.improvementIds = Array.isArray(p.ultralytics_improvement_ids) ? p.ultralytics_improvement_ids : []
+  await loadUltraImprovements()
+  await resolveUltraStack({ preserveCurrent: false })
+  lastValidUltraImprovementIds.value = [...ultralyticsForm.improvementIds]
   if (p.ultralytics_parameters && typeof p.ultralytics_parameters === 'object') {
     ultralyticsForm.parameters = { ...ultralyticsForm.parameters, ...p.ultralytics_parameters }
   }
@@ -6307,6 +6412,39 @@ const labelsHandleClose = (val) => {
   color: #409eff;
   font-weight: bold;
   font-size: 14px;
+}
+
+.ultralytics-improvement-list {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.ultralytics-improvement-list :deep(.el-checkbox-group) {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.ultralytics-improvement-meta,
+.ultralytics-parameter-source {
+  margin-left: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.ultralytics-improvement-empty {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.ultralytics-stack-errors {
+  margin-top: 8px;
+  color: var(--el-color-danger);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 /* 调整原有 config-text 样式，使其在框内更协调 */

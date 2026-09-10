@@ -74,6 +74,99 @@ public class ResearchCatalogService {
         return null;
     }
 
+    /**
+     * Resolve a baseline and a set of improvement packages into one deterministic stack.
+     * This is deliberately metadata-only: it validates package relations and exposes the
+     * declared parameters, but never imports or executes research code.
+     */
+    public Map<String, Object> resolveStack(String baselineId, Collection<String> requestedImprovementIds) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        List<String> errors = new ArrayList<>();
+        Catalog catalog = scan();
+        Map<String, Object> baseline = null;
+        Map<String, Map<String, Object>> packages = new LinkedHashMap<>();
+        for (Map<String, Object> item : catalog.allPackages()) {
+            String id = stringValue(item.get("id"));
+            packages.put(id, item);
+            if (baselineId != null && baselineId.equals(id) && "baseline".equals(item.get("kind"))) {
+                baseline = item;
+            }
+        }
+        if (baseline == null) {
+            errors.add("基线不存在：" + baselineId);
+            return stackResult(result, null, List.of(), List.of(), errors);
+        }
+        if (!Boolean.TRUE.equals(baseline.get("valid"))) {
+            errors.add("基线清单无效：" + String.join("；", stringList(baseline.get("validation_errors"))));
+            return stackResult(result, baseline, List.of(), List.of(), errors);
+        }
+
+        LinkedHashSet<String> requested = new LinkedHashSet<>();
+        if (requestedImprovementIds != null) {
+            for (String raw : requestedImprovementIds) {
+                String id = stringValue(raw);
+                if (id.isBlank()) continue;
+                if (!requested.add(id)) errors.add("改进包重复选择：" + id);
+            }
+        }
+        List<Map<String, Object>> improvements = new ArrayList<>();
+        for (String id : requested) {
+            Map<String, Object> improvement = packages.get(id);
+            if (improvement == null || !"improvement".equals(improvement.get("kind"))) {
+                errors.add("改进包不存在：" + id);
+                continue;
+            }
+            if (!baselineId.equals(stringValue(improvement.get("parent")))) {
+                errors.add("改进包不属于当前基线：" + id);
+                continue;
+            }
+            if (!Boolean.TRUE.equals(improvement.get("valid"))) {
+                errors.add("改进包清单无效：" + id + "（" + String.join("；", stringList(improvement.get("validation_errors"))) + "）");
+                continue;
+            }
+            Map<String, Object> stack = mapValue(improvement.get("stack"));
+            if (!Boolean.TRUE.equals(stack.get("enabled"))) {
+                errors.add("改进包未启用叠加：" + id);
+                continue;
+            }
+            improvements.add(improvement);
+        }
+
+        improvements.sort(Comparator
+                .comparingInt((Map<String, Object> item) -> numberValue(mapValue(item.get("stack")).get("priority"), 0))
+                .thenComparing(item -> stringValue(item.get("id"))));
+
+        Set<String> selectedIds = new LinkedHashSet<>();
+        for (Map<String, Object> item : improvements) selectedIds.add(stringValue(item.get("id")));
+        for (Map<String, Object> item : improvements) {
+            String id = stringValue(item.get("id"));
+            Map<String, Object> stack = mapValue(item.get("stack"));
+            for (String dependency : stringList(stack.get("requires"))) {
+                if (!selectedIds.contains(dependency)) errors.add("改进包 " + id + " 需要同时选择：" + dependency);
+            }
+            for (String conflict : stringList(stack.get("conflicts"))) {
+                if (selectedIds.contains(conflict)) errors.add("改进包冲突：" + id + " 与 " + conflict);
+            }
+        }
+
+        Map<String, String> overrideOwners = new LinkedHashMap<>();
+        for (Map<String, Object> item : improvements) {
+            String id = stringValue(item.get("id"));
+            for (String path : stringList(mapValue(item.get("stack")).get("override_paths"))) {
+                String previous = overrideOwners.putIfAbsent(path, id);
+                if (previous != null && !previous.equals(id)) {
+                    errors.add("配置覆盖路径冲突：" + path + "（" + previous + " 与 " + id + "）");
+                }
+            }
+        }
+
+        List<Map<String, Object>> parameters = new ArrayList<>();
+        Set<String> parameterKeys = new LinkedHashSet<>();
+        appendParameters(baseline, parameters, parameterKeys, errors);
+        for (Map<String, Object> item : improvements) appendParameters(item, parameters, parameterKeys, errors);
+        return stackResult(result, baseline, improvements, parameters, errors);
+    }
+
     private Catalog scan() {
         Path root = WorkspacePathUtil.workspaceRoot().resolve("research").toAbsolutePath().normalize();
         Catalog catalog = new Catalog();
@@ -94,7 +187,10 @@ public class ResearchCatalogService {
                 if (!Files.isDirectory(improvementsDir)) continue;
                 for (Path improvementDir : childDirectories(improvementsDir)) {
                     Map<String, Object> improvement = loadPackage(root, improvementDir, "improvement", directionId, baselineId);
-                    if (improvement != null) catalog.improvements.add(improvement);
+                    if (improvement != null) {
+                        validateImprovementCompatibility(baseline, improvement);
+                        catalog.improvements.add(improvement);
+                    }
                 }
             }
         }
@@ -162,7 +258,74 @@ public class ResearchCatalogService {
             if (!id.equals(directionId + "/" + expectedIdTail)) errors.add("id 必须与算法包目录层级一致");
         }
         validateParameters(manifest.get("parameters"), errors);
+        if ("improvement".equals(expectedKind)) validateStack(manifest.get("stack"), errors);
         return errors;
+    }
+
+    private void validateImprovementCompatibility(Map<String, Object> baseline, Map<String, Object> improvement) {
+        List<String> errors = new ArrayList<>(stringList(improvement.get("validation_errors")));
+        for (String field : List.of("engine", "engine_version", "data_format")) {
+            if (!stringValue(baseline.get(field)).equals(stringValue(improvement.get(field)))) {
+                errors.add(field + " 必须与父基线一致");
+            }
+        }
+        if (!errors.isEmpty()) {
+            improvement.put("valid", false);
+            improvement.put("validation_errors", errors);
+        }
+    }
+
+    private void validateStack(Object raw, List<String> errors) {
+        if (!(raw instanceof Map<?, ?>)) {
+            errors.add("改进包缺少 stack 对象");
+            return;
+        }
+        Map<String, Object> stack = mapValue(raw);
+        if (!(stack.get("enabled") instanceof Boolean)) errors.add("stack.enabled 必须是布尔值");
+        if (!(stack.get("priority") instanceof Number)) errors.add("stack.priority 必须是数字");
+        for (String field : List.of("requires", "conflicts", "override_paths")) {
+            Object value = stack.get(field);
+            if (!(value instanceof Collection<?>)) {
+                errors.add("stack." + field + " 必须是列表");
+                continue;
+            }
+            for (String item : stringList(value)) {
+                if ("override_paths".equals(field)) {
+                    if (item.isBlank() || item.contains("..")) errors.add("stack.override_paths 包含无效路径");
+                } else if (!validPackageId(item, 3)) {
+                    errors.add("stack." + field + " 必须使用完整改进包 ID：" + item);
+                }
+            }
+        }
+    }
+
+    private Map<String, Object> stackResult(Map<String, Object> out, Map<String, Object> baseline,
+                                             List<Map<String, Object>> improvements, List<Map<String, Object>> parameters,
+                                             List<String> errors) {
+        out.put("valid", errors.isEmpty());
+        out.put("errors", errors);
+        out.put("baseline", baseline);
+        out.put("improvements", improvements);
+        out.put("parameters", parameters);
+        return out;
+    }
+
+    private void appendParameters(Map<String, Object> item, List<Map<String, Object>> out,
+                                  Set<String> keys, List<String> errors) {
+        Object raw = item.get("parameters");
+        if (!(raw instanceof Collection<?> values)) return;
+        for (Object value : values) {
+            Map<String, Object> parameter = mapValue(value);
+            String key = stringValue(parameter.get("key"));
+            if (!keys.add(key)) {
+                errors.add("参数 key 冲突：" + key + "（" + stringValue(item.get("id")) + "）");
+                continue;
+            }
+            Map<String, Object> copy = new LinkedHashMap<>(parameter);
+            copy.put("package_id", item.get("id"));
+            copy.put("package_name", item.get("name"));
+            out.add(copy);
+        }
     }
 
     private void validateParameters(Object raw, List<String> errors) {
@@ -221,6 +384,27 @@ public class ResearchCatalogService {
             out.put(String.valueOf(entry.getKey()), normalizeValue(entry.getValue()));
         }
         return out;
+    }
+
+    private Map<String, Object> mapValue(Object raw) {
+        if (!(raw instanceof Map<?, ?> map)) return Map.of();
+        return normalizeMap(map);
+    }
+
+    private List<String> stringList(Object raw) {
+        if (!(raw instanceof Collection<?> values)) return List.of();
+        List<String> out = new ArrayList<>();
+        for (Object value : values) out.add(stringValue(value));
+        return out;
+    }
+
+    private int numberValue(Object value, int fallback) {
+        if (value instanceof Number number) return number.intValue();
+        try {
+            return Integer.parseInt(stringValue(value));
+        } catch (Exception ignored) {
+            return fallback;
+        }
     }
 
     private Object normalizeValue(Object value) {

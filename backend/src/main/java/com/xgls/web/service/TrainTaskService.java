@@ -426,6 +426,14 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
             if (ultralyticsParameters != null) {
                 out.set("ultralytics_parameters", ultralyticsParameters);
             }
+            Object ultralyticsImprovementIds = params.get("ultralytics_improvement_ids");
+            if (ultralyticsImprovementIds != null) {
+                out.set("ultralytics_improvement_ids", ultralyticsImprovementIds);
+            }
+            Object ultralyticsAllowedParameters = params.get("ultralytics_allowed_parameters");
+            if (ultralyticsAllowedParameters != null) {
+                out.set("ultralytics_allowed_parameters", ultralyticsAllowedParameters);
+            }
             String direction = StrUtil.trim(params.getStr("research_direction"));
             String baseline = StrUtil.trim(params.getStr("research_baseline"));
             if (StrUtil.isBlank(out.getStr("runner_work_root"))
