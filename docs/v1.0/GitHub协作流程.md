@@ -2,7 +2,7 @@
 
 本文适用于 AI_TT_PLATFORM 的多人协作开发。目标是让需求、问题、代码审查和发布过程均可追溯，避免直接修改稳定分支。
 
-算法模板、Runner 适配和前端算法配置的具体规范请阅读独立文档：[算法集成规范](算法集成规范.md)。
+算法模板、Runner 适配、研究基线和改进包的具体规范请阅读独立文档：[研究算法与改进包开发规范](算法集成规范.md)。
 
 ## 1. 协作规则概览
 
@@ -134,7 +134,7 @@ git status
 | 文档 | `docs/文档名称` | `docs/github-workflow` |
 | 重构 | `refactor/范围名称` | `refactor/dataset-refresh` |
 | 工程维护 | `chore/事项名称` | `chore/update-dependencies` |
-| 算法开发 | `algo_算法简称` | `algo_rtdetr` |
+| 算法基线或改进包开发 | `algo_算法简称` | `algo_small-object-augmentation` |
 | 未明确方向的探索 | `dev/姓名简称` | `dev/gqy` |
 
 除 `algo_算法简称` 外，名称使用小写英文、数字和连字符；不要使用空格、中文或笼统名称如 `test`、`update`。有任务编号时建议加入，例如 `fix/123-result-open-path`。
@@ -171,6 +171,8 @@ mvn -DskipTests compile
 
 构建失败时应先修复，不要为了提交跳过失败。若失败来自刚合并的 `develop`，先把 `origin/develop` 合并到当前分支、处理冲突、重新验证后再继续。
 
+若改动涉及 `research/`、训练引擎或 Runner，除前后端构建外，还应在 PR 中写明：研究方向/基线/改进包 ID、引擎与版本、数据格式、依赖/冲突、实际训练验证结果。只增加清单而没有实际模块或配置合并实现时，应明确标记为协议草稿，不得描述为“已接入训练”。
+
 ## 7. 上传分支并创建 PR
 
 第一次上传分支：
@@ -205,6 +207,8 @@ Refs #123
 ## 8. 审查、冲突与更新 PR
 
 审查人会在 PR 中查看差异并留下评论。修改后继续提交并推送到同一分支，PR 会自动更新，无需重新创建。
+
+研究相关 PR 的建议审查分工：基线负责人确认研究定义、参数和实验逻辑；平台维护者确认 Runner、接口、路径和安全边界。该分工目前是协作约定，平台角色权限的强制控制需在后续单独实现。
 
 若 GitHub 提示与 `develop` 冲突：
 
@@ -261,7 +265,7 @@ git push origin --delete fix/123-result-open-path
 | `engines/mmdet_run/` | MMDetection、Python Runner、训练模板与生成配置目录 | 提交 Runner 与模板；不提交运行日志和生成配置 |
 | `engines/yolo_run/` | 官方 Ultralytics 依赖版本与说明 | 提交版本约束与说明；由统一 Runner 调度，不提交数据、权重和运行输出 |
 | `data/` | 中间实例数据集、最终实例数据集、预处理脚本等本地数据 | 运行数据，不提交 |
-| `artifacts/` | MMDet、自定义算法的日志、权重、结果配置快照与结果元数据 | 运行产物，不提交 |
+| `artifacts/` | MMDet、自定义算法、研究基线任务的日志、权重、运行规格、结果配置快照与元数据；研究任务位于 `artifacts/research/{方向}/{基线}/` | 运行产物，不提交 |
 | `research/` | 研究方向、基线、改进包和项目内算法清单 | 提交算法定义与源码；不提交 `.runtime_cache/` |
 | `logs/` | 后端主日志及历史归档日志 | 本机日志，不提交 |
 | `docs/` | 使用、技术、协作与算法集成文档 | 提交 |
