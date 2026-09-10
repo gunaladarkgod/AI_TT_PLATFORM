@@ -742,9 +742,11 @@ export class ResultQueryService {
 /** 项目内研究方向、基线与改进包目录（只读，不依赖数据库）。 */
 export class ResearchCatalogService {
     static async directions() {
-        return request('/api/research/directions', {}, 'get');
+        // 研究目录返回 JSON；request 的默认 responseType 是 text，
+        // 会使响应拦截器拿到字符串，进而让下拉框误判为“无数据”。
+        return request('/api/research/directions', {}, 'get', null, 'json');
     }
     static async baselines(params) {
-        return request('/api/research/baselines', params, 'get');
+        return request('/api/research/baselines', params, 'get', null, 'json');
     }
 }
