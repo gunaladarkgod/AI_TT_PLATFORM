@@ -278,6 +278,17 @@
             </div>
           </div>
           <div class="task-overview-item">
+            <div class="task-overview-label required-label">训练引擎</div>
+            <div class="task-overview-content">
+              <el-select v-model="trainingEngine" :disabled="isSee" @change="handleTrainingEngineChange">
+                <el-option label="MMDetection" value="mmdet" />
+                <el-option label="官方 Ultralytics" value="ultralytics" />
+                <el-option label="外部自定义命令" value="custom" />
+                <el-option label="论文源码（尚未接入）" value="paper" disabled />
+              </el-select>
+            </div>
+          </div>
+          <div v-if="isMMDetSelected" class="task-overview-item">
             <div class="task-overview-label required-label">模型类别</div>
             <div class="task-overview-content">
               <el-select v-model="addForm.type" :disabled="is_add || isSee || !is_create" @change="handleTypeChange">
@@ -285,7 +296,7 @@
               </el-select>
             </div>
           </div>
-          <div class="task-overview-item">
+          <div v-if="isMMDetSelected" class="task-overview-item">
             <div class="task-overview-label">算法模板</div>
             <div class="task-overview-content">
               <el-select v-model="addForm.temp" :disabled="!isMMDetSelected || isSee || !is_create" @change="handleTempChange">
@@ -324,6 +335,17 @@
             </div>
           </div>
           <div class="task-overview-item">
+            <div class="task-overview-label required-label">训练引擎</div>
+            <div class="task-overview-content">
+              <el-select v-model="trainingEngine" :disabled="isSee" @change="handleTrainingEngineChange">
+                <el-option label="MMDetection" value="mmdet" />
+                <el-option label="官方 Ultralytics" value="ultralytics" />
+                <el-option label="外部自定义命令" value="custom" />
+                <el-option label="论文源码（尚未接入）" value="paper" disabled />
+              </el-select>
+            </div>
+          </div>
+          <div v-if="isMMDetSelected" class="task-overview-item">
             <div class="task-overview-label required-label">模型类别</div>
             <div class="task-overview-content">
               <el-select v-model="addForm.type" :disabled="is_add || isSee || !is_create" @change="handleTypeChange">
@@ -331,7 +353,7 @@
               </el-select>
             </div>
           </div>
-          <div class="task-overview-item">
+          <div v-if="isMMDetSelected" class="task-overview-item">
             <div class="task-overview-label">算法模板</div>
             <div class="task-overview-content">
               <el-select v-model="addForm.temp" :disabled="!isMMDetSelected || isSee || !is_create" @change="handleTempChange">
@@ -1342,8 +1364,76 @@
         <el-divider />
         <el-alert v-if="isMMDetSelected" class="single-config-tip" type="info" :closable="false" show-icon
           title="所有参数均从一个完整模板读取，保存后只生成 modelcfg/{任务名称}/config.py" />
+        <el-alert v-else-if="isUltralyticsSelected" class="single-config-tip" type="info" :closable="false" show-icon
+          title="官方 Ultralytics 由统一 Runner 调度。训练环境由本任务保存的 Python 决定，不会修改 Runner 或 Conda 环境。" />
         <el-alert v-else class="single-config-tip" type="info" :closable="false" show-icon
           title="自定义任务使用 Runner fixed 模式，按上方选择的训练 Python、执行目录和命令行直接运行。" />
+        <div v-if="isUltralyticsSelected" class="ultralytics-task-panel">
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <div class="mmdet-file-block">
+                <span class="mmdet-file-title">研究基线与数据</span>
+                <el-form-item label="研究方向" required>
+                  <el-select v-model="ultralyticsForm.direction" :disabled="isSee || researchLoading"
+                    placeholder="选择研究方向" @change="handleUltraDirectionChange">
+                    <el-option v-for="item in researchDirections" :key="item.id" :label="item.name" :value="item.id" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="算法基线" required>
+                  <el-select v-model="ultralyticsForm.baselineId" :disabled="isSee || ultraBaselinesLoading"
+                    placeholder="仅显示 Ultralytics + YOLO 格式基线" @change="applyUltraBaselineDefaults">
+                    <el-option v-for="item in ultralyticsBaselines" :key="item.id" :label="item.name" :value="item.id">
+                      <span>{{ item.name }}</span>
+                      <span style="float:right;color:var(--el-text-color-secondary);font-size:12px">{{ item.engine_version }}</span>
+                    </el-option>
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="实例数据集" required>
+                  <el-select v-model="ultralyticsForm.dataset" :disabled="isSee || instanceReadinessLoading"
+                    filterable placeholder="选择已完成训测划分的实例数据集">
+                    <el-option v-for="item in instanceReadinessList.filter(row => row.qualified)" :key="item.id"
+                      :label="item.name" :value="item.name" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="YOLO data.yaml" required>
+                  <el-input v-model="ultralyticsForm.dataYaml" :disabled="isSee"
+                    placeholder="例如：data/instance_dataset/任务数据集/实例数据集/data.yaml" />
+                </el-form-item>
+                <div class="el-form-item__tip">
+                  当前版本需填写预处理导出的 YOLO data.yaml。若尚未导出 YOLO 格式，请先完成实例数据集预处理。
+                </div>
+              </div>
+            </el-col>
+            <el-col :span="12">
+              <div class="mmdet-file-block">
+                <span class="mmdet-file-title">官方 Ultralytics 参数</span>
+                <el-form-item label="预训练模型" required>
+                  <el-input v-model="ultralyticsForm.model" :disabled="isSee" placeholder="例如：yolo11n.pt" />
+                </el-form-item>
+                <el-form-item label="环境检查">
+                  <el-space>
+                    <el-button type="primary" plain :disabled="isSee || !trainingPythonPath" :loading="ultralyticsEnvChecking"
+                      @click="checkUltralyticsEnvironment">检查选中 Python</el-button>
+                    <el-tag v-if="ultralyticsEnvironment.text" :type="ultralyticsEnvironment.ok ? 'success' : 'danger'">
+                      {{ ultralyticsEnvironment.text }}
+                    </el-tag>
+                  </el-space>
+                </el-form-item>
+                <el-form-item v-for="item in selectedUltraParameters" :key="item.key" :label="item.label">
+                  <el-tooltip :content="item.description" placement="top">
+                    <el-input-number v-if="item.type === 'number' || item.type === 'integer'"
+                      v-model="ultralyticsForm.parameters[item.key]" :disabled="isSee" :controls="false"
+                      :min="item.min" :max="item.max" :step="item.step || 1" />
+                    <el-select v-else-if="item.type === 'select'" v-model="ultralyticsForm.parameters[item.key]" :disabled="isSee">
+                      <el-option v-for="option in item.options || []" :key="option.value || option" :label="option.label || option" :value="option.value || option" />
+                    </el-select>
+                    <el-input v-else v-model="ultralyticsForm.parameters[item.key]" :disabled="isSee" />
+                  </el-tooltip>
+                </el-form-item>
+              </div>
+            </el-col>
+          </el-row>
+        </div>
         <div v-if="isFixedRunnerSelected" class="mmdet-file-block">
           <span class="mmdet-file-title">fixed runner · 运行参数</span>
           <el-form-item label="执行目录：" required>
@@ -1362,7 +1452,7 @@
             可用占位符：{run_id} 为任务名称，{work_dir} 为本次训练输出目录。相对路径按 AI_TT_PLATFORM 项目根目录解析。
           </div>
         </div>
-        <el-row v-else :gutter="20">
+        <el-row v-else-if="isMMDetSelected" :gutter="20">
           <el-col :span="14">
             <div class="mmdet-file-block">
               <span class="mmdet-file-title">config.py · 模型与网络参数</span>
@@ -2286,7 +2376,7 @@ import { VueDraggable } from 'vue-draggable-plus'
 import { computed, reactive, ref, toRaw, watch } from "@vue/reactivity";
 import { useRouter } from "vue-router";
 import { useUserStore } from "../../stores/index";
-import { FileService, EngineProjectService, EngineTaskService, TrainLabelService, TrainTaskService, TrainScriptService, TrainYoloService, ApiService, ModelTransService, trainService, transService , InstanceDatasetService } from "../../api/api";
+import { FileService, EngineProjectService, EngineTaskService, TrainLabelService, TrainTaskService, TrainScriptService, TrainYoloService, ApiService, ModelTransService, trainService, transService , InstanceDatasetService, ResearchCatalogService } from "../../api/api";
 import { ElMessage, dayjs, ElMessageBox, ElMain, genFileId } from "element-plus";
 import { Aim, ArrowDown, CircleCheck, Close, CopyDocument, Document, Edit, Switch, Top, View } from '@element-plus/icons-vue';
 import { nextTick, onBeforeUnmount, onMounted, watchEffect } from "@vue/runtime-core";
@@ -2801,7 +2891,9 @@ const fetchConfigTemplates = () => {
 /**新建模式 */
 const showAddModal = () => {
   isSee.value = false
+  trainingEngine.value = 'mmdet'
   resetFixedRunnerParameters()
+  resetUltralyticsForm()
   //算法模版初始化
   templateAlgorithm.value = null
   templateAlgorithmList.value = []
@@ -2876,6 +2968,7 @@ const showAddModal = () => {
 const showEditModal = (row) => {
   editTaskMeta.value = { ...row }
   trainingPythonPath.value = ''
+  trainingEngine.value = row.type === 'ultralytics' ? 'ultralytics' : (row.type === 'custom' ? 'custom' : 'mmdet')
   isSee.value = row.run_name   //设置是否编辑
   //算法模版初始化
   templateAlgorithm.value = null
@@ -3002,13 +3095,18 @@ const showEditModal = (row) => {
       onChangeLabel()
     }
   })
-  TrainTaskService.getExtQuery({ id: row.id }).then(res => {
+  TrainTaskService.getExtQuery({ id: row.id }).then(async res => {
     if (res.code === 0) {
       addForm.ext_params = res.data?.params || ""
       applyStoredTrainingPythonParams(addForm.ext_params)
-      if (algMap.value.get(row.type)?.cmd === 'mmdet' && res.data?.params) {
+      if (res.data?.params) {
         try {
-          applyStoredMmdetParams(JSON.parse(res.data.params))
+          const storedParams = JSON.parse(res.data.params)
+          if (storedParams.engine === 'ultralytics' || row.type === 'ultralytics') {
+            await applyStoredUltralyticsParams(storedParams)
+          } else if (algMap.value.get(row.type)?.cmd === 'mmdet') {
+            applyStoredMmdetParams(storedParams)
+          }
         } catch (_) {
           ElMessage.warning('任务参数记录无法解析，将显示默认配置')
         }
@@ -3029,7 +3127,7 @@ const showEditModal = (row) => {
   //查询train_args信息
   addVisible.value = true
   nextTick(() => {
-    if (algMap.value.get(row.type)?.cmd === 'mmdet') {
+    if (trainingEngine.value === 'mmdet' || trainingEngine.value === 'ultralytics') {
       fetchMmdetInstanceDatasets()
     }
   })
@@ -3539,16 +3637,15 @@ const filterTable = computed(() => {
 
 // 选择mmdet时修改界面
 const isMMDetSelected=computed(() => {
-  const selectedItem = algList.value.find(item => item.id == addForm.type)
-  return selectedItem && selectedItem.name === 'mmdet'
+  return trainingEngine.value === 'mmdet'
 })
 
 const isFixedRunnerSelected = computed(() => {
   const selectedItem = algList.value.find(item => item.id == addForm.type)
-  return addForm.type === 'custom' || selectedItem?.name === '自定义' || selectedItem?.cmd === 'fixed'
+  return trainingEngine.value === 'custom' || addForm.type === 'custom' || selectedItem?.name === '自定义' || selectedItem?.cmd === 'fixed'
 })
 
-const isRunnerConfigSelected = computed(() => isMMDetSelected.value || isFixedRunnerSelected.value)
+const isRunnerConfigSelected = computed(() => isMMDetSelected.value || isUltralyticsSelected.value || isFixedRunnerSelected.value)
 
 
 const taskTable = computed(() => {
@@ -4314,6 +4411,101 @@ const resetFixedRunnerParameters = () => {
   fixedRunnerParameter.work_root = 'artifacts/custom'
 }
 const trainingPythonPath = ref('')
+const trainingEngine = ref('mmdet')
+const researchDirections = ref([])
+const ultralyticsBaselines = ref([])
+const researchLoading = ref(false)
+const ultraBaselinesLoading = ref(false)
+const ultralyticsEnvChecking = ref(false)
+const ultralyticsEnvironment = reactive({ ok: false, text: '' })
+const ultralyticsForm = reactive({
+  direction: '',
+  baselineId: '',
+  dataset: '',
+  dataYaml: '',
+  model: 'yolo11n.pt',
+  parameters: {},
+})
+const isUltralyticsSelected = computed(() => trainingEngine.value === 'ultralytics')
+const selectedUltraBaseline = computed(() => ultralyticsBaselines.value.find(item => item.id === ultralyticsForm.baselineId) || null)
+const selectedUltraParameters = computed(() => Array.isArray(selectedUltraBaseline.value?.parameters)
+  ? selectedUltraBaseline.value.parameters : [])
+
+const resetUltralyticsForm = () => {
+  ultralyticsForm.direction = ''
+  ultralyticsForm.baselineId = ''
+  ultralyticsForm.dataset = ''
+  ultralyticsForm.dataYaml = ''
+  ultralyticsForm.model = 'yolo11n.pt'
+  ultralyticsForm.parameters = {}
+  ultralyticsEnvironment.ok = false
+  ultralyticsEnvironment.text = ''
+}
+
+const loadResearchDirections = async () => {
+  researchLoading.value = true
+  try {
+    const res = await ResearchCatalogService.directions()
+    researchDirections.value = res.code === 0 ? (res.data || []).filter(item => item.status === 'active') : []
+  } catch (_) {
+    researchDirections.value = []
+  } finally {
+    researchLoading.value = false
+  }
+}
+
+const handleUltraDirectionChange = async () => {
+  ultralyticsForm.baselineId = ''
+  ultralyticsForm.parameters = {}
+  ultralyticsBaselines.value = []
+  if (!ultralyticsForm.direction) return
+  ultraBaselinesLoading.value = true
+  try {
+    const res = await ResearchCatalogService.baselines({ direction: ultralyticsForm.direction })
+    ultralyticsBaselines.value = res.code === 0
+      ? (res.data || []).filter(item => item.valid !== false && item.engine === 'ultralytics' && item.data_format === 'yolo')
+      : []
+  } catch (_) {
+    ultralyticsBaselines.value = []
+  } finally {
+    ultraBaselinesLoading.value = false
+  }
+}
+
+const applyUltraBaselineDefaults = () => {
+  const baseline = selectedUltraBaseline.value
+  const next = {}
+  for (const item of baseline?.parameters || []) {
+    next[item.key] = item.default ?? ''
+  }
+  ultralyticsForm.parameters = next
+}
+
+const checkUltralyticsEnvironment = async () => {
+  if (!String(trainingPythonPath.value || '').trim()) {
+    ElMessage.warning('请先选择 Ultralytics 训练 Python')
+    return
+  }
+  ultralyticsEnvChecking.value = true
+  ultralyticsEnvironment.ok = false
+  ultralyticsEnvironment.text = ''
+  try {
+    const res = await TrainTaskService.checkUltralyticsEnvironment({
+      training_python_path: String(trainingPythonPath.value).trim(),
+    })
+    ultralyticsEnvironment.ok = res.code === 0
+    ultralyticsEnvironment.text = res.code === 0
+      ? `可用 · ultralytics ${res.data?.version || '8.4.115'}`
+      : (res.msg || '环境不可用')
+    if (res.code === 0) ElMessage.success('Ultralytics 环境检查通过')
+    else ElMessage.warning(ultralyticsEnvironment.text)
+  } catch (e) {
+    ultralyticsEnvironment.text = e?.message || '环境检查失败，请确认 Runner 已启动'
+    ElMessage.warning(ultralyticsEnvironment.text)
+  } finally {
+    ultralyticsEnvChecking.value = false
+  }
+}
 
 const classifyTrainingPythonPath = (value) => {
   const raw = String(value || '').trim()
@@ -4616,6 +4808,25 @@ const handleTypeChange = () => {
   }
 }
 
+const handleTrainingEngineChange = () => {
+  if (trainingEngine.value === 'mmdet') {
+    const mmdetAlg = algList.value.find(item => item.name === 'mmdet' || item.cmd === 'mmdet')
+    addForm.type = mmdetAlg ? String(mmdetAlg.id) : '1'
+    addForm.temp = 'CNN'
+    fetchMmdetInstanceDatasets()
+  } else if (trainingEngine.value === 'ultralytics') {
+    addForm.type = 'ultralytics'
+    addForm.temp = null
+    resetUltralyticsForm()
+    fetchMmdetInstanceDatasets()
+    loadResearchDirections()
+  } else if (trainingEngine.value === 'custom') {
+    addForm.type = 'custom'
+    addForm.temp = 'fixed'
+    resetFixedRunnerParameters()
+  }
+}
+
 
 
 // 计算属性 - 可用的主干网选项
@@ -4636,6 +4847,7 @@ const applyStoredMmdetParams = (p) => {
   addForm.temp = p.mmdetType || addForm.temp || 'CNN'
   applyStoredTrainingPythonParams(p)
   if (p.runner_mode === 'fixed') {
+    trainingEngine.value = 'custom'
     addForm.temp = 'fixed'
     if (p.fixed_python_path !== undefined && p.fixed_python_path !== null) fixedRunnerParameter.python_path = p.fixed_python_path
     if (p.fixed_exec_dir !== undefined && p.fixed_exec_dir !== null) fixedRunnerParameter.exec_dir = p.fixed_exec_dir
@@ -4661,6 +4873,80 @@ watch(() => mmdetParameter.selected_template, (newVal) => {
 })
 
 
+const saveUltralyticsRecord = () => {
+  if (!addForm.name) {
+    ElMessage.warning('任务名称不能为空')
+    return
+  }
+  if (!String(trainingPythonPath.value || '').trim()) {
+    ElMessage.warning('请选择 Ultralytics 训练 Python 解释器')
+    return
+  }
+  if (!ultralyticsForm.direction || !ultralyticsForm.baselineId) {
+    ElMessage.warning('请选择研究方向和算法基线')
+    return
+  }
+  if (!ultralyticsForm.dataset) {
+    ElMessage.warning('请选择实例数据集')
+    return
+  }
+  if (!String(ultralyticsForm.dataYaml || '').trim()) {
+    ElMessage.warning('请填写 YOLO data.yaml 路径')
+    return
+  }
+  if (!String(ultralyticsForm.model || '').trim()) {
+    ElMessage.warning('请填写 Ultralytics 预训练模型')
+    return
+  }
+  const params = {
+    engine: 'ultralytics',
+    taskName: addForm.name,
+    taskId: is_create.value ? null : cur_task_id.value,
+    taskType: 'ultralytics',
+    remark: addForm.remark || '',
+    runner_mode: 'original',
+    data_format: 'yolo',
+    training_python_path: String(trainingPythonPath.value).trim(),
+    research_direction: ultralyticsForm.direction,
+    research_baseline_id: ultralyticsForm.baselineId,
+    dataset: ultralyticsForm.dataset,
+    ultralytics_model: String(ultralyticsForm.model).trim(),
+    ultralytics_data: String(ultralyticsForm.dataYaml).trim(),
+    ultralytics_parameters: { ...ultralyticsForm.parameters },
+  }
+  const fd = new FormData()
+  fd.append('params', JSON.stringify(params))
+  loading_saveRecord.value = true
+  TrainTaskService.addMMD(fd).then(res => {
+    if (res.code === 0) {
+      ElMessage.success('Ultralytics 训练任务已保存，可发布运行')
+      addVisible.value = false
+      queryUsers()
+      setTimeout(() => handleCurrentChange(), 500)
+    } else {
+      ElMessage.warning(res.msg || '保存 Ultralytics 任务失败')
+    }
+  }).catch(() => {}).finally(() => {
+    loading_saveRecord.value = false
+  })
+}
+
+const applyStoredUltralyticsParams = async (p) => {
+  trainingEngine.value = 'ultralytics'
+  ultralyticsForm.direction = p.research_direction || ''
+  ultralyticsForm.dataset = p.dataset || ''
+  ultralyticsForm.dataYaml = p.ultralytics_data || ''
+  ultralyticsForm.model = p.ultralytics_model || 'yolo11n.pt'
+  await loadResearchDirections()
+  if (ultralyticsForm.direction) await handleUltraDirectionChange()
+  ultralyticsForm.baselineId = p.research_baseline_id || (p.research_direction && p.research_baseline
+    ? `${p.research_direction}/${p.research_baseline}` : '')
+  applyUltraBaselineDefaults()
+  if (p.ultralytics_parameters && typeof p.ultralytics_parameters === 'object') {
+    ultralyticsForm.parameters = { ...ultralyticsForm.parameters, ...p.ultralytics_parameters }
+  }
+}
+
 const saveMMdetRecord = () =>{
   if (!addForm.name) {
     ElMessage.warning('任务名称不能为空');
@@ -4673,6 +4959,11 @@ const saveMMdetRecord = () =>{
   }
   if (!String(trainingPythonPath.value || '').trim()) {
     ElMessage.warning('请选择正式训练使用的 Python 解释器')
+    return
+  }
+
+  if (isUltralyticsSelected.value) {
+    saveUltralyticsRecord()
     return
   }
 

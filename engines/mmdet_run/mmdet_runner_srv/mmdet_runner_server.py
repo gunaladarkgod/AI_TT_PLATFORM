@@ -311,6 +311,56 @@ def build_ultralytics_execution(payload: Dict[str, Any], work_dir: Path) -> Tupl
     return [str(python_path), "-u", str(worker), "--spec", str(spec_path)], str(work_dir), str(worker)
 
 
+@app.post("/api/runner/engines/ultralytics/check")
+def check_ultralytics_environment(payload: Dict[str, Any] = Body(...)):
+    """Check only the Python selected for a future task; never creates an environment."""
+    python_path = Path(str(payload.get("training_python_path") or "")).expanduser()
+    if not python_path.is_file():
+        return JSONResponse(
+            content=api_response(False, 400, "training Python not found", python=str(python_path)),
+            status_code=400,
+        )
+    try:
+        checked = subprocess.run(
+            [str(python_path), "-c", "import ultralytics; print(ultralytics.__version__)"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return JSONResponse(
+            content=api_response(False, 408, "Ultralytics environment check timed out", python=str(python_path)),
+            status_code=408,
+        )
+    version = (checked.stdout or "").strip()
+    if checked.returncode != 0:
+        detail = (checked.stderr or checked.stdout or "import failed").strip()
+        return JSONResponse(
+            content=api_response(
+                False,
+                400,
+                "Ultralytics is unavailable in the selected Python",
+                python=str(python_path),
+                required_version="8.4.115",
+                error=detail[:1200],
+            ),
+            status_code=400,
+        )
+    ok = version == "8.4.115"
+    return JSONResponse(
+        content=api_response(
+            ok,
+            0 if ok else 400,
+            "Ultralytics environment is ready" if ok else "Ultralytics version does not match",
+            python=str(python_path),
+            version=version,
+            required_version="8.4.115",
+        ),
+        status_code=200 if ok else 400,
+    )
+
+
 def write_header(log_path: Path, repo_root: str, work_dir: str, cfg_path: str, cmd_str: str):
     header = (
         f"[server] start={now_str()}\n"

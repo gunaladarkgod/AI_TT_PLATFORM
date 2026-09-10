@@ -210,6 +210,9 @@ export class TrainTaskService {
     static async defaultTrainingPython() {
         return request('/trainTask/python/default', {}, 'get');
     }
+    static async checkUltralyticsEnvironment(params) {
+        return request('/trainTask/ultralytics/environment/check', params, 'post');
+    }
     static async latestTrainLog(params) {
         return request('/trainTask/runner/log/latest', params, 'post');
     }
@@ -733,5 +736,15 @@ export class ResultQueryService {
 
     static async readResultConfig(id) {
         return request('/trainResult/config/read', { id, includeText: true }, 'post');
+    }
+}
+
+/** 项目内研究方向、基线与改进包目录（只读，不依赖数据库）。 */
+export class ResearchCatalogService {
+    static async directions() {
+        return request('/api/research/directions', {}, 'get');
+    }
+    static async baselines(params) {
+        return request('/api/research/baselines', params, 'get');
     }
 }

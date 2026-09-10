@@ -1,0 +1,64 @@
+schema_version: 1
+id: small-object/ultralytics-yolo11n-v1
+kind: baseline
+name: 官方 Ultralytics YOLO11n 小目标基线 v1
+direction: small-object
+engine: ultralytics
+engine_version: 8.4.115
+status: draft
+data_format: yolo
+entry: ultralytics/train
+source_root: .
+description: 使用官方 Ultralytics 8.4.115 与 YOLO11n 的可复现实验起点。
+parameters:
+  - key: epochs
+    label: 训练轮次
+    description: 最大训练 epoch 数。
+    type: integer
+    default: 100
+    min: 1
+    max: 1000
+    step: 1
+    config_path: train.epochs
+  - key: imgsz
+    label: 输入尺寸
+    description: 训练时将图片缩放到的正方形边长。
+    type: integer
+    default: 640
+    min: 320
+    max: 2048
+    step: 32
+    config_path: train.imgsz
+  - key: batch
+    label: 批大小
+    description: 每次迭代使用的图片数量。
+    type: integer
+    default: 8
+    min: 1
+    max: 256
+    step: 1
+    config_path: train.batch
+  - key: device
+    label: 训练设备
+    description: GPU 编号，例如 0；使用 cpu 可强制 CPU 训练。
+    type: string
+    default: "0"
+    config_path: train.device
+  - key: workers
+    label: 数据加载进程数
+    description: DataLoader 的工作进程数。
+    type: integer
+    default: 8
+    min: 0
+    max: 64
+    step: 1
+    config_path: train.workers
+  - key: patience
+    label: 早停耐心值
+    description: 验证指标未改善时允许继续训练的 epoch 数。
+    type: integer
+    default: 100
+    min: 0
+    max: 500
+    step: 1
+    config_path: train.patience

@@ -260,6 +260,41 @@ public class TrainRunnerService {
         return getConfigJson("/api/config/read?" + query, Duration.ofSeconds(30));
     }
 
+    /** 由统一 Runner 用任务指定的解释器检测官方 Ultralytics 依赖，不启动训练。 */
+    public JSONObject checkUltralyticsEnvironment(String trainingPythonPath) {
+        if (StrUtil.isBlank(trainingPythonPath)) {
+            throw new IllegalArgumentException("请选择训练 Python 解释器");
+        }
+        JSONObject payload = new JSONObject();
+        payload.set("training_python_path", trainingPythonPath.trim());
+        try {
+            String json = payload.toString();
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .version(HttpClient.Version.HTTP_1_1)
+                    .build();
+            HttpRequest request = HttpRequest.newBuilder(runnerUri("/api/runner/engines/ultralytics/check"))
+                    .version(HttpClient.Version.HTTP_1_1)
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(json.getBytes(StandardCharsets.UTF_8)))
+                    .build();
+            HttpResponse<String> response = client.send(
+                    request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            JSONObject body = JSONUtil.parseObj(response.body());
+            if (response.statusCode() < 200 || response.statusCode() >= 300 || !body.getBool("ok", false)) {
+                throw new IllegalStateException(body.getStr("error", body.getStr("message", "Ultralytics 环境不可用")));
+            }
+            return body;
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("检查 Ultralytics 环境失败；该功能需要启动 Runner，请先检查模型训练中的 Runner 是否正常启动。详情："
+                    + e.getMessage(), e);
+        }
+    }
+
     private JSONObject postConfigJson(String path, JSONObject payload, Duration timeout) {
         try {
             String json = payload == null ? "{}" : payload.toString();

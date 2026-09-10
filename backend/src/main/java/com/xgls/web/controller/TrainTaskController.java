@@ -301,6 +301,18 @@ public class TrainTaskController {
     private InstanceDatasetService instanceDatasetService;
     @Autowired
     private TrainRunnerService trainRunnerService;
+    @Autowired
+    private ResearchCatalogService researchCatalogService;
+
+    @Operation(summary = "检查 Ultralytics 训练环境", description = "使用任务指定的 Python 检查 ultralytics 版本，不启动训练")
+    @PostMapping("ultralytics/environment/check")
+    public AjaxResult checkUltralyticsEnvironment(@RequestParam("training_python_path") String trainingPythonPath) {
+        try {
+            return AjaxResult.success(trainRunnerService.checkUltralyticsEnvironment(trainingPythonPath));
+        } catch (Exception e) {
+            return AjaxResult.error(e.getMessage());
+        }
+    }
 
     @Operation(summary = "单独修改任务备注", description = "只修改备注，不触发配置重建或状态变化")
     @PostMapping("remark/update")
@@ -358,7 +370,9 @@ public class TrainTaskController {
         MultipartFile weightFile = mreq.getFile("weight_file");
         try {
             JSONObject params = JSONUtil.parseObj(paramsJson);
-
+            if ("ultralytics".equalsIgnoreCase(StrUtil.trim(params.getStr("engine")))) {
+                return packUltralyticsTask(params);
+            }
             return packSingleConfig(params, weightFile);
 
         } catch (Exception e) {
@@ -735,6 +749,117 @@ public class TrainTaskController {
         result.put("fixedCommandLine", commandLine);
         result.put("fixedWorkRoot", workRoot);
         return AjaxResult.success(result);
+    }
+
+    /** 保存官方 Ultralytics 任务。实际依赖校验与训练启动仍由统一 Runner 完成。 */
+    private AjaxResult packUltralyticsTask(JSONObject params) {
+        String taskName = StrUtil.trim(params.getStr("taskName"));
+        Integer editingTaskId = params.getInt("taskId");
+        String trainingPythonPath = StrUtil.trim(params.getStr("training_python_path"));
+        String datasetName = StrUtil.trim(params.getStr("dataset"));
+        String dataYamlRaw = StrUtil.trim(params.getStr("ultralytics_data"));
+        String model = StrUtil.trim(params.getStr("ultralytics_model"));
+        String direction = StrUtil.trim(params.getStr("research_direction"));
+        String baselineId = StrUtil.trim(params.getStr("research_baseline_id"));
+        if (StrUtil.isBlank(taskName)) return AjaxResult.error("缺少参数：taskName");
+        if (StrUtil.isBlank(trainingPythonPath)) return AjaxResult.error("请选择 Ultralytics 训练 Python 解释器");
+        if (!Files.isRegularFile(Paths.get(trainingPythonPath).toAbsolutePath().normalize())) {
+            return AjaxResult.error("训练 Python 不存在：" + trainingPythonPath);
+        }
+        if (StrUtil.isBlank(datasetName)) return AjaxResult.error("请选择实例数据集");
+        if (StrUtil.isBlank(dataYamlRaw)) return AjaxResult.error("请填写 YOLO data.yaml 路径");
+        if (StrUtil.isBlank(model)) return AjaxResult.error("请选择或填写 Ultralytics 模型");
+        if (StrUtil.isBlank(direction) || StrUtil.isBlank(baselineId)) {
+            return AjaxResult.error("请选择研究方向和对应的 Ultralytics 基线");
+        }
+
+        Map<String, Object> baseline = researchCatalogService.detail(baselineId);
+        if (baseline == null || !Boolean.TRUE.equals(baseline.get("valid"))) {
+            return AjaxResult.error("研究基线不存在或清单无效：" + baselineId);
+        }
+        if (!direction.equals(baseline.get("direction")) || !"ultralytics".equals(baseline.get("engine"))) {
+            return AjaxResult.error("所选研究方向与基线不匹配，或该基线不使用 Ultralytics 引擎");
+        }
+        String[] baselineParts = baselineId.split("/");
+        String baselineSlug = baselineParts[baselineParts.length - 1];
+
+        Path dataYaml;
+        try {
+            Path raw = Paths.get(dataYamlRaw);
+            dataYaml = (raw.isAbsolute() ? raw : WorkspacePathUtil.workspaceRoot().resolve(raw))
+                    .toAbsolutePath().normalize();
+        } catch (Exception e) {
+            return AjaxResult.error("YOLO data.yaml 路径无效：" + dataYamlRaw);
+        }
+        if (!Files.isRegularFile(dataYaml)) return AjaxResult.error("YOLO data.yaml 不存在：" + dataYaml);
+
+        boolean datasetExists = instanceDatasetService.getAllInstanceDatasets().stream()
+                .anyMatch(item -> datasetName.equals(item.getName()));
+        if (!datasetExists) return AjaxResult.error("实例数据集不存在：" + datasetName);
+
+        LambdaQueryWrapper<TrainTask> nameWrapper = new LambdaQueryWrapper<>();
+        nameWrapper.eq(TrainTask::getName, taskName);
+        if (editingTaskId != null) nameWrapper.ne(TrainTask::getId, editingTaskId);
+        if (taskService.exists(nameWrapper)) return AjaxResult.error("任务名称已存在，请更换名称");
+
+        params.set("engine", "ultralytics");
+        params.set("runner_mode", "original");
+        params.set("data_format", "yolo");
+        params.set("research_direction", direction);
+        params.set("research_baseline", baselineSlug);
+        params.set("research_baseline_id", baselineId);
+        params.set("ultralytics_data", dataYaml.toString().replace("\\", "/"));
+        params.set("taskType", "ultralytics");
+
+        TrainForm form = new TrainForm();
+        form.setId(editingTaskId);
+        form.setName(taskName);
+        form.setType("ultralytics");
+        form.setRemark(params.getStr("remark", "Ultralytics 训练任务 - " + taskName));
+        form.setCls_num(0);
+        form.setPrj_num(0);
+        form.setTask_num(0);
+        form.setImg_num(0);
+        form.setObj_num(0L);
+        form.setImg_val_num(0);
+        form.setObj_val_num(0L);
+        form.setArgs(null);
+        form.setData(new TrainData());
+
+        Integer taskId;
+        if (editingTaskId == null) {
+            try {
+                if (!taskService.saveLink(form, SessionUtil.getCurUser(), null, null, params.toString(), null, null)) {
+                    return AjaxResult.error("训练任务入库失败");
+                }
+            } catch (IOException e) {
+                return AjaxResult.error("训练任务入库失败：" + e.getMessage());
+            }
+            taskId = form.getId();
+        } else {
+            TrainTask old = taskService.getById(editingTaskId);
+            if (old == null) return AjaxResult.error("训练任务不存在");
+            if (!SessionUtil.hasAdminOrSelf(old.getUsername())) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+            if (Objects.equals(old.getStatus(), CodeMap.TRAIN_TASK_STATUS_RUN)) return AjaxResult.error("训练中的任务不能修改配置");
+            TrainTask update = new TrainTask();
+            update.setId(editingTaskId);
+            update.setName(taskName);
+            update.setType("ultralytics");
+            update.setRemark(form.getRemark());
+            update.setStatus(CodeMap.TRAIN_TASK_STATUS_READY);
+            update.setUpdated_date(LocalDateTime.now());
+            taskService.updateById(update);
+            taskId = editingTaskId;
+        }
+        params.set("taskId", taskId);
+        saveMmdetParams(taskId, params);
+        TrainTask ready = new TrainTask();
+        ready.setId(taskId);
+        ready.setStatus(CodeMap.TRAIN_TASK_STATUS_READY);
+        ready.setUpdated_date(LocalDateTime.now());
+        taskService.updateById(ready);
+        return AjaxResult.success(Map.of("taskId", taskId, "taskName", taskName, "engine", "ultralytics",
+                "dataYaml", params.getStr("ultralytics_data")));
     }
 
     /** MMDet 单文件配置根目录：固定跟随当前工作区，而不是使用 /home/... 这类机器绝对路径。 */
