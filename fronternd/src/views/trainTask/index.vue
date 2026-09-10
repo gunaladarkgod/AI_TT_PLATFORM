@@ -4960,6 +4960,15 @@ const saveMMdetRecord = () =>{
     ElMessage.warning('任务名称不能为空');
     return;
   }
+
+  // Ultralytics 的模型由“研究方向 + 算法基线”确定，不使用旧 MMDet 的模型类别字段。
+  // 必须在读取 cur_type 前分流，否则 addForm.type='ultralytics' 不在旧类别表中，
+  // 会错误提示“请选择模型类别”。
+  if (isUltralyticsSelected.value) {
+    saveUltralyticsRecord()
+    return
+  }
+
   let alg_type = cur_type.value;
   if (!alg_type) {
     ElMessage.warning('请选择模型类别')
@@ -4967,11 +4976,6 @@ const saveMMdetRecord = () =>{
   }
   if (!String(trainingPythonPath.value || '').trim()) {
     ElMessage.warning('请选择正式训练使用的 Python 解释器')
-    return
-  }
-
-  if (isUltralyticsSelected.value) {
-    saveUltralyticsRecord()
     return
   }
 
