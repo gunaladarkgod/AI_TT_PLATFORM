@@ -4,6 +4,7 @@
 import os
 import sys
 import re
+import json
 import signal
 import shlex
 import shutil
@@ -19,7 +20,7 @@ from fastapi.responses import JSONResponse
 
 from mmdet_config_service import generate_config, list_templates, read_config, template_defaults
 
-app = FastAPI(title="MMDet Runner Server (sync)")
+app = FastAPI(title="Platform Training Runner (sync)")
 
 _ACTIVE_PROCESSES: Dict[str, subprocess.Popen] = {}
 _ACTIVE_PROCESSES_LOCK = threading.Lock()
@@ -96,13 +97,15 @@ def ensure_dir(p: Path):
     p.mkdir(parents=True, exist_ok=True)
 
 
-def make_env() -> Dict[str, str]:
+def make_env(engine: str) -> Dict[str, str]:
+    """Build child-process environment without leaking MMDet imports into other engines."""
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-    old_py = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = REPO_ROOT if not old_py else REPO_ROOT + os.pathsep + old_py
+    if engine == "mmdet":
+        old_py = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = REPO_ROOT if not old_py else REPO_ROOT + os.pathsep + old_py
     return env
 
 
@@ -116,6 +119,27 @@ def make_work_dir(run_id: str, mode_override: Optional[str] = None, root_overrid
     mode = current_runner_mode(mode_override)
     root = root_override or (FIXED_WORK_ROOT if mode == "fixed" else DEFAULT_WORK_ROOT)
     return Path(root) / f"{run_id}_from_pyserver_sync_{ts_for_path()}"
+
+
+_CATALOG_SEGMENT = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def resolve_research_work_root(payload: Dict[str, Any], fallback_root: Path) -> Path:
+    """Put catalogued research runs under artifacts/research/<direction>/<baseline>.
+
+    Historical and ordinary platform tasks have no research identifiers and retain their
+    existing output root.  The identifiers are deliberately restricted to catalog-style
+    slugs so a task payload cannot escape the artifacts directory.
+    """
+    direction = str(payload.get("research_direction") or "").strip().lower()
+    baseline = str(payload.get("research_baseline") or "").strip().lower()
+    if not direction and not baseline:
+        return fallback_root
+    if not direction or not baseline:
+        raise ValueError("research_direction and research_baseline must be provided together")
+    if not _CATALOG_SEGMENT.fullmatch(direction) or not _CATALOG_SEGMENT.fullmatch(baseline):
+        raise ValueError("research_direction and research_baseline must use lowercase catalog slugs")
+    return (_REPO_ROOT_DIR / "artifacts" / "research" / direction / baseline).resolve()
 
 
 def resolve_work_root(root_override: Optional[str], mode_override: Optional[str] = None) -> Path:
@@ -233,6 +257,58 @@ def build_fixed_execution(
 
     cmd = [python_path, "-u", *command_args]
     return cmd, str(cwd), str(script.resolve())
+
+
+def build_ultralytics_execution(payload: Dict[str, Any], work_dir: Path) -> Tuple[List[str], str, str]:
+    """Use the Python selected when the task was created; Runner never owns the engine environment."""
+    if str(payload.get("data_format") or "").strip().lower() != "yolo":
+        raise ValueError("ultralytics requires data_format=yolo")
+    python_path = Path(str(payload.get("training_python_path") or "")).expanduser()
+    if not python_path.is_file():
+        raise FileNotFoundError(f"training Python not found: {python_path}")
+    model = str(payload.get("ultralytics_model") or "").strip()
+    data = str(payload.get("ultralytics_data") or "").strip()
+    if not model:
+        raise ValueError("missing ultralytics_model")
+    if not data:
+        raise ValueError("missing ultralytics_data")
+    data_path = Path(resolve_project_path(data))
+    if not data_path.is_file():
+        raise FileNotFoundError(f"Ultralytics data YAML not found: {data_path}")
+    try:
+        dependency_check = subprocess.run(
+            [str(python_path), "-c", "import ultralytics; print(ultralytics.__version__)"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError(f"timed out while checking ultralytics in task Python: {python_path}") from exc
+    installed_version = (dependency_check.stdout or "").strip()
+    if dependency_check.returncode != 0:
+        detail = (dependency_check.stderr or dependency_check.stdout or "import failed").strip()
+        raise ValueError(
+            "task training Python cannot import ultralytics==8.4.115; "
+            f"python={python_path}; detail={detail[:800]}"
+        )
+    if installed_version != "8.4.115":
+        raise ValueError(
+            "task training Python has an unsupported ultralytics version; "
+            f"expected=8.4.115, actual={installed_version or 'unknown'}"
+        )
+    allowed = {"epochs", "imgsz", "batch", "device", "workers", "patience", "optimizer", "lr0", "lrf", "seed", "pretrained"}
+    parameters = payload.get("ultralytics_parameters") or {}
+    if not isinstance(parameters, dict):
+        raise ValueError("ultralytics_parameters must be an object")
+    parameters = {key: value for key, value in parameters.items() if key in allowed}
+    spec_path = work_dir / "ultralytics_run.json"
+    spec_path.write_text(json.dumps({"model": model, "data": str(data_path), "work_dir": str(work_dir),
+                                     "parameters": parameters}, ensure_ascii=False), encoding="utf-8")
+    worker = _RUNNER_DIR / "ultralytics_train_worker.py"
+    if not worker.is_file():
+        raise FileNotFoundError(f"Ultralytics worker not found: {worker}")
+    return [str(python_path), "-u", str(worker), "--spec", str(spec_path)], str(work_dir), str(worker)
 
 
 def write_header(log_path: Path, repo_root: str, work_dir: str, cfg_path: str, cmd_str: str):
@@ -497,6 +573,12 @@ def start_train(
     payload: Optional[Dict[str, Any]] = Body(None),
 ):
     payload = payload or {}
+    engine = str(payload.get("engine") or "mmdet").strip().lower()
+    if engine not in ("mmdet", "ultralytics", "custom", "paper"):
+        return JSONResponse(content=api_response(False, 400, "unsupported engine", error=engine), status_code=400)
+    if engine == "paper":
+        return JSONResponse(content=api_response(False, 400, "paper engine not ready",
+                                                  error="paper baseline must pin upstream source and entry first"), status_code=400)
     try:
         mode = current_runner_mode(str(payload.get("runner_mode") or ""))
     except ValueError as e:
@@ -507,13 +589,22 @@ def start_train(
 
     # 每次发布都先创建独立运行目录和日志。这样即使参数校验未通过，
     # artifacts 下也会保留可追踪的失败原因，而不会产生空目录。
-    fixed_work_root = resolve_project_path(str(payload.get("fixed_work_root") or FIXED_WORK_ROOT))
-    work_dir = make_work_dir(runId, mode, fixed_work_root if mode == "fixed" else None)
+    configured_root = str(payload.get("runner_work_root") or "").strip()
+    if not configured_root:
+        configured_root = str(payload.get("fixed_work_root") or FIXED_WORK_ROOT) if mode == "fixed" else DEFAULT_WORK_ROOT
+    try:
+        base_work_root = resolve_work_root(configured_root, mode)
+        work_root = resolve_research_work_root(payload, base_work_root)
+    except ValueError as e:
+        return JSONResponse(content=api_response(False, 400, "invalid artifact root", error=str(e)), status_code=400)
+    work_dir = make_work_dir(runId, mode, str(work_root))
     ensure_dir(work_dir)
     log_path = work_dir / "train.log"
     _append_log(log_path, f"[server] request_at={now_str()}")
     _append_log(log_path, f"[server] run_id={runId}")
+    _append_log(log_path, f"[server] engine={engine}")
     _append_log(log_path, f"[server] runner_mode={mode}")
+    _append_log(log_path, f"[server] work_root={work_root}")
     _append_log(log_path, f"[server] work_dir={work_dir}")
 
     def reject_before_start(status_code: int, message: str, error: str) -> JSONResponse:
@@ -536,11 +627,17 @@ def start_train(
 
     # 原始模式读取生成的 MMDet 配置；固定模式执行代码中写死的测试脚本。
     cfg_path = find_cfg_path(runId)
-    if mode == "original" and not cfg_path.exists():
+    if engine != "ultralytics" and mode == "original" and not cfg_path.exists():
         return reject_before_start(400, "cfg_path not found", f"cfg_path not found: {str(cfg_path)}")
 
     # 组装命令。original 分支保持原命令；fixed 分支完全使用固定值。
-    if mode == "original":
+    if engine == "ultralytics":
+        try:
+            cmd, process_cwd, executed_script = build_ultralytics_execution(payload, work_dir)
+        except (ValueError, FileNotFoundError) as e:
+            return reject_before_start(400, "ultralytics task configuration invalid", str(e))
+        cfg_path = Path(executed_script)
+    elif mode == "original":
         training_python = str(payload.get("training_python_path") or "").strip()
         if not training_python:
             training_python = DEFAULT_TRAINING_PYTHON
@@ -579,7 +676,7 @@ def start_train(
     except Exception as e:
         return reject_before_start(500, "failed to prepare training log", f"{type(e).__name__}: {e}")
 
-    env = make_env()
+    env = make_env(engine)
 
     exit_code = 1
     proc = None
@@ -632,7 +729,7 @@ def start_train(
     except Exception:
         text = ""
 
-    parsed = parse_coco_from_log(text)
+    parsed = parse_coco_from_log(text) if engine == "mmdet" else None
 
     err_snippet = ""
     if exit_code != 0:
@@ -642,6 +739,8 @@ def start_train(
     if parsed is None:
         if err_snippet:
             parsed = "Training failed. Last error from log:\n" + err_snippet[:1200]
+        elif engine == "ultralytics":
+            parsed = "Ultralytics training finished. See results.csv and weights/best.pt in the run directory."
         else:
             parsed = (
                 "Training finished, but COCO metrics were not found in logs. "
@@ -658,6 +757,7 @@ def start_train(
         "pid": proc.pid if proc is not None else None,
         "cfg_path": str(cfg_path),
         "work_dir": str(work_dir),
+        "work_root": str(work_root),
         "log": str(log_path),
         "cmd": cmd_str,
         "repo_root": process_cwd,

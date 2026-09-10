@@ -419,6 +419,19 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
             copyIfPresent(params, out, "research_direction");
             copyIfPresent(params, out, "research_baseline");
             copyIfPresent(params, out, "training_python_path");
+            copyIfPresent(params, out, "ultralytics_model");
+            copyIfPresent(params, out, "ultralytics_data");
+            copyIfPresent(params, out, "runner_work_root");
+            Object ultralyticsParameters = params.get("ultralytics_parameters");
+            if (ultralyticsParameters != null) {
+                out.set("ultralytics_parameters", ultralyticsParameters);
+            }
+            String direction = StrUtil.trim(params.getStr("research_direction"));
+            String baseline = StrUtil.trim(params.getStr("research_baseline"));
+            if (StrUtil.isBlank(out.getStr("runner_work_root"))
+                    && isCatalogSlug(direction) && isCatalogSlug(baseline)) {
+                out.set("runner_work_root", "artifacts/research/" + direction + "/" + baseline);
+            }
             if ("fixed".equalsIgnoreCase(mode)) {
                 copyIfPresent(params, out, "fixed_python_path");
                 copyIfPresent(params, out, "fixed_exec_dir");
@@ -442,6 +455,10 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         if (StrUtil.isNotBlank(value)) {
             dst.set(key, value);
         }
+    }
+
+    private boolean isCatalogSlug(String value) {
+        return StrUtil.isNotBlank(value) && value.matches("^[a-z0-9]+(?:-[a-z0-9]+)*$");
     }
 
     private void startLegacyTrain(TrainTask task) {

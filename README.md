@@ -61,7 +61,7 @@ backend/       # Spring Boot 后端、数据库迁移与业务接口
 fronternd/     # Vue 3 前端
 engines/       # 可扩展的训练引擎目录
   mmdet_run/   # MMDetection、Runner、模板与任务生成配置
-  yolo_run/    # 独立 YOLO/Ultralytics 运行目录
+  yolo_run/    # 官方 Ultralytics 依赖版本与说明（由统一 Runner 调度）
 data/          # 中间实例数据集、最终实例数据集和预处理脚本
 artifacts/     # MMDet/自定义训练的日志、权重、结果快照与元数据
 research/      # 研究方向、算法基线、改进包及其项目内清单

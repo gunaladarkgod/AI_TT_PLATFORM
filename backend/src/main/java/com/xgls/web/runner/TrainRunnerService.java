@@ -502,7 +502,7 @@ public class TrainRunnerService {
             }
             String query = "runId=" + URLEncoder.encode(runId, StandardCharsets.UTF_8)
                     + "&tailLines=" + tailLines;
-            String workRoot = configuredFixedWorkRoot(runnerOptions);
+            String workRoot = configuredWorkRoot(runnerOptions);
             if (StrUtil.isNotBlank(workRoot)) {
                 query += "&workRoot=" + URLEncoder.encode(workRoot, StandardCharsets.UTF_8);
             }
@@ -541,7 +541,7 @@ public class TrainRunnerService {
             if (finishedAt != null) {
                 query += "&finishedAt=" + URLEncoder.encode(finishedAt.toString(), StandardCharsets.UTF_8);
             }
-            String workRoot = configuredFixedWorkRoot(runnerOptions);
+            String workRoot = configuredWorkRoot(runnerOptions);
             if (StrUtil.isNotBlank(workRoot)) {
                 query += "&workRoot=" + URLEncoder.encode(workRoot, StandardCharsets.UTF_8);
             }
@@ -581,7 +581,7 @@ public class TrainRunnerService {
             if (finishedAt != null) {
                 query += "&finishedAt=" + URLEncoder.encode(finishedAt.toString(), StandardCharsets.UTF_8);
             }
-            String workRoot = configuredFixedWorkRoot(runnerOptions);
+            String workRoot = configuredWorkRoot(runnerOptions);
             if (StrUtil.isNotBlank(workRoot)) {
                 query += "&workRoot=" + URLEncoder.encode(workRoot, StandardCharsets.UTF_8);
             }
@@ -629,11 +629,14 @@ public class TrainRunnerService {
         return false;
     }
 
-    private String configuredFixedWorkRoot(JSONObject runnerOptions) {
-        if (runnerOptions == null || !"fixed".equalsIgnoreCase(runnerOptions.getStr("runner_mode"))) {
-            return null;
+    private String configuredWorkRoot(JSONObject runnerOptions) {
+        if (runnerOptions == null) return null;
+        String explicit = StrUtil.trimToNull(runnerOptions.getStr("runner_work_root"));
+        if (explicit != null) return explicit;
+        if ("fixed".equalsIgnoreCase(runnerOptions.getStr("runner_mode"))) {
+            return StrUtil.trimToNull(runnerOptions.getStr("fixed_work_root"));
         }
-        return StrUtil.trimToNull(runnerOptions.getStr("fixed_work_root"));
+        return null;
     }
 
     public JSONObject stopByRunId(String runId) {
