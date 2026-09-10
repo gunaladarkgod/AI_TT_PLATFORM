@@ -4827,6 +4827,14 @@ const handleTrainingEngineChange = () => {
   }
 }
 
+// 编辑回显、克隆和普通下拉切换都会改变引擎值；统一在这里加载研究目录，
+// 避免仅依赖 Element Plus 的 change 事件而出现“研究方向无数据”。
+watch(trainingEngine, (engine) => {
+  if (engine === 'ultralytics' && researchDirections.value.length === 0 && !researchLoading.value) {
+    loadResearchDirections()
+  }
+})
+
 
 
 // 计算属性 - 可用的主干网选项
