@@ -183,7 +183,26 @@ def resolve_project_path(path_text: str) -> str:
     path = Path(path_text).expanduser()
     if not path.is_absolute():
         path = (_REPO_ROOT_DIR / path).resolve()
-    return str(path)
+    return str(migrate_legacy_engine_path(path))
+
+
+def migrate_legacy_engine_path(path: Path) -> Path:
+    """兼容目录重组前已保存的 MMDet 固定 Runner 路径。
+
+    历史任务会把 ``<workspace>/mmdet_run/...`` 写入数据库。仅当旧目标
+    不存在、且新引擎目录中存在完全对应的文件时迁移，避免改写用户配置的
+    外部执行目录或其他不存在路径。
+    """
+    legacy_engine_root = _REPO_ROOT_DIR / "mmdet_run"
+    try:
+        relative_path = path.resolve().relative_to(legacy_engine_root.resolve())
+    except ValueError:
+        return path
+
+    migrated_path = _ENGINE_ROOT_DIR / relative_path
+    if not path.exists() and migrated_path.exists():
+        return migrated_path.resolve()
+    return path
 
 
 def build_fixed_execution(
