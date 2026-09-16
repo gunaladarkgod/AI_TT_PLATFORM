@@ -32,7 +32,7 @@
         <el-table-column label="当前等级" min-width="120"><template #default="{ row }">{{ getRole(row).name }}</template></el-table-column>
         <el-table-column label="权限等级" min-width="180"><template #default="{ row }">
           <el-select v-model="draftRoles[row.id]" :disabled="isSelf(row) || savingRoleId !== null" aria-label="权限等级">
-            <el-option v-for="(item, id) in ROLE_DEFINITIONS" :key="id" :value="Number(id)" :label="item.name" />
+            <el-option v-for="item in ROLE_OPTIONS" :key="item.type" :value="item.type" :label="item.name" />
           </el-select>
         </template></el-table-column>
         <el-table-column label="操作" width="110"><template #default="{ row }">
@@ -49,7 +49,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores'
 import { UserService } from '@/api/api'
-import { getRole, ROLE_DEFINITIONS } from '@/config/permissions'
+import { getRole, ROLE_OPTIONS } from '@/config/permissions'
 import { profileFailure } from '@/utils/profileErrors'
 const store = useUserStore()
 const user = computed(() => store.user)

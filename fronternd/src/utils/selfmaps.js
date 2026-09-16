@@ -1,17 +1,7 @@
-export const userTypeMap = new Map([
-    [1, "1. 平台管理员"],
-    [2, "2. 基线维护者"],
-    [3, "3. 实验操作员"],
-    [4, "4. 改进开发者"]
-])
+import { ROLE_OPTIONS } from '@/config/permissions'
 
-
-export const userTypeList = [
-    [1, "1. 平台管理员"],
-    [2, "2. 基线维护者"],
-    [3, "3. 实验操作员"],
-    [4, "4. 改进开发者"]
-]
+export const userTypeList = ROLE_OPTIONS.map(role => [role.type, role.name])
+export const userTypeMap = new Map(userTypeList)
 
 export const taskStatusMap = new Map([
     [0, "准备中"],

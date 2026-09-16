@@ -23,7 +23,7 @@ public class User implements Serializable {
     @Schema(description = "密码")
     private String pmd;
 
-    @Schema(description = "用户类型 1. 平台管理员 2. 基线维护者 3. 实验操作员 4. 改进开发者；源码权限通过 GitHub 管理")
+    @Schema(description = "用户类型（数据库值）1=1. 平台管理员，2=2. 基线维护者，4=3. 改进开发者，3=4. 实验操作员；源码权限通过 GitHub 管理")
     private Integer type;
     @Schema(description = "账户状态:0-正常 1-锁定")
     private Integer status;

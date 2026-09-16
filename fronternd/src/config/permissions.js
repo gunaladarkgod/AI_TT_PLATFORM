@@ -1,10 +1,14 @@
-// 保留旧账号含义：1. 平台管理员、2. 基线维护者、3. 实验操作员；4. 改进开发者。
+// 数据库 type 保留：1 管理员、2 基线维护、3 实验操作、4 改进开发；显示编号按权限从高到低排列。
 export const ROLE_DEFINITIONS = Object.freeze({
-  1: { code: 'PlatformAdmin', name: '1. 平台管理员', permissions: ['在个人中心查看用户列表，修改其他用户的权限等级', '平台操作与跨层集成', '平台配置、Runner 与引擎适配通过 GitHub 协作维护'] },
-  2: { code: 'BaselineMaintainer', name: '2. 基线维护者', permissions: ['数据集准备、训练任务与结果管理', '基线定义、源码与默认参数通过 GitHub PR 审查维护'] },
-  3: { code: 'ExperimentOperator', name: '3. 实验操作员', permissions: ['查询和预览已有数据集', '选择已开放基线与改进包，调整允许的实验参数', '创建、编辑和运行训练任务，查看结果、日志与配置'] },
-  4: { code: 'ImprovementDeveloper', name: '4. 改进开发者', permissions: ['导入、修改、删除数据集，维护标签映射与预处理脚本', '创建实例数据集、调整训测划分', '训练任务与结果管理', '改进包定义、模块源码和参数通过 GitHub PR 审查维护'] },
+  1: { code: 'PlatformAdmin', rank: 1, name: '1. 平台管理员', permissions: ['在个人中心查看用户列表，修改其他用户的权限等级', '平台操作与跨层集成', '平台配置、Runner 与引擎适配通过 GitHub 协作维护'] },
+  2: { code: 'BaselineMaintainer', rank: 2, name: '2. 基线维护者', permissions: ['数据集准备、训练任务与结果管理', '基线定义、源码与默认参数通过 GitHub PR 审查维护'] },
+  3: { code: 'ExperimentOperator', rank: 4, name: '4. 实验操作员', permissions: ['查询和预览已有数据集', '选择已开放基线与改进包，调整允许的实验参数', '创建、编辑和运行训练任务，查看结果、日志与配置'] },
+  4: { code: 'ImprovementDeveloper', rank: 3, name: '3. 改进开发者', permissions: ['导入、修改、删除数据集，维护标签映射与预处理脚本', '创建实例数据集、调整训测划分', '训练任务与结果管理', '改进包定义、模块源码和参数通过 GitHub PR 审查维护'] },
 })
+
+export const ROLE_OPTIONS = Object.freeze(Object.entries(ROLE_DEFINITIONS)
+  .map(([type, role]) => ({ type: Number(type), ...role }))
+  .sort((a, b) => a.rank - b.rank))
 
 export function getRole(user = {}) {
   return ROLE_DEFINITIONS[Number(user.type)] || { code: 'Unknown', name: '未分配权限', permissions: ['请联系维护人员分配固定角色'] }
