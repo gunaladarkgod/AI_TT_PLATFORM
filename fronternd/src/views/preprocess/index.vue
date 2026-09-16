@@ -1,6 +1,7 @@
 <!-- instanceDatabase/create/index.vue -->
 <template>
   <div class="content-div app-list-page" :class="{ 'content-div--embed': embedMode }">
+    <PermissionNotice />
     <div class="preprocess-page-toolbar app-list-toolbar flex-between">
       <div class="filter-row-single preprocess-inline-filters">
         <el-select v-model="filterConditions.sensorType" placeholder="传感器类型" size="small" clearable style="width: 120px;" @change="applyFilters">
@@ -14,7 +15,7 @@
         </el-select>
         <el-button @click="resetFilters" size="small">重置筛选</el-button>
       </div>
-      <el-button type="primary" size="small" @click="openCreateInstanceDialog">
+      <el-button v-permission type="primary" size="small" @click="openCreateInstanceDialog">
         创建实例数据集
       </el-button>
     </div>
@@ -190,7 +191,7 @@
             </div>
             <!-- 新增：上传按钮 -->
             <div class="upload-actions">
-              <el-button type="primary" @click="openUploadDialog" size="large">
+              <el-button v-permission type="primary" @click="openUploadDialog" size="large">
                 <el-icon><Upload /></el-icon>
                 上传脚本
               </el-button>
@@ -209,7 +210,7 @@
     </div>
       <template #footer>
         <el-button @click="showCreateInstanceDialog = false" size="small">取消</el-button>
-        <el-button type="primary" @click="confirmCreateInstanceDataset" size="small" :loading="createLoading">确定</el-button>
+        <el-button v-permission type="primary" @click="confirmCreateInstanceDataset" size="small" :loading="createLoading">确定</el-button>
       </template>
     </el-dialog>
 
@@ -269,7 +270,7 @@
                       <el-dropdown-menu>
                         <el-dropdown-item command="preview">查看示例</el-dropdown-item>
                         <el-dropdown-item command="openPath">打开路径</el-dropdown-item>
-                        <el-dropdown-item command="clear" divided>清除导出数据集</el-dropdown-item>
+                        <el-dropdown-item v-permission command="clear" divided>清除导出数据集</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
                   </el-dropdown>
@@ -544,7 +545,7 @@
 
   <template #footer>
     <el-button @click="showUploadDialog = false">取消</el-button>
-    <el-button 
+    <el-button v-permission
       type="primary" 
       @click="submitUpload" 
       :loading="uploadLoading"
@@ -564,6 +565,7 @@
 </template>
 
 <script setup>
+import PermissionNotice from '@/components/PermissionNotice.vue'
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { DatasetScope, notifyDatasetRefresh, useDatasetRefresh } from '@/composables/useDatasetRefresh'

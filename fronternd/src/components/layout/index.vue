@@ -66,11 +66,13 @@
           </el-button>
           <el-dropdown class="flex-center">
             <div class="userBox">
-              <el-avatar :size="30" class="avatar-user"></el-avatar>
-              <span>{{ userStore.user?.username }}</span>
+              <el-avatar :size="30" class="avatar-user" tabindex="0" role="button" aria-label="打开个人中心" @click.stop="router.push('/userProfile')" @keydown.enter.stop="router.push('/userProfile')">{{ (userStore.user?.nickname || userStore.user?.username || '我').slice(0, 1) }}</el-avatar>
+              <span>{{ userStore.user?.nickname || userStore.user?.username }}</span>
+              <el-tag size="small">{{ getRole(userStore.user).name }}</el-tag>
             </div>
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item @click="router.push('/userProfile')">个人中心</el-dropdown-item>
                 <el-dropdown-item @click="changTopic"><el-icon
                     class="iconfont icon-yunhanghuanjingbushu fontSpan"></el-icon>切换主题</el-dropdown-item>
                 <el-dropdown-item @click="showPwdModal">
@@ -241,6 +243,7 @@ import { logoPath } from '../../api/axios'
 
 import {setPrimaryColor} from '../../utils/color'
 import { computed } from "vue";
+import { getRole } from '@/config/permissions'
 import { buildTopNavigation, TOP_NAV_MORE_LABEL } from '@/config/topNavigation'
 const menuStore=useMenuStore()
 const route=useRoute()

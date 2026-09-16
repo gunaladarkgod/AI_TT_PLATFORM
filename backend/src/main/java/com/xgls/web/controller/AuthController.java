@@ -15,6 +15,7 @@ import com.xgls.web.license.LicenseUtil;
 import com.xgls.web.service.RedisService;
 import com.xgls.web.service.UserService;
 import com.xgls.web.utils.JwtUtils;
+import com.xgls.web.utils.AuthenticatedUserUtil;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.SecureUtil;
@@ -32,6 +33,67 @@ public class AuthController {
     UserService userService;
     @Autowired
     RedisService redisService;
+
+    /** 独立验证登录凭据，兼容开发模式关闭 Shiro 全局过滤的配置。 */
+    private User profileUser(HttpServletRequest request) {
+        return AuthenticatedUserUtil.current(request, redisService, userService);
+    }
+
+    @GetMapping("users/roles")
+    public AjaxResult userRoles(HttpServletRequest request) {
+        if (!AuthenticatedUserUtil.isPlatformAdmin(profileUser(request)))
+            return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        return AjaxResult.success(userService.list(new LambdaQueryWrapper<User>()
+                .select(User::getId, User::getUsername, User::getNickname, User::getPart, User::getType, User::getStatus)
+                .orderByAsc(User::getId)));
+    }
+
+    @PostMapping("users/role")
+    public AjaxResult changeUserRole(HttpServletRequest request,
+            @org.springframework.web.bind.annotation.RequestParam Long id,
+            @org.springframework.web.bind.annotation.RequestParam Integer type) {
+        User admin = profileUser(request);
+        if (!AuthenticatedUserUtil.isPlatformAdmin(admin)) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        if (id == null || type == null || type < 1 || type > 4) return AjaxResult.error(ErrorCode.PARAMS_WRONG);
+        if (admin.getId().equals(id)) return AjaxResult.error("不能修改自己的权限等级");
+        User target = userService.getById(id);
+        if (target == null) return AjaxResult.error(ErrorCode.USER_NOT_EXIST);
+        if (type.equals(target.getType())) return AjaxResult.success();
+        boolean saved = userService.update(com.baomidou.mybatisplus.core.toolkit.Wrappers.<User>lambdaUpdate()
+                .eq(User::getId, id).set(User::getType, type));
+        if (!saved) return AjaxResult.error("权限等级保存失败");
+        java.util.Set<Object> tokens = redisService.getUserJwt(id);
+        if (tokens != null) for (Object token : tokens) redisService.removeJwtToken(token.toString());
+        redisService.delUserAllJwt(id);
+        return AjaxResult.success();
+    }
+
+    @GetMapping("profile")
+    public AjaxResult profile(HttpServletRequest request) {
+        User current = profileUser(request);
+        if (current == null) return AjaxResult.error(ErrorCode.AUTH_FAILED);
+        current.setPmd(null);
+        return AjaxResult.success(current);
+    }
+
+    // 仅允许更新本人资料；角色、账号状态和密码不能从此入口修改。
+    @PostMapping("profile")
+    public AjaxResult saveProfile(HttpServletRequest request,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "") String nickname,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "") String phone,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "") String part,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "") String remark) {
+        User current = profileUser(request);
+        if (current == null) return AjaxResult.error(ErrorCode.AUTH_FAILED);
+        nickname = nickname.trim(); phone = phone.trim(); part = part.trim(); remark = remark.trim();
+        if (nickname.isEmpty() || nickname.length() > 30 || phone.length() > 20
+                || part.length() > 30 || remark.length() > 100) return AjaxResult.error(ErrorCode.PARAMS_WRONG);
+        boolean saved = userService.update(com.baomidou.mybatisplus.core.toolkit.Wrappers.<User>lambdaUpdate()
+                .eq(User::getId, current.getId()).set(User::getNickname, nickname)
+                .set(User::getPhone, phone).set(User::getPart, part).set(User::getRemark, remark));
+        if (!saved) return AjaxResult.error("资料保存失败");
+        return profile(request);
+    }
 
     @Operation(summary = "用户登录", description = "登录接口")
     @PostMapping("login")

@@ -60,7 +60,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import md5 from 'js-md5'
 import { useRoute, useRouter } from 'vue-router'
-import { AuthService } from '../api/api'
+import { AuthService, UserService } from '../api/api'
 import { useLoginStore, useMenuStore, useUserStore } from '@/stores/index'
 import { uuid } from 'vue-uuid'
 import { isEN } from '../utils/regex'
@@ -139,6 +139,10 @@ async function completeLogin(token, username) {
     state.uuidLogin = uuid.v1()
     state.token = token
   })
+  try {
+    const profile = await UserService.profile()
+    if (profile.code === 0) useUserStore().setUser(profile.data)
+  } catch { /* 保留已有登录流程，个人中心可重新加载资料。 */ }
   const menuStore = useMenuStore()
   await menuStore.setMenuList()
   if (!menuStore.menuList.length) {

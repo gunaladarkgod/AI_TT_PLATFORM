@@ -8,7 +8,7 @@
               class="iconfont icon-sousuo"></i></el-icon></el-button>
       </div>
       <div>
-        <el-button type="primary" @click="addForm" size="small"><el-text size="small" class="text-white">添加用户</el-text>
+        <el-button v-if="Number(userStore.user.type) === 1" type="primary" @click="addForm" size="small"><el-text size="small" class="text-white">添加用户</el-text>
         </el-button>
       </div>
     </div>
@@ -30,7 +30,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="phone" label="手机" align="center" />
-        <el-table-column prop="part" label="部门" align="center" />
+        <el-table-column prop="part" label="研究方向" align="center" />
         <el-table-column prop="addtime" label="创建时间" align="center" width="170" />
         <el-table-column label="操作" align="center" width="300" fixed="right">
           <template #default="scope">
@@ -68,13 +68,13 @@
         <el-form-item label="用户姓名" class="label-before" prop="nickname">
           <el-input v-model="form.nickname"></el-input>
         </el-form-item>
-        <el-form-item label="用户部门" class="label-before" prop="part">
+        <el-form-item label="研究方向" class="label-before" prop="part">
           <el-input v-model="form.part"></el-input>
         </el-form-item>
         <el-form-item label="用户手机" class="label-before" prop="phone">
           <el-input v-model="form.phone"></el-input>
         </el-form-item>
-        <el-form-item label="用户类别" required prop="type">
+        <el-form-item label="权限等级" required prop="type">
           <el-radio-group v-model="form.type">
             <el-radio :value="item[0]" v-for="item in userTypeList" :key="item[0]">{{ item[1] }}</el-radio>
           </el-radio-group>
@@ -112,13 +112,14 @@
         <el-form-item label="&ensp;用户手机">
           <el-input v-model="editForm.phone" type="text" />
         </el-form-item>
-        <el-form-item label="&ensp;用户部门">
+        <el-form-item label="&ensp;研究方向">
           <el-input v-model="editForm.part" type="text" />
         </el-form-item>
-        <el-form-item label="用户类别" required>
-          <el-radio-group v-model="editForm.type">
+        <el-form-item label="权限等级" required>
+          <el-radio-group v-model="editForm.type" disabled>
             <el-radio :value="item[0]" v-for="item in userTypeList" :key="item[0]">{{ item[1] }}</el-radio>
           </el-radio-group>
+          <el-text size="small">权限等级由“1. 平台管理员”在个人中心的用户权限管理中修改。</el-text>
         </el-form-item>
         <el-form-item label="用户状态" required>
           <el-radio-group v-model="editForm.status">
@@ -541,4 +542,3 @@ onBeforeUnmount(()=>{
 }
 
 </style>
-
