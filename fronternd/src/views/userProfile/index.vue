@@ -21,10 +21,10 @@
         <p class="profile-note">权限由平台管理员分配，不能自行修改自己的等级。研究方向仅用于个人资料展示。基线、改进包与平台源码通过 GitHub PR 审查维护。</p>
       </el-card>
     </div>
-    <el-card v-if="loaded && Number(user.type) === 1" class="role-management" shadow="never">
+    <el-card v-if="Number(user.type) === 1" class="role-management" shadow="never">
       <template #header><div class="management-heading"><span>用户权限管理</span><el-button :loading="rolesLoading" :disabled="savingRoleId !== null" @click="loadRoles">刷新列表</el-button></div></template>
       <p class="profile-note">选择其他用户的权限等级后点击保存。修改后，该用户需要重新登录。</p>
-      <el-alert v-if="rolesError" title="用户列表加载失败，请点击刷新列表重试。" type="warning" :closable="false" />
+      <el-alert v-if="rolesError" title="用户权限列表加载失败" :description="rolesError" type="warning" :closable="false" />
       <el-table :data="users" v-loading="rolesLoading" empty-text="暂无用户">
         <el-table-column prop="username" label="账号" min-width="140" />
         <el-table-column prop="nickname" label="人员姓名" min-width="120" />
@@ -41,7 +41,7 @@
         </template></el-table-column>
       </el-table>
     </el-card>
-    <el-alert v-if="!loaded && !loading" title="资料加载失败，请重试。" type="warning" :closable="false"><el-button text @click="load">重新加载</el-button></el-alert>
+    <el-alert v-if="profileError && !loading" title="个人资料加载失败" :description="profileError" type="warning" :closable="false"><el-button text @click="load">重新加载</el-button></el-alert>
   </div>
 </template>
 <script setup>
@@ -50,24 +50,26 @@ import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores'
 import { UserService } from '@/api/api'
 import { getRole, ROLE_DEFINITIONS } from '@/config/permissions'
+import { profileFailure } from '@/utils/profileErrors'
 const store = useUserStore()
 const user = computed(() => store.user)
 const role = computed(() => getRole(user.value))
 const form = reactive({ nickname: '', phone: '', part: '', remark: '' })
 const loading = ref(false), saving = ref(false), loaded = ref(false)
-const users = ref([]), rolesLoading = ref(false), rolesError = ref(false), savingRoleId = ref(null)
+const profileError = ref('')
+const users = ref([]), rolesLoading = ref(false), rolesError = ref(''), savingRoleId = ref(null)
 const draftRoles = reactive({})
 const isSelf = row => String(row.id) === String(user.value.id)
 async function loadRoles() {
   if (Number(user.value.type) !== 1) return
   rolesLoading.value = true
-  rolesError.value = false
+  rolesError.value = ''
   try {
     const res = await UserService.userRoles()
-    if (res.code !== 0) throw new Error(res.msg)
-    users.value = res.data || []
+    if (res?.code !== 0 || !Array.isArray(res.data)) throw res || new Error('无效响应')
+    users.value = res.data
     for (const row of users.value) draftRoles[row.id] = Number(row.type)
-  } catch { rolesError.value = true; users.value = [] }
+  } catch (error) { rolesError.value = profileFailure(error); users.value = [] }
   finally { rolesLoading.value = false }
 }
 async function saveRole(row) {
@@ -88,9 +90,16 @@ function accept(data) {
 }
 async function load() {
   loading.value = true
-  try { const res = await UserService.profile(); if (res.code === 0) { accept(res.data); await loadRoles() } else ElMessage.warning(res.msg) }
-  catch { ElMessage.error('个人资料加载失败') }
+  profileError.value = ''
+  try {
+    const res = await UserService.profile()
+    if (res?.code !== 0 || !res.data?.id) throw res || new Error('无效响应')
+    accept(res.data)
+  }
+  catch (error) { profileError.value = profileFailure(error) }
   finally { loading.value = false }
+  // 个人资料失败也独立请求权限列表；是否允许操作仍由后端鉴权决定。
+  await loadRoles()
 }
 async function save() {
   if (!form.nickname.trim()) return ElMessage.warning('请填写人员姓名')

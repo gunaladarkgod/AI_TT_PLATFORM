@@ -89,6 +89,9 @@ axios.interceptors.response.use(
             } else {
                 ElMessage.warning(showMessage(response.status))
             }
+            if (/^\/auth\/(profile|users\/roles)$/.test(error.config?.url || '')) {
+                return Promise.reject({ ...(typeof response.data === 'object' ? response.data : {}), status: response.status })
+            }
             return Promise.reject(response.data)
         } else {
             ElMessage.warning('网络连接异常,请稍后再试!')
