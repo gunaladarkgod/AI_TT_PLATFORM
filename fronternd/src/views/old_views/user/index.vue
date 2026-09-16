@@ -119,7 +119,7 @@
           <el-radio-group v-model="editForm.type" disabled>
             <el-radio :value="item[0]" v-for="item in userTypeList" :key="item[0]">{{ item[1] }}</el-radio>
           </el-radio-group>
-          <el-text size="small">权限等级由平台管理员在个人中心的用户权限管理中修改。</el-text>
+          <el-text size="small">权限等级由“1. 平台管理员”在个人中心的用户权限管理中修改。</el-text>
         </el-form-item>
         <el-form-item label="用户状态" required>
           <el-radio-group v-model="editForm.status">

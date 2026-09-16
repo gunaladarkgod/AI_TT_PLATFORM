@@ -126,7 +126,7 @@ public class UserController {
             return AjaxResult.error(ErrorCode.USER_NOT_EXIST);
         }
         if (user.getType() != null && !user.getType().equals(exist.getType())) {
-            return AjaxResult.error("请由平台管理员在个人中心的用户权限管理中修改权限等级");
+            return AjaxResult.error("请由“1. 平台管理员”在个人中心的用户权限管理中修改权限等级");
         }
         // username 不允许修改
         // pmd 不允许修改

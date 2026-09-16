@@ -18,7 +18,7 @@
         <el-tag>{{ role.name }}</el-tag>
         <ul><li v-for="item in role.permissions" :key="item">{{ item }}</li></ul>
         <el-alert v-if="Number(user.type) === 3" title="数据集仅供查询和预览，不可导入、修改、删除或重新划分；结果仅供查看。" type="info" :closable="false" />
-        <p class="profile-note">权限由平台管理员分配，不能自行修改自己的等级。研究方向仅用于个人资料展示。基线、改进包与平台源码通过 GitHub PR 审查维护。</p>
+        <p class="profile-note">权限由“1. 平台管理员”分配，不能自行修改自己的等级。研究方向仅用于个人资料展示。基线、改进包与平台源码通过 GitHub PR 审查维护。</p>
       </el-card>
     </div>
     <el-card v-if="Number(user.type) === 1" class="role-management" shadow="never">
