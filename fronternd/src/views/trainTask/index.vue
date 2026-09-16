@@ -253,8 +253,8 @@
           <div class="runner-status-popover-actions">
             <el-button type="primary" size="small" @click="refreshRunnerHealth">刷新</el-button>
             <el-button type="warning" size="small" :loading="runnerDependencyLoading" @click="checkRunnerDependencies">检测依赖</el-button>
-            <el-button type="success" size="small" :loading="runnerStartLoading" @click="startRunner">启动</el-button>
-            <el-button type="danger" size="small" :loading="runnerRestartLoading" @click="restartRunner">重启</el-button>
+            <el-button v-permission type="success" size="small" :loading="runnerStartLoading" @click="startRunner">启动</el-button>
+            <el-button v-permission type="danger" size="small" :loading="runnerRestartLoading" @click="restartRunner">重启</el-button>
           </div>
         </div>
       </el-popover>

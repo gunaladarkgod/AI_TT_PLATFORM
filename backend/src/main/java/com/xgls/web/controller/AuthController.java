@@ -33,6 +33,45 @@ public class AuthController {
     @Autowired
     RedisService redisService;
 
+    /** 独立验证登录凭据，兼容开发模式关闭 Shiro 全局过滤的配置。 */
+    private User profileUser(HttpServletRequest request) {
+        String token = request.getHeader(CodeMap.X_ACCESS_TOKEN);
+        if (StrUtil.isBlank(token)) return null;
+        String realToken = redisService.getJwtToken(token);
+        if (realToken == null) return null;
+        User principal = JwtUtils.verifyAndGetUser(realToken);
+        if (principal == null) return null;
+        User current = userService.getById(principal.getId());
+        return current != null && CodeMap.USER_STATUS_OK.equals(current.getStatus()) ? current : null;
+    }
+
+    @GetMapping("profile")
+    public AjaxResult profile(HttpServletRequest request) {
+        User current = profileUser(request);
+        if (current == null) return AjaxResult.error(ErrorCode.AUTH_FAILED);
+        current.setPmd(null);
+        return AjaxResult.success(current);
+    }
+
+    // 仅允许更新本人资料；角色、账号状态和密码不能从此入口修改。
+    @PostMapping("profile")
+    public AjaxResult saveProfile(HttpServletRequest request,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "") String nickname,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "") String phone,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "") String part,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "") String remark) {
+        User current = profileUser(request);
+        if (current == null) return AjaxResult.error(ErrorCode.AUTH_FAILED);
+        nickname = nickname.trim(); phone = phone.trim(); part = part.trim(); remark = remark.trim();
+        if (nickname.isEmpty() || nickname.length() > 30 || phone.length() > 20
+                || part.length() > 30 || remark.length() > 100) return AjaxResult.error(ErrorCode.PARAMS_WRONG);
+        boolean saved = userService.update(com.baomidou.mybatisplus.core.toolkit.Wrappers.<User>lambdaUpdate()
+                .eq(User::getId, current.getId()).set(User::getNickname, nickname)
+                .set(User::getPhone, phone).set(User::getPart, part).set(User::getRemark, remark));
+        if (!saved) return AjaxResult.error("资料保存失败");
+        return profile(request);
+    }
+
     @Operation(summary = "用户登录", description = "登录接口")
     @PostMapping("login")
     public AjaxResult login(@Parameter(description = "用户名称", name = "username", required = true) String username,

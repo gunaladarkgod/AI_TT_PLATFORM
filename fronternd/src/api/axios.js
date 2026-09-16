@@ -3,7 +3,8 @@ import qs from 'qs'
 import { showMessage } from './status'
 import { ElMessage } from 'element-plus'
 
-import { useLoginStore } from '../stores/index'
+import { useLoginStore, useUserStore } from '../stores/index'
+import { canMaintain, isMaintenanceRequest } from '@/config/permissions'
 
 import { useRouter } from "vue-router";
 
@@ -35,6 +36,10 @@ axios.defaults.withCredentials = true
 
 axios.interceptors.request.use(
     config => {
+        if (!canMaintain(useUserStore().user) && isMaintenanceRequest(config.url, config.method)) {
+            ElMessage.warning('当前角色仅可使用已有数据集开展训练和查看结果，不能执行维护操作');
+            return Promise.reject(new Error('当前角色无维护权限'));
+        }
         const isFormData =
             typeof FormData !== 'undefined' && config.data instanceof FormData;
         const headers = {};
@@ -52,6 +57,7 @@ axios.interceptors.request.use(
         return config;
     },
     error => {
+        if (error.message === '当前角色无维护权限') return Promise.reject(error);
         return Promise.reject(error)
     }
 )
@@ -65,6 +71,7 @@ axios.interceptors.response.use(
         }
     },
     error => {
+        if (error.message === '当前角色无维护权限') return Promise.reject(error);
         const { response } = error
         if (response) {
             //401 token失效，需要清空缓存的token， 跳转到登录页重新登录

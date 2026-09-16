@@ -19,6 +19,8 @@ export class DocumentationService {
 
 /**用户管理接口 */
 export class UserService {
+    static async profile() { return request('/auth/profile', {}, 'get'); }
+    static async saveProfile(params) { return request('/auth/profile', params, 'post'); }
     static async queryList(params) {
         return request('/user/list', params, 'post');
     }
