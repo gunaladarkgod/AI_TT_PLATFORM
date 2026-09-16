@@ -1,0 +1,5 @@
+schema_version: 1
+id: knowledge-distillation
+name: 知识蒸馏
+description: 面向目标检测模型蒸馏的基线与改进方法。
+status: active

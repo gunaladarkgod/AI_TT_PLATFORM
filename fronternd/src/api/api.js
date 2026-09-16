@@ -210,6 +210,9 @@ export class TrainTaskService {
     static async defaultTrainingPython() {
         return request('/trainTask/python/default', {}, 'get');
     }
+    static async checkUltralyticsEnvironment(params) {
+        return request('/trainTask/ultralytics/environment/check', params, 'post');
+    }
     static async latestTrainLog(params) {
         return request('/trainTask/runner/log/latest', params, 'post');
     }
@@ -733,5 +736,23 @@ export class ResultQueryService {
 
     static async readResultConfig(id) {
         return request('/trainResult/config/read', { id, includeText: true }, 'post');
+    }
+}
+
+/** 项目内研究方向、基线与改进包目录（只读，不依赖数据库）。 */
+export class ResearchCatalogService {
+    static async directions() {
+        // 研究目录返回 JSON；request 的默认 responseType 是 text，
+        // 会使响应拦截器拿到字符串，进而让下拉框误判为“无数据”。
+        return request('/api/research/directions', {}, 'get', null, 'json');
+    }
+    static async baselines(params) {
+        return request('/api/research/baselines', params, 'get', null, 'json');
+    }
+    static async improvements(params) {
+        return request('/api/research/improvements', params, 'get', null, 'json');
+    }
+    static async resolveStack(payload) {
+        return request('/api/research/stack/resolve', payload, 'post', 'application/json');
     }
 }

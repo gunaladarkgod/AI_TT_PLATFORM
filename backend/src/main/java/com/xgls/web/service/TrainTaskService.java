@@ -19,6 +19,8 @@ import java.util.regex.Pattern;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xgls.web.base.CodeMap;
+import com.xgls.web.engine.EngineAdapterRegistry;
+import com.xgls.web.engine.TrainingEngineAdapter;
 import com.xgls.web.entity.TrainArgs;
 import com.xgls.web.entity.TrainData;
 import com.xgls.web.entity.TrainExt;
@@ -67,6 +69,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
     @Autowired TrainScriptMapper tScriptMapper;
     @Autowired TrainExtMapper trainExtMapper;
     @Autowired private TrainRunnerService trainRunnerService;
+    @Autowired private EngineAdapterRegistry engineAdapters;
 
     @Transactional(rollbackFor = Exception.class)
     public boolean saveLink(TrainForm form, User user, MultipartFile weight_file, Integer clone_from, String ext_params,
@@ -360,31 +363,44 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
             log.warn("[startTrain] task not found, id={}", id);
             return;
         }
-        if (isMmdetType(task.getType())) {
-            startMmdetTrain(task);
+        JSONObject options = runnerOptionsForTask(task.getId());
+        String engineId = resolveEngineId(task, options);
+        if (engineId != null) {
+            startEngineTrain(task, engineId, options);
             return;
         }
         startLegacyTrain(task);
     }
 
-    private void startMmdetTrain(TrainTask task) {
+    private void startEngineTrain(TrainTask task, String engineId, JSONObject options) {
         Integer id = task.getId();
-        log.info("[startTrain] mmdet via Python Runner, taskId={}, runId={}", id, task.getName());
+        TrainingEngineAdapter adapter = engineAdapters.require(engineId);
+        log.info("[startTrain] engine={}, taskId={}, runId={}", engineId, id, task.getName());
 
         updateStartStatus(id, null);
         boolean ok = false;
         String remarkTail = "runner:unknown";
         try {
-            RunnerTrainResponse runnerResp = trainRunnerService.startByRunId(task.getName(), runnerOptionsForTask(task.getId()));
+            RunnerTrainResponse runnerResp = adapter.start(task.getName(), options);
             ok = runnerResp.isOk();
             remarkTail = applyRunnerResult(task, runnerResp, "startTrain");
         } catch (Exception e) {
             remarkTail = "runner:exception=" + e.getMessage();
-            log.error("Python Runner call failed, runId={}", task.getName(), e);
+            log.error("Training engine call failed, engine={}, runId={}", engineId, task.getName(), e);
         } finally {
             updateStopStatus(id, null, ok ? CodeMap.TRAIN_FINISH_SUCCESS : CodeMap.TRAIN_FINISH_ERROR);
             appendTrainRemark(id, task.getRemark(), remarkTail);
         }
+    }
+
+    private String resolveEngineId(TrainTask task, JSONObject options) {
+        String explicit = StrUtil.trim(options.getStr("engine"));
+        if (StrUtil.isNotBlank(explicit)) return explicit.toLowerCase();
+        if ("custom".equalsIgnoreCase(task.getType()) || "自定义".equals(task.getType())) return "custom";
+        if ("mmdet".equalsIgnoreCase(task.getType()) || "1".equals(task.getType())) return "mmdet";
+        if ("ultralytics".equalsIgnoreCase(task.getType()) || "yolo".equalsIgnoreCase(task.getType())) return "ultralytics";
+        if ("paper".equalsIgnoreCase(task.getType())) return "paper";
+        return null;
     }
 
     public JSONObject runnerOptionsForTask(Integer taskId) {
@@ -398,7 +414,32 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
             JSONObject params = JSONUtil.parseObj(ext.getParams());
             String mode = StrUtil.blankToDefault(params.getStr("runner_mode"), "original");
             out.set("runner_mode", mode);
+            copyIfPresent(params, out, "engine");
+            copyIfPresent(params, out, "data_format");
+            copyIfPresent(params, out, "research_direction");
+            copyIfPresent(params, out, "research_baseline");
             copyIfPresent(params, out, "training_python_path");
+            copyIfPresent(params, out, "ultralytics_model");
+            copyIfPresent(params, out, "ultralytics_data");
+            copyIfPresent(params, out, "runner_work_root");
+            Object ultralyticsParameters = params.get("ultralytics_parameters");
+            if (ultralyticsParameters != null) {
+                out.set("ultralytics_parameters", ultralyticsParameters);
+            }
+            Object ultralyticsImprovementIds = params.get("ultralytics_improvement_ids");
+            if (ultralyticsImprovementIds != null) {
+                out.set("ultralytics_improvement_ids", ultralyticsImprovementIds);
+            }
+            Object ultralyticsAllowedParameters = params.get("ultralytics_allowed_parameters");
+            if (ultralyticsAllowedParameters != null) {
+                out.set("ultralytics_allowed_parameters", ultralyticsAllowedParameters);
+            }
+            String direction = StrUtil.trim(params.getStr("research_direction"));
+            String baseline = StrUtil.trim(params.getStr("research_baseline"));
+            if (StrUtil.isBlank(out.getStr("runner_work_root"))
+                    && isCatalogSlug(direction) && isCatalogSlug(baseline)) {
+                out.set("runner_work_root", "artifacts/research/" + direction + "/" + baseline);
+            }
             if ("fixed".equalsIgnoreCase(mode)) {
                 copyIfPresent(params, out, "fixed_python_path");
                 copyIfPresent(params, out, "fixed_exec_dir");
@@ -422,6 +463,10 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         if (StrUtil.isNotBlank(value)) {
             dst.set(key, value);
         }
+    }
+
+    private boolean isCatalogSlug(String value) {
+        return StrUtil.isNotBlank(value) && value.matches("^[a-z0-9]+(?:-[a-z0-9]+)*$");
     }
 
     private void startLegacyTrain(TrainTask task) {

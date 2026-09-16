@@ -1,6 +1,8 @@
 # AI 训练平台（AI_TT_PLATFORM）
 
-面向目标检测数据集管理、实例数据集生成和 MMDetection 训练的一体化本地平台。
+面向目标检测数据集管理、实例数据集生成与统一训练调度的一体化本地平台。当前支持 MMDetection、官方 Ultralytics 和外部自定义训练命令。
+
+平台核心提供前后端、统一 Runner、任务队列和数据集处理；`research/` 保存研究方向、可复现基线和可叠加改进包。引擎属于平台核心，基线引用引擎，改进包只能叠加到指定基线。
 
 ## 快速启动（Windows）
 
@@ -42,27 +44,29 @@ npm run dev
 
 浏览器打开终端显示的地址（通常为 `http://127.0.0.1:5173`）。开发环境下，前端会把 `/develop` 请求代理到后端 `8081` 端口。
 
-### 4. 启动 MMDet Runner（训练功能需要）
+### 4. 启动统一 Runner（训练功能需要）
 
 后端默认会尝试自动启动 Runner；也可以在“模型训练”页面点击 Runner 区域的“启动”。若需手动启动，在项目根目录执行：
 
 ```powershell
-cd mmdet_run\mmdet_runner_srv
+cd engines\mmdet_run\mmdet_runner_srv
 $env:RUNNER_PYTHON = "C:\\你的环境\\python.exe"
 .\start_runner.cmd
 ```
 
-Runner 启动成功后监听 `http://127.0.0.1:8009/health`。`start_runner.cmd` 会优先使用 `RUNNER_PYTHON`，其次尝试项目内环境、`.venv`、`%USERPROFILE%\.conda\envs\openmmlab` 与系统 Python。
+Runner 启动成功后监听 `http://127.0.0.1:8009/health`。目录名保留为 `mmdet_run` 以兼容历史配置，但 Runner 统一调度 MMDet、官方 Ultralytics 和外部自定义命令。`start_runner.cmd` 会优先使用 `RUNNER_PYTHON`，其次尝试项目内环境、`.venv`、`%USERPROFILE%\.conda\envs\openmmlab` 与系统 Python。
 
 ## 项目根目录说明
 
 ```text
 backend/       # Spring Boot 后端、数据库迁移与业务接口
 fronternd/     # Vue 3 前端
-mmdet_run/     # MMDetection、Runner、模板与任务生成配置
-yolo_run/      # 独立 YOLO/Ultralytics 运行目录
+engines/       # 可扩展的训练引擎目录
+  mmdet_run/   # MMDetection、Runner、模板与任务生成配置
+  yolo_run/    # 官方 Ultralytics 依赖版本与说明（由统一 Runner 调度）
 data/          # 中间实例数据集、最终实例数据集和预处理脚本
-artifacts/     # MMDet/自定义训练的日志、权重、结果快照与元数据
+artifacts/     # 训练日志、权重、结果快照与元数据；研究任务位于 artifacts/research/{方向}/{基线}/
+research/      # 研究方向、算法基线、改进包及其项目内清单
 logs/          # 后端主日志与历史归档
 docs/          # 使用、技术、协作和算法集成文档
 ```
@@ -73,7 +77,7 @@ docs/          # 使用、技术、协作和算法集成文档
 
 ## 文档
 
-- [使用说明文档 v1.0](docs/v1.0/使用说明文档v1.0.md)
+- [平台使用与实验说明 v1.0](docs/v1.0/使用说明文档v1.0.md)
 - [技术说明文档](docs/v1.0/技术说明文档.md)
 - [GitHub 协作流程](docs/v1.0/GitHub协作流程.md)
-- [算法集成规范](docs/v1.0/算法集成规范.md)
+- [研究算法与改进包开发规范](docs/v1.0/算法集成规范.md)

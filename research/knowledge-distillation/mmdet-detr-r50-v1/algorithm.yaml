@@ -1,0 +1,27 @@
+schema_version: 1
+id: knowledge-distillation/mmdet-detr-r50-v1
+kind: baseline
+name: MMDet DETR R50 知识蒸馏基线 v1
+direction: knowledge-distillation
+engine: mmdet
+engine_version: 3.0.0
+status: draft
+data_format: coco
+entry: mmdet/config.py
+source_root: src
+description: 使用 MMDetection 3.0.0 的 DETR R50 蒸馏研究起点。
+parameters:
+  - key: train.max_epochs
+    label: 最大训练轮数
+    description: 本次训练允许执行的最大 epoch 数。
+    type: integer
+    default: 12
+    min: 1
+    max: 300
+    step: 1
+    config_path: train_cfg.max_epochs
+    editable_by:
+      - PlatformAdmin
+      - BaselineMaintainer
+      - ImprovementDeveloper
+      - ExperimentOperator

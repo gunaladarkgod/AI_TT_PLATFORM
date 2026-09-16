@@ -8,7 +8,7 @@ Thumbs.db
 
 # 日志与临时文件（均为运行时生成）
 logs/
-mmdet_run/logs/
+engines/mmdet_run/logs/
 *.log
 *.pid
 *.seed
@@ -41,12 +41,13 @@ __pycache__/
 .venv/
 venv/
 env/
-mmdet_run/mmdet_runner_srv/.conda_runner/
+engines/mmdet_run/mmdet_runner_srv/.conda_runner/
 
 # 本机生成的数据、训练产物与任务配置
 /data/
 /artifacts/
-mmdet_run/myfiles/modelcfg/
+research/.runtime_cache/
+engines/mmdet_run/myfiles/modelcfg/
 runs/
 wandb/
 mlruns/

@@ -2,7 +2,7 @@
 
 本文适用于 AI_TT_PLATFORM 的多人协作开发。目标是让需求、问题、代码审查和发布过程均可追溯，避免直接修改稳定分支。
 
-算法模板、Runner 适配和前端算法配置的具体规范请阅读独立文档：[算法集成规范](算法集成规范.md)。
+算法模板、Runner 适配、研究基线和改进包的具体规范请阅读独立文档：[研究算法与改进包开发规范](算法集成规范.md)。
 
 ## 1. 协作规则概览
 
@@ -134,7 +134,7 @@ git status
 | 文档 | `docs/文档名称` | `docs/github-workflow` |
 | 重构 | `refactor/范围名称` | `refactor/dataset-refresh` |
 | 工程维护 | `chore/事项名称` | `chore/update-dependencies` |
-| 算法开发 | `algo_算法简称` | `algo_rtdetr` |
+| 算法基线或改进包开发 | `algo_算法简称` | `algo_small-object-augmentation` |
 | 未明确方向的探索 | `dev/姓名简称` | `dev/gqy` |
 
 除 `algo_算法简称` 外，名称使用小写英文、数字和连字符；不要使用空格、中文或笼统名称如 `test`、`update`。有任务编号时建议加入，例如 `fix/123-result-open-path`。
@@ -171,6 +171,8 @@ mvn -DskipTests compile
 
 构建失败时应先修复，不要为了提交跳过失败。若失败来自刚合并的 `develop`，先把 `origin/develop` 合并到当前分支、处理冲突、重新验证后再继续。
 
+若改动涉及 `research/`、训练引擎或 Runner，除前后端构建外，还应在 PR 中写明：研究方向/基线/改进包 ID、引擎与版本、数据格式、依赖/冲突、实际训练验证结果。只增加清单而没有实际模块或配置合并实现时，应明确标记为协议草稿，不得描述为“已接入训练”。
+
 ## 7. 上传分支并创建 PR
 
 第一次上传分支：
@@ -205,6 +207,17 @@ Refs #123
 ## 8. 审查、冲突与更新 PR
 
 审查人会在 PR 中查看差异并留下评论。修改后继续提交并推送到同一分支，PR 会自动更新，无需重新创建。
+
+研究相关 PR 的建议审查分工如下。该分工目前是协作约定，平台角色权限的强制控制需在后续单独实现；现阶段应通过 GitHub 仓库写权限、受保护的 `develop`/`main` 分支和 PR 审查执行。
+
+| 固定角色 | 可负责的内容 | 不应直接修改的内容 |
+| --- | --- | --- |
+| `PlatformAdmin` | 用户管理、前后端公共能力、统一 Runner、引擎适配、公共配置与最终审核 | 无，负责跨层集成 |
+| `BaselineMaintainer` | 基线定义、源码、默认参数和实验规范 | 平台核心运行代码、其他人员的改进包 |
+| `ImprovementDeveloper` | 改进包、模块源码、参数和验证 | 基线定义、统一 Runner、平台核心代码 |
+| `ExperimentOperator` | 选择已开放基线/改进包、调整允许参数、创建任务和查看结果 | 研究源码、清单定义、平台核心代码 |
+
+平台只采用上述四个固定角色，不设置按研究方向、基线或项目细分的范围授权。建议将 `PlatformAdmin` 设为仓库管理员或维护者；`BaselineMaintainer`、`ImprovementDeveloper` 通过功能分支和 PR 提交代码；`ExperimentOperator` 默认不授予仓库写权限，只使用平台功能。后续平台内权限实现必须与此表保持一致。
 
 若 GitHub 提示与 `develop` 冲突：
 
@@ -258,10 +271,11 @@ git push origin --delete fix/123-result-open-path
 | --- | --- | --- |
 | `backend/` | Spring Boot 后端、数据库迁移、业务接口 | 提交源码与迁移脚本；不提交 `target/` |
 | `fronternd/` | Vue 3 + Vite 前端 | 提交源码与配置；不提交 `node_modules/`、`dist/` |
-| `mmdet_run/` | MMDetection、Python Runner、训练模板与生成配置目录 | 提交 Runner 与模板；不提交运行日志和生成配置 |
-| `yolo_run/` | 独立 YOLO/Ultralytics 运行目录 | 提交运行脚本与说明；不提交数据、权重和运行输出 |
+| `engines/mmdet_run/` | MMDetection、Python Runner、训练模板与生成配置目录 | 提交 Runner 与模板；不提交运行日志和生成配置 |
+| `engines/yolo_run/` | 官方 Ultralytics 依赖版本与说明 | 提交版本约束与说明；由统一 Runner 调度，不提交数据、权重和运行输出 |
 | `data/` | 中间实例数据集、最终实例数据集、预处理脚本等本地数据 | 运行数据，不提交 |
-| `artifacts/` | MMDet、自定义算法的日志、权重、结果配置快照与结果元数据 | 运行产物，不提交 |
+| `artifacts/` | MMDet、自定义算法、研究基线任务的日志、权重、运行规格、结果配置快照与元数据；研究任务位于 `artifacts/research/{方向}/{基线}/` | 运行产物，不提交 |
+| `research/` | 研究方向、基线、改进包和项目内算法清单 | 提交算法定义与源码；不提交 `.runtime_cache/` |
 | `logs/` | 后端主日志及历史归档日志 | 本机日志，不提交 |
 | `docs/` | 使用、技术、协作与算法集成文档 | 提交 |
 | `.git/` | Git 本地版本库数据 | Git 自动维护，不手工修改或提交 |
