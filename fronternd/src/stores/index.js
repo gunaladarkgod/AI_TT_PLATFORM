@@ -78,6 +78,7 @@ export const useLoginStore = defineStore({
   },
 })
 
+
 export const useTitleStore = defineStore({
   id: 'title',
   state: () => ({
@@ -166,7 +167,7 @@ export const useMenuStore=defineStore({
 
     resetRouter() {
       router.getRoutes().forEach(route => {
-        if (route.name && !['Layout', 'Login', 'UserProfile'].includes(route.name)) {
+        if (route.name && !['Layout', 'Login', 'Register', 'UserProfile'].includes(route.name)) {
           router.removeRoute(route.name)
         }
       })
@@ -174,4 +175,3 @@ export const useMenuStore=defineStore({
     }
   },
 })
-
