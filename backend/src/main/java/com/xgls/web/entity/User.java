@@ -34,7 +34,7 @@ public class User implements Serializable {
     private String phone;
     @Schema(description = "昵称")
     private String nickname;
-    @Schema(description = "部门")
+    @Schema(description = "研究方向（兼容原 part 字段，不用于范围授权）")
     private String part;
     @Schema(description = "头像")
     private String head;

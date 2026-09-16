@@ -15,6 +15,7 @@ import com.xgls.web.license.LicenseUtil;
 import com.xgls.web.service.RedisService;
 import com.xgls.web.service.UserService;
 import com.xgls.web.utils.JwtUtils;
+import com.xgls.web.utils.AuthenticatedUserUtil;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.SecureUtil;
@@ -35,14 +36,36 @@ public class AuthController {
 
     /** 独立验证登录凭据，兼容开发模式关闭 Shiro 全局过滤的配置。 */
     private User profileUser(HttpServletRequest request) {
-        String token = request.getHeader(CodeMap.X_ACCESS_TOKEN);
-        if (StrUtil.isBlank(token)) return null;
-        String realToken = redisService.getJwtToken(token);
-        if (realToken == null) return null;
-        User principal = JwtUtils.verifyAndGetUser(realToken);
-        if (principal == null) return null;
-        User current = userService.getById(principal.getId());
-        return current != null && CodeMap.USER_STATUS_OK.equals(current.getStatus()) ? current : null;
+        return AuthenticatedUserUtil.current(request, redisService, userService);
+    }
+
+    @GetMapping("users/roles")
+    public AjaxResult userRoles(HttpServletRequest request) {
+        if (!AuthenticatedUserUtil.isPlatformAdmin(profileUser(request)))
+            return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        return AjaxResult.success(userService.list(new LambdaQueryWrapper<User>()
+                .select(User::getId, User::getUsername, User::getNickname, User::getPart, User::getType, User::getStatus)
+                .orderByAsc(User::getId)));
+    }
+
+    @PostMapping("users/role")
+    public AjaxResult changeUserRole(HttpServletRequest request,
+            @org.springframework.web.bind.annotation.RequestParam Long id,
+            @org.springframework.web.bind.annotation.RequestParam Integer type) {
+        User admin = profileUser(request);
+        if (!AuthenticatedUserUtil.isPlatformAdmin(admin)) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        if (id == null || type == null || type < 1 || type > 4) return AjaxResult.error(ErrorCode.PARAMS_WRONG);
+        if (admin.getId().equals(id)) return AjaxResult.error("不能修改自己的权限等级");
+        User target = userService.getById(id);
+        if (target == null) return AjaxResult.error(ErrorCode.USER_NOT_EXIST);
+        if (type.equals(target.getType())) return AjaxResult.success();
+        boolean saved = userService.update(com.baomidou.mybatisplus.core.toolkit.Wrappers.<User>lambdaUpdate()
+                .eq(User::getId, id).set(User::getType, type));
+        if (!saved) return AjaxResult.error("权限等级保存失败");
+        java.util.Set<Object> tokens = redisService.getUserJwt(id);
+        if (tokens != null) for (Object token : tokens) redisService.removeJwtToken(token.toString());
+        redisService.delUserAllJwt(id);
+        return AjaxResult.success();
     }
 
     @GetMapping("profile")

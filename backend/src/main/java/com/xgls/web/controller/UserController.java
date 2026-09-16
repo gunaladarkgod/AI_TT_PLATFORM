@@ -21,6 +21,7 @@ import com.xgls.web.entity.User;
 import com.xgls.web.service.RedisService;
 import com.xgls.web.service.UserService;
 import com.xgls.web.utils.JwtUtils;
+import com.xgls.web.utils.AuthenticatedUserUtil;
 import com.xgls.web.vo.query.UserQuery;
 
 import cn.hutool.core.date.DateTime;
@@ -78,7 +79,11 @@ public class UserController {
 
     @Operation(summary = "添加用户", description = "生成默认密码")
     @PostMapping("add")
-    public AjaxResult add(User user) {
+    public AjaxResult add(User user, HttpServletRequest request) {
+        if (!AuthenticatedUserUtil.isPlatformAdmin(AuthenticatedUserUtil.current(request, redisService, userService)))
+            return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        if (user.getType() == null || user.getType() < 1 || user.getType() > 4)
+            return AjaxResult.error(ErrorCode.PARAMS_WRONG);
         String username = StrUtil.trim(user.getUsername());// 剔除空格
         if (StrUtil.isBlank(username)) {
             return AjaxResult.error(ErrorCode.PARAMS_WRONG);
@@ -120,26 +125,18 @@ public class UserController {
         if (exist == null) {
             return AjaxResult.error(ErrorCode.USER_NOT_EXIST);
         }
+        if (user.getType() != null && !user.getType().equals(exist.getType())) {
+            return AjaxResult.error("请由平台管理员在个人中心的用户权限管理中修改权限等级");
+        }
         // username 不允许修改
         // pmd 不允许修改
         // addtime 不允许修改
         user.setUsername(null);
         user.setPmd(null);
         user.setAddtime(null);
+        user.setType(null); // 资料更新不能写回旧等级，避免并发覆盖管理员的变更。
 
         if (userService.updateById(user)) {
-            // 查看type是否发生改变,如果改变,更新jwt
-            Integer type = user.getType();
-            if (type != null && !type.equals(exist.getType())) {
-                Set<Object> set = redisService.getUserJwt(id);
-                if (set != null && !set.isEmpty()) {
-                    user.setUsername(exist.getUsername());
-                    String newToken = JwtUtils.generateTokenForUser(user);
-                    for (Object item : set) {
-                        redisService.updateJwtToken(item.toString(), newToken);
-                    }
-                }
-            }
             return AjaxResult.success();
         } else {
             return AjaxResult.error();

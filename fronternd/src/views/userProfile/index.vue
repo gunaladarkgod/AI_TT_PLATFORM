@@ -7,7 +7,7 @@
         <el-form :model="form" label-width="80px" @submit.prevent="save">
           <el-form-item label="账号"><el-input :model-value="user.username" disabled /></el-form-item>
           <el-form-item label="人员姓名" required><el-input v-model="form.nickname" maxlength="30" show-word-limit /></el-form-item>
-          <el-form-item label="部门"><el-input v-model="form.part" maxlength="30" /></el-form-item>
+          <el-form-item label="研究方向"><el-input v-model="form.part" maxlength="30" placeholder="例如：小目标检测" /></el-form-item>
           <el-form-item label="手机号"><el-input v-model="form.phone" maxlength="20" /></el-form-item>
           <el-form-item label="个人简介"><el-input v-model="form.remark" type="textarea" :rows="4" maxlength="100" show-word-limit /></el-form-item>
           <el-form-item><el-button type="primary" :loading="saving" :disabled="!loaded" native-type="submit">保存资料</el-button></el-form-item>
@@ -15,12 +15,32 @@
       </el-card>
       <el-card shadow="never">
         <template #header>我的权限</template>
-        <el-tag>{{ role.name }}</el-tag><p class="role-code">{{ role.code }}</p>
+        <el-tag>{{ role.name }}</el-tag>
         <ul><li v-for="item in role.permissions" :key="item">{{ item }}</li></ul>
-        <el-alert v-if="role.code === 'ExperimentOperator'" title="数据集仅供查询和预览，不可导入、修改、删除或重新划分；结果仅供查看。" type="info" :closable="false" />
-        <p class="profile-note">权限由维护人员分配，个人中心不能修改角色。基线、改进包与平台源码通过 GitHub PR 审查维护。</p>
+        <el-alert v-if="Number(user.type) === 3" title="数据集仅供查询和预览，不可导入、修改、删除或重新划分；结果仅供查看。" type="info" :closable="false" />
+        <p class="profile-note">权限由平台管理员分配，不能自行修改自己的等级。研究方向仅用于个人资料展示。基线、改进包与平台源码通过 GitHub PR 审查维护。</p>
       </el-card>
     </div>
+    <el-card v-if="loaded && Number(user.type) === 1" class="role-management" shadow="never">
+      <template #header><div class="management-heading"><span>用户权限管理</span><el-button :loading="rolesLoading" :disabled="savingRoleId !== null" @click="loadRoles">刷新列表</el-button></div></template>
+      <p class="profile-note">选择其他用户的权限等级后点击保存。修改后，该用户需要重新登录。</p>
+      <el-alert v-if="rolesError" title="用户列表加载失败，请点击刷新列表重试。" type="warning" :closable="false" />
+      <el-table :data="users" v-loading="rolesLoading" empty-text="暂无用户">
+        <el-table-column prop="username" label="账号" min-width="140" />
+        <el-table-column prop="nickname" label="人员姓名" min-width="120" />
+        <el-table-column prop="part" label="研究方向" min-width="140" />
+        <el-table-column label="当前等级" min-width="120"><template #default="{ row }">{{ getRole(row).name }}</template></el-table-column>
+        <el-table-column label="权限等级" min-width="180"><template #default="{ row }">
+          <el-select v-model="draftRoles[row.id]" :disabled="isSelf(row) || savingRoleId !== null" aria-label="权限等级">
+            <el-option v-for="(item, id) in ROLE_DEFINITIONS" :key="id" :value="Number(id)" :label="item.name" />
+          </el-select>
+        </template></el-table-column>
+        <el-table-column label="操作" width="110"><template #default="{ row }">
+          <span v-if="isSelf(row)" class="profile-note">当前用户</span>
+          <el-button v-else type="primary" :loading="savingRoleId === row.id" :disabled="savingRoleId !== null || Number(draftRoles[row.id]) === Number(row.type)" @click="saveRole(row)">保存</el-button>
+        </template></el-table-column>
+      </el-table>
+    </el-card>
     <el-alert v-if="!loaded && !loading" title="资料加载失败，请重试。" type="warning" :closable="false"><el-button text @click="load">重新加载</el-button></el-alert>
   </div>
 </template>
@@ -29,12 +49,38 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores'
 import { UserService } from '@/api/api'
-import { getRole } from '@/config/permissions'
+import { getRole, ROLE_DEFINITIONS } from '@/config/permissions'
 const store = useUserStore()
 const user = computed(() => store.user)
 const role = computed(() => getRole(user.value))
 const form = reactive({ nickname: '', phone: '', part: '', remark: '' })
 const loading = ref(false), saving = ref(false), loaded = ref(false)
+const users = ref([]), rolesLoading = ref(false), rolesError = ref(false), savingRoleId = ref(null)
+const draftRoles = reactive({})
+const isSelf = row => String(row.id) === String(user.value.id)
+async function loadRoles() {
+  if (Number(user.value.type) !== 1) return
+  rolesLoading.value = true
+  rolesError.value = false
+  try {
+    const res = await UserService.userRoles()
+    if (res.code !== 0) throw new Error(res.msg)
+    users.value = res.data || []
+    for (const row of users.value) draftRoles[row.id] = Number(row.type)
+  } catch { rolesError.value = true; users.value = [] }
+  finally { rolesLoading.value = false }
+}
+async function saveRole(row) {
+  if (isSelf(row) || savingRoleId.value !== null) return
+  const type = Number(draftRoles[row.id])
+  savingRoleId.value = row.id
+  try {
+    const res = await UserService.changeUserRole({ id: row.id, type })
+    if (res.code === 0) { row.type = type; ElMessage.success('权限等级已更新，该用户需要重新登录') }
+    else ElMessage.warning(res.msg)
+  } catch { ElMessage.error('权限等级保存失败，请重试') }
+  finally { savingRoleId.value = null }
+}
 function accept(data) {
   store.setUser(data)
   for (const key of Object.keys(form)) form[key] = data[key] || ''
@@ -42,7 +88,7 @@ function accept(data) {
 }
 async function load() {
   loading.value = true
-  try { const res = await UserService.profile(); if (res.code === 0) accept(res.data); else ElMessage.warning(res.msg) }
+  try { const res = await UserService.profile(); if (res.code === 0) { accept(res.data); await loadRoles() } else ElMessage.warning(res.msg) }
   catch { ElMessage.error('个人资料加载失败') }
   finally { loading.value = false }
 }
@@ -60,7 +106,9 @@ onMounted(load)
 .profile-heading { display: flex; align-items: center; gap: 18px; margin-bottom: 28px; }
 h1 { margin: 0; font-size: 26px; } p { line-height: 1.7; }
 .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-.role-code, .profile-note { color: var(--el-text-color-secondary); }
+.role-management { margin-top: 24px; }
+.management-heading { display: flex; align-items: center; justify-content: space-between; }
+.profile-note { color: var(--el-text-color-secondary); }
 ul { padding-left: 22px; } li { margin: 16px 0; line-height: 1.7; }
 @media (max-width: 760px) { .profile-grid { grid-template-columns: 1fr; } }
 </style>

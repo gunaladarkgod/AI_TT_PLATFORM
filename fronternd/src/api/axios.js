@@ -6,9 +6,7 @@ import { ElMessage } from 'element-plus'
 import { useLoginStore, useUserStore } from '../stores/index'
 import { canMaintain, isMaintenanceRequest } from '@/config/permissions'
 
-import { useRouter } from "vue-router";
-
-const router = useRouter()
+import router from '../router'
 
 // 启用代理的开关
 let useProxyFlag = process.env.NODE_ENV == 'development';

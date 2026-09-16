@@ -1,6 +1,6 @@
 // 保留旧账号含义：1 平台管理员、2 基线维护者、3 实验操作员；4 为改进开发者。
 export const ROLE_DEFINITIONS = Object.freeze({
-  1: { code: 'PlatformAdmin', name: '平台管理员', permissions: ['平台操作与跨层集成', '用户管理、平台配置、Runner 与引擎适配通过 GitHub 协作维护'] },
+  1: { code: 'PlatformAdmin', name: '平台管理员', permissions: ['在个人中心查看用户列表，修改其他用户的权限等级', '平台操作与跨层集成', '平台配置、Runner 与引擎适配通过 GitHub 协作维护'] },
   2: { code: 'BaselineMaintainer', name: '基线维护者', permissions: ['数据集准备、训练任务与结果管理', '基线定义、源码与默认参数通过 GitHub PR 审查维护'] },
   3: { code: 'ExperimentOperator', name: '实验操作员', permissions: ['查询和预览已有数据集', '选择已开放基线与改进包，调整允许的实验参数', '创建、编辑和运行训练任务，查看结果、日志与配置'] },
   4: { code: 'ImprovementDeveloper', name: '改进开发者', permissions: ['导入、修改、删除数据集，维护标签映射与预处理脚本', '创建实例数据集、调整训测划分', '训练任务与结果管理', '改进包定义、模块源码和参数通过 GitHub PR 审查维护'] },
