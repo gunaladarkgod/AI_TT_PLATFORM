@@ -4,6 +4,7 @@
 -->
 <template>
   <div class="unified-task-panel app-list-page" :class="{ 'unified-task-panel--embed': embedMode }">
+    <PermissionNotice />
     <div class="content" :class="{ 'content--embed': embedMode }">
       <el-card class="original-dataset-panel app-list-panel" :class="{ 'original-dataset-panel--embed': embedMode }" shadow="never">
         <div class="original-dataset-panel__main original-dataset-panel__main--embed">
@@ -39,7 +40,7 @@
                 placeholder="Type to search"
                 class="original-dataset-toolbar-search"
               />
-              <el-button type="primary" size="small" @click="createTaskDialogVisible = true">
+              <el-button v-permission type="primary" size="small" @click="createTaskDialogVisible = true">
                 创建任务
               </el-button>
             </div>
@@ -130,7 +131,7 @@
                         :show-after="200"
                       >
                         <span class="card-header-action-wrap">
-                          <el-button
+                          <el-button v-permission
                             :type="exportButtonType(task)"
                             size="small"
                             :loading="exportLoadingTaskName === task.name"
@@ -147,7 +148,7 @@
                       :show-after="200"
                     >
                         <span class="card-header-action-wrap">
-                          <el-button type="warning" plain size="small" @click.stop="clearTask(task)">
+                          <el-button v-permission type="warning" plain size="small" @click.stop="clearTask(task)">
                             清除导出数据集
                           </el-button>
                         </span>
@@ -203,20 +204,20 @@
 
                 <div class="task-card-footer" @click.stop>
                   <div class="task-card-footer-left">
-                    <el-button plain @click="jumpToTaskMappingEditor(task)">查看和编辑映射关系</el-button>
+                    <el-button v-permission plain @click="jumpToTaskMappingEditor(task)">查看和编辑映射关系</el-button>
                     <el-button plain :disabled="!hasExportedDataset(task)" @click="openTaskPath(task)">
                       打开路径
                     </el-button>
                   </div>
                   <div class="task-card-footer-right">
-                    <el-button type="primary" plain @click="editTask(task)">编辑</el-button>
+                    <el-button v-permission type="primary" plain @click="editTask(task)">编辑</el-button>
                     <el-tooltip
                       content="从列表中删除该任务定义（tasks.json）。确认时可选择是否同时清理本地已导出的中间数据；默认推荐一并清理。"
                       placement="top"
                       :show-after="200"
                     >
                       <span class="card-header-action-wrap">
-                        <el-button type="danger" plain @click="deleteTask(task)">删除</el-button>
+                        <el-button v-permission type="danger" plain @click="deleteTask(task)">删除</el-button>
                       </span>
                     </el-tooltip>
                   </div>
@@ -419,7 +420,7 @@
                       </el-button>
                       <template #dropdown>
                         <el-dropdown-menu>
-                          <el-dropdown-item
+                          <el-dropdown-item v-permission
                             command="export"
                             :disabled="row.mapping_status_code !== 'ok' || row.status_code === 'ready'"
                           >
@@ -428,16 +429,16 @@
                           <el-dropdown-item command="openPath" :disabled="!hasExportedDataset(row)">
                             打开路径
                           </el-dropdown-item>
-                          <el-dropdown-item command="clear" divided>
+                          <el-dropdown-item v-permission command="clear" divided>
                             清除导出数据集
                           </el-dropdown-item>
                           <el-dropdown-item command="preview">
                             查看示例
                           </el-dropdown-item>
-                          <el-dropdown-item command="mapping">
+                          <el-dropdown-item v-permission command="mapping">
                             查看和编辑映射
                           </el-dropdown-item>
-                          <el-dropdown-item command="edit">
+                          <el-dropdown-item v-permission command="edit">
                             编辑任务
                           </el-dropdown-item>
                         </el-dropdown-menu>
@@ -448,7 +449,7 @@
                       placement="top"
                       :show-after="200"
                     >
-                      <el-button type="danger" plain size="small" @click="deleteTask(row)">
+                      <el-button v-permission type="danger" plain size="small" @click="deleteTask(row)">
                         删除
                       </el-button>
                     </el-tooltip>
@@ -527,7 +528,7 @@
               @keyup.enter="confirmAddTargetTag"
               @blur="confirmAddTargetTag"
             />
-            <el-button v-else size="small" @click="showTargetInput">
+            <el-button v-permission v-else size="small" @click="showTargetInput">
               + 添加类别
             </el-button>
           </div>
@@ -564,7 +565,7 @@
         </el-form-item>
         <el-form-item class="action-form-item">
           <el-button @click="createTaskDialogVisible = false">取消</el-button>
-          <el-button type="primary" :loading="createLoading" @click="onCreateTaskSubmit">创建任务基础结构</el-button>
+          <el-button v-permission type="primary" :loading="createLoading" @click="onCreateTaskSubmit">创建任务基础结构</el-button>
         </el-form-item>
       </el-form>
     </el-dialog>
@@ -643,7 +644,7 @@
             :title="`以下数据集当前未在可用列表中找到：${missingDatasets.join('、')}`"
           />
           <div class="auto-map-bar">
-            <el-button type="primary" plain @click="applyAutoMapping">自动映射</el-button>
+            <el-button v-permission type="primary" plain @click="applyAutoMapping">自动映射</el-button>
             <el-checkbox v-model="autoMapCaseSensitive">区分大小写</el-checkbox>
             <el-checkbox v-model="autoMapStrict">严格匹配</el-checkbox>
             <el-checkbox v-model="autoMapOverwrite">覆盖已有映射</el-checkbox>
@@ -720,7 +721,7 @@
             </div>
           </div>
           <div class="save-bar">
-            <el-button type="primary" :loading="saveLoading" @click="saveMappingRules">
+            <el-button v-permission type="primary" :loading="saveLoading" @click="saveMappingRules">
               更新任务映射规则
             </el-button>
           </div>
@@ -791,7 +792,7 @@
               @keyup.enter="confirmAddEditTargetTag"
               @blur="confirmAddEditTargetTag"
             />
-            <el-button v-else size="small" @click="showEditTargetInput">
+            <el-button v-permission v-else size="small" @click="showEditTargetInput">
               + 添加类别
             </el-button>
           </div>
@@ -831,11 +832,11 @@
       <template #footer>
         <div class="edit-dialog-footer">
           <div class="edit-dialog-footer-left">
-            <el-button plain @click="jumpToMappingFromEditDialog">查看和编辑映射关系</el-button>
+            <el-button v-permission plain @click="jumpToMappingFromEditDialog">查看和编辑映射关系</el-button>
           </div>
           <div class="edit-dialog-footer-right">
             <el-button @click="editDialogVisible = false">取消</el-button>
-            <el-button type="primary" :loading="editLoading" @click="submitEditTask">
+            <el-button v-permission type="primary" :loading="editLoading" @click="submitEditTask">
               保存修改
             </el-button>
           </div>
@@ -853,6 +854,7 @@
 </template>
 
 <script setup>
+import PermissionNotice from '@/components/PermissionNotice.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'

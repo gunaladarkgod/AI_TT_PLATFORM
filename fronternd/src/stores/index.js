@@ -4,6 +4,7 @@ import { transformRoutes,buildMenuTree} from '@/utils/routeUtils'
 import {MenuService} from '@/api/api'
 import {apiRequest} from '@/api/axios'
 import { ensureTopNavigationMenus } from '@/config/topNavigation'
+import { canVisitPage } from '@/config/permissions'
 
 function injectDevTaskDatasetMenu(menuList = []) {
   const list = Array.isArray(menuList) ? [...menuList] : []
@@ -133,6 +134,7 @@ export const useMenuStore=defineStore({
         let withDevMenu = injectDevTaskDatasetMenu(data)
         withDevMenu = injectOldTaskDatabaseMenu(withDevMenu)
         withDevMenu = ensureTopNavigationMenus(withDevMenu)
+        withDevMenu = withDevMenu.filter(menu => canVisitPage(useUserStore().user, menu.url || ''))
         this.menuList = withDevMenu
         this.menuRenderList = buildMenuTree(withDevMenu)
       } catch (error) {
@@ -165,7 +167,7 @@ export const useMenuStore=defineStore({
 
     resetRouter() {
       router.getRoutes().forEach(route => {
-        if (route.name && !['Layout', 'Login', 'Register'].includes(route.name)) {
+        if (route.name && !['Layout', 'Login', 'Register', 'UserProfile'].includes(route.name)) {
           router.removeRoute(route.name)
         }
       })

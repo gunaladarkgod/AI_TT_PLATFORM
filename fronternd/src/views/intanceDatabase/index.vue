@@ -1,5 +1,6 @@
 ﻿<template>
   <div class="content app-list-page" :class="{ 'content--embed': embedMode }">
+    <PermissionNotice />
     <!-- 统合内嵌：与「原始数据集」同构 — el-card 内工具行 + 可滚动主区域，分页在 card footer -->
     <el-card
       v-if="useInstanceUnifiedPanel"
@@ -83,8 +84,8 @@
                         <el-dropdown-item command="detail">查看详情</el-dropdown-item>
                         <el-dropdown-item command="preview">查看示例</el-dropdown-item>
                         <el-dropdown-item command="openPath">打开路径</el-dropdown-item>
-                        <el-dropdown-item command="split">随机训测划分</el-dropdown-item>
-                        <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                        <el-dropdown-item v-permission command="split">随机训测划分</el-dropdown-item>
+                        <el-dropdown-item v-permission command="delete" divided>删除</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
                   </el-dropdown>
@@ -150,7 +151,7 @@
                 <template #default="{ row: ds }">
                   <el-popconfirm title="确定要删除该实例数据集吗？" @confirm="handleDelete(ds.id)">
                     <template #reference>
-                      <el-button link type="danger" size="small" @click.stop>删除</el-button>
+                      <el-button v-permission link type="danger" size="small" @click.stop>删除</el-button>
                     </template>
                   </el-popconfirm>
                 </template>
@@ -273,8 +274,8 @@
                         <el-dropdown-item command="detail">查看详情</el-dropdown-item>
                         <el-dropdown-item command="preview">查看示例</el-dropdown-item>
                         <el-dropdown-item command="openPath">打开路径</el-dropdown-item>
-                        <el-dropdown-item command="split">随机训测划分</el-dropdown-item>
-                        <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                        <el-dropdown-item v-permission command="split">随机训测划分</el-dropdown-item>
+                        <el-dropdown-item v-permission command="delete" divided>删除</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
                   </el-dropdown>
@@ -340,7 +341,7 @@
                 <template #default="{ row: ds }">
                   <el-popconfirm title="确定要删除该实例数据集吗？" @confirm="handleDelete(ds.id)">
                     <template #reference>
-                      <el-button link type="danger" size="small" @click.stop>删除</el-button>
+                      <el-button v-permission link type="danger" size="small" @click.stop>删除</el-button>
                     </template>
                   </el-popconfirm>
                 </template>
@@ -424,7 +425,7 @@
                 @confirm="handleDelete(row.id)"
               >
                 <template #reference>
-                  <el-button link type="danger" size="small" style="padding: 0; height: auto;">
+                  <el-button v-permission link type="danger" size="small" style="padding: 0; height: auto;">
                     <el-tag size="small" type="danger" class="fontSpan">
                       删除
                     </el-tag>
@@ -462,7 +463,7 @@
       </el-form>
       <template #footer>
         <el-button @click="instanceSplitDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="instanceSplitLoading" @click="submitInstanceRandomSplit">
+        <el-button v-permission type="primary" :loading="instanceSplitLoading" @click="submitInstanceRandomSplit">
           确定划分
         </el-button>
       </template>
@@ -589,7 +590,7 @@
             </el-checkbox>
           </el-checkbox-group>
         </el-card>
-        <el-button type="primary" @click="saveTrainTestSplit" class="mt-16" style="width: 100%">
+        <el-button v-permission type="primary" @click="saveTrainTestSplit" class="mt-16" style="width: 100%">
           保存训测划分
         </el-button>
       </div>
@@ -604,6 +605,7 @@
 </template>
 
 <script setup>
+import PermissionNotice from '@/components/PermissionNotice.vue'
 import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { TaskDatasetService, InstanceDatasetService, SourceInstanceDatasetService } from '@/api/api'

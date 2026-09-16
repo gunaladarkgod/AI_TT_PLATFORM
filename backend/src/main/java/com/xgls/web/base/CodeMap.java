@@ -51,6 +51,7 @@ public class CodeMap {
     public final static Integer USER_TYPE_SYS = 1; // 系统管理员
     public final static Integer USER_TYPE_ADMIN = 2; // 管理员 暂时不用
     public final static Integer USER_TYPE_OTHER = 3; // 普通用户
+    public final static Integer USER_TYPE_IMPROVEMENT = 4; // 改进开发者
 
     public final static String ROLE_SYS = "sys"; // 系统管理员
     public final static String ROLE_ADMIN = "admin"; // 管理员 暂时不用
@@ -64,6 +65,7 @@ public class CodeMap {
         RoleMap.put(USER_TYPE_SYS, ROLE_SYS);
         RoleMap.put(USER_TYPE_ADMIN, ROLE_ADMIN);// 暂未使用
         RoleMap.put(USER_TYPE_OTHER, ROLE_USER);
+        RoleMap.put(USER_TYPE_IMPROVEMENT, "ImprovementDeveloper");
     }
 
     // ================= 路径/目录常量 =================

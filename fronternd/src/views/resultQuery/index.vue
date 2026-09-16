@@ -2,6 +2,7 @@
 
 <template>
   <div class="content app-list-page">
+    <PermissionNotice />
     <div class="search-div app-list-toolbar flex-between">
       <div class="flex-start gap-8">
         <el-button size="small" @click="clearTableColumnFilters">清除列筛选</el-button>
@@ -15,10 +16,10 @@
           clearable
           class="result-search"
         />
-        <el-button size="small" type="primary" class="result-manage-button" @click="toggleManageMode">
+        <el-button v-permission size="small" type="primary" class="result-manage-button" @click="toggleManageMode">
           {{ manageMode ? '完成管理' : '管理' }}
         </el-button>
-        <el-button
+        <el-button v-permission
           v-if="manageMode"
           size="small"
           type="danger"
@@ -121,7 +122,7 @@
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
-              <el-button v-if="!row.training" type="danger" size="small" @click="deleteResult(row)">删除</el-button>
+              <el-button v-permission v-if="!row.training" type="danger" size="small" @click="deleteResult(row)">删除</el-button>
             </div>
           </template>
         </el-table-column>
@@ -160,7 +161,7 @@
       </div>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
-        <el-button v-if="!detailForm.training" type="primary" :loading="detailSaving" @click="saveResultDetail">保存</el-button>
+        <el-button v-permission v-if="!detailForm.training" type="primary" :loading="detailSaving" @click="saveResultDetail">保存</el-button>
       </template>
     </el-dialog>
 
@@ -174,6 +175,7 @@
 </template>
 
 <script setup>
+import PermissionNotice from '@/components/PermissionNotice.vue'
     import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
     import { ElMessage, ElMessageBox } from 'element-plus';
     import { ArrowDown, Document, FolderOpened, View } from '@element-plus/icons-vue';
