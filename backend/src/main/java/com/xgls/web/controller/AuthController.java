@@ -59,6 +59,25 @@ public class AuthController {
         return AjaxResult.success(token);
     }
 
+    @Operation(summary = "用户注册", description = "注册普通用户账户")
+    @PostMapping("register")
+    public AjaxResult register(String username, String pmd) {
+        if (StrUtil.isBlank(username) || StrUtil.isBlank(pmd)) return AjaxResult.error(ErrorCode.PARAMS_WRONG);
+        username = StrUtil.trim(username);
+        if (!username.matches("[A-Za-z0-9_]+")) return AjaxResult.error(ErrorCode.PARAMS_WRONG);
+        if (userService.count(new LambdaQueryWrapper<User>().eq(User::getUsername, username)) > 0) {
+            return AjaxResult.error(ErrorCode.ACCOUNT_HAS_EXIST);
+        }
+        User user = new User();
+        user.setUsername(username);
+        user.setPmd(SecureUtil.md5(pmd + CodeMap.XGLS));
+        user.setType(CodeMap.USER_TYPE_OTHER);
+        user.setStatus(CodeMap.USER_STATUS_OK);
+        user.setNickname(username);
+        user.setAddtime(cn.hutool.core.date.DateTime.now().toString());
+        return userService.save(user) ? AjaxResult.success() : AjaxResult.error();
+    }
+
     @Operation(summary = "退出登录", description = "退出登录")
     @PostMapping("logout")
     public AjaxResult logout(HttpServletRequest request) {
