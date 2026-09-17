@@ -3,7 +3,6 @@
 import { useLoginStore ,useUserStore,useMenuStore} from '@/stores/index'
 import Layout from '../components/layout/index.vue'
 import Login from '../views/login.vue'
-import Register from '../views/register.vue'
 import EngineProject from '../views/old_views/engineProject/index.vue'
 import TaskDatasetManageDev from '../views/old_views/taskDatasetManageDev/index.vue'
 import DatasetManageUnified from '../views/datasetManageUnified/index.vue'
@@ -15,12 +14,6 @@ const routes=[
       name: 'Login',
       component: Login,
       meta: { title: '用户登录' }
-    },
-    {
-      path: '/register',
-      name: 'Register',
-      component: Register,
-      meta: { title: '用户注册' }
     },
     {
       path:'/layout',
@@ -67,7 +60,7 @@ router.beforeEach(async (to, from) => { // 使用return替代next参数
   const loginStore = useLoginStore()
   const menuStore = useMenuStore()
   //  处理登录页特殊逻辑
-  if (to.path.toLowerCase() === '/login' || to.path.toLowerCase() === '/register') {
+  if (to.path.toLowerCase() === '/login') {
     if(!loginStore.token){
       // 无token时重置路由（仅清除动态路由）
       menuStore.resetRouter()
