@@ -8,6 +8,9 @@ export class AuthService {
     static async logout() {
         return request('/auth/logout', {}, 'post');
     }
+    static async register(params) {
+        return request('/auth/register', params, 'post');
+    }
 }
 
 /** 项目文档 */

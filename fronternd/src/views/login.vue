@@ -44,9 +44,12 @@
             </div>
           </el-form>
           <el-button class="login-btn" type="primary" :loading="loginLoading" @click="submit">登录</el-button>
-          <div v-if="savedAccounts.length" class="account-actions">
+          <div class="account-actions">
             <el-button text type="primary" @click="clearCurrentAccount">切换账户</el-button>
-            <el-button v-if="selectedSavedAccount" text type="danger" @click="forgetCurrentAccount">移除此账户</el-button>
+            <div class="account-action-right">
+              <el-button v-if="selectedSavedAccount" text type="danger" @click="forgetCurrentAccount">移除此账户</el-button>
+              <el-button text type="primary" @click="router.push('/register')">注册账号</el-button>
+            </div>
           </div>
           <p class="login-security-tip">“记住密码”仅保存本机登录凭据摘要，请勿在公共电脑启用。</p>
         </div>
@@ -188,6 +191,7 @@ async function submit({ pmd: specifiedPmd } = {}) {
 }
 
 onMounted(async () => {
+  if (typeof route.query.username === 'string') form.username = route.query.username
   const loginStore = useLoginStore()
   // 主动退出或切换账户时，必须停留在登录页；自动登录只在正常打开系统时执行。
   if (route.query.switch === '1' || route.query.manualLogout === '1') return
@@ -219,5 +223,6 @@ onMounted(async () => {
 .login-options, .account-actions { display: flex; align-items: center; justify-content: space-between; }
 .login-options { margin: -2px 0 18px; }
 .account-actions { margin-top: 8px; }
+.account-action-right { display: flex; align-items: center; }
 .saved-password-hint, .login-security-tip { margin: 7px 0 0; color: #909399; font-size: 12px; line-height: 1.5; text-align: left; }
 </style>
