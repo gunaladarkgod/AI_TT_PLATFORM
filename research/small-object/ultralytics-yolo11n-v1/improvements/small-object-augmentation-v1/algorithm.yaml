@@ -1,0 +1,45 @@
+schema_version: 1
+id: small-object/ultralytics-yolo11n-v1/small-object-augmentation-v1
+kind: improvement
+name: 小目标增强策略 v1
+parent: small-object/ultralytics-yolo11n-v1
+direction: small-object
+engine: ultralytics
+engine_version: 8.4.115
+status: draft
+data_format: yolo
+entry: ultralytics/train
+source_root: .
+description: 针对小目标检测开启可复现的 Mosaic 与尺度增强参数；所有参数均由官方 Ultralytics 训练接口支持。
+stack:
+  enabled: true
+  priority: 20
+  requires: []
+  conflicts: []
+  override_paths:
+    - train.augmentation
+parameters:
+  - key: mosaic
+    label: Mosaic 增强
+    description: 将多张图片拼接为一张训练图，增强小目标出现位置和尺度的多样性。
+    type: boolean
+    default: true
+    config_path: train.mosaic
+  - key: close_mosaic
+    label: 关闭 Mosaic 的末尾轮次
+    description: 训练结束前停止 Mosaic 的 epoch 数，避免末期验证结果波动。
+    type: integer
+    default: 10
+    min: 0
+    max: 100
+    step: 1
+    config_path: train.close_mosaic
+  - key: scale
+    label: 尺度增强幅度
+    description: 随机缩放的最大变化比例；值越大，尺度扰动越明显。
+    type: number
+    default: 0.5
+    min: 0.0
+    max: 0.9
+    step: 0.05
+    config_path: train.scale

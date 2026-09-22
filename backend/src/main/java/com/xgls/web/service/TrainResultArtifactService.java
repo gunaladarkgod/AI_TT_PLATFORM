@@ -65,7 +65,7 @@ public class TrainResultArtifactService {
         meta.set("resultDir", workDir.toString());
 
         Path configSource = TrainConfigPathUtil.findExistingConfig(
-                WorkspacePathUtil.workspaceRoot().resolve("mmdet_run").resolve("myfiles"), task.getName());
+                WorkspacePathUtil.workspaceRoot().resolve("engines").resolve("mmdet_run").resolve("myfiles"), task.getName());
         if (configSource == null) {
             meta.set("configStatus", "当前任务没有可复制的 config.py（自定义 fixed 任务可不使用 MMDet 配置）");
             writeMeta(meta);

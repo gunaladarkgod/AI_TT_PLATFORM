@@ -33,8 +33,8 @@ public final class WorkspacePathUtil {
             for (Path candidate = probe; candidate != null; candidate = candidate.getParent()) {
                 boolean hasBackend = Files.isDirectory(candidate.resolve("backend"));
                 boolean hasFrontend = Files.isDirectory(candidate.resolve("fronternd"));
-                boolean hasMmdet = Files.isDirectory(candidate.resolve("mmdet_run"));
-                if (hasBackend && (hasFrontend || hasMmdet)) {
+                boolean hasMmdetEngine = Files.isDirectory(candidate.resolve("engines").resolve("mmdet_run"));
+                if (hasBackend && (hasFrontend || hasMmdetEngine)) {
                     return candidate;
                 }
             }

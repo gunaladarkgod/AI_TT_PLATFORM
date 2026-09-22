@@ -17,7 +17,7 @@ spring:
     resources:
       static-locations: >
         file:${STATIC_ROOT:static}/,
-        file:${MMDET_UPLOAD_ROOT:mmdet_run/myfiles}/
+        file:${MMDET_UPLOAD_ROOT:engines/mmdet_run/myfiles}/
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: ${DB_URL:jdbc:mysql://localhost:3306/ai_zm_master?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=GMT%2B8&allowPublicKeyRetrieval=true}
@@ -73,32 +73,32 @@ sys:
   task-dataset-root: ${TASK_DATASET_ROOT:data/task_dataset}
   instance-dataset-mid-root: ${INSTANCE_DATASET_MID_ROOT:data/instance_dataset_mid}
   instance-dataset-root: ${INSTANCE_DATASET_ROOT:data/instance_dataset}
-  root-logger: ${MMDET_LOG_ROOT:mmdet_run/logs/}
-  root-upload: ${MMDET_UPLOAD_ROOT:mmdet_run/myfiles/}
+  root-logger: ${MMDET_LOG_ROOT:engines/mmdet_run/logs/}
+  root-upload: ${MMDET_UPLOAD_ROOT:engines/mmdet_run/myfiles/}
   modelcfg:
     local-model-path:
       faster-rcnn:
-        resnet: "mmdet_run/myfiles/defaultModelConfig/CNN/faster_rcnn/faster_rcnn_resnet.py"
-        convnext: "mmdet_run/myfiles/defaultModelConfig/CNN/faster_rcnn/faster_rcnn_convnext.py"
-        swint: "mmdet_run/myfiles/defaultModelConfig/CNN/faster_rcnn/faster_rcnn_swint.py"
+        resnet: "engines/mmdet_run/myfiles/defaultModelConfig/CNN/faster_rcnn/faster_rcnn_resnet.py"
+        convnext: "engines/mmdet_run/myfiles/defaultModelConfig/CNN/faster_rcnn/faster_rcnn_convnext.py"
+        swint: "engines/mmdet_run/myfiles/defaultModelConfig/CNN/faster_rcnn/faster_rcnn_swint.py"
       cascade-rcnn:
-        resnet: "mmdet_run/myfiles/defaultModelConfig/CNN/cascade_rcnn/cascade_rcnn_resnet.py"
-        convnext: "mmdet_run/myfiles/defaultModelConfig/CNN/cascade_rcnn/cascade_rcnn_convnext.py"
-        swint: "mmdet_run/myfiles/defaultModelConfig/CNN/cascade_rcnn/cascade_rcnn_swint.py"
+        resnet: "engines/mmdet_run/myfiles/defaultModelConfig/CNN/cascade_rcnn/cascade_rcnn_resnet.py"
+        convnext: "engines/mmdet_run/myfiles/defaultModelConfig/CNN/cascade_rcnn/cascade_rcnn_convnext.py"
+        swint: "engines/mmdet_run/myfiles/defaultModelConfig/CNN/cascade_rcnn/cascade_rcnn_swint.py"
       detectors:
-        resnet: "mmdet_run/myfiles/defaultModelConfig/CNN/detectors/detectors_resnet.py"
+        resnet: "engines/mmdet_run/myfiles/defaultModelConfig/CNN/detectors/detectors_resnet.py"
       detr:
-        resnet: "mmdet_run/myfiles/defaultModelConfig/DETR/detr/detr_r50_8xb2-150e_coco.py"
-        swint: "mmdet_run/myfiles/defaultModelConfig/DETR/detr/detr_swin_8xb2-150e_coco.py"
+        resnet: "engines/mmdet_run/myfiles/defaultModelConfig/DETR/detr/detr_r50_8xb2-150e_coco.py"
+        swint: "engines/mmdet_run/myfiles/defaultModelConfig/DETR/detr/detr_swin_8xb2-150e_coco.py"
       dino:
-        resnet: "mmdet_run/myfiles/defaultModelConfig/DETR/dino/dino-4scale_r50_8xb2-12e_coco.py"
-        swint: "mmdet_run/myfiles/defaultModelConfig/DETR/dino/dino-5scale_swin-l_8xb2-12e_coco.py"
+        resnet: "engines/mmdet_run/myfiles/defaultModelConfig/DETR/dino/dino-4scale_r50_8xb2-12e_coco.py"
+        swint: "engines/mmdet_run/myfiles/defaultModelConfig/DETR/dino/dino-5scale_swin-l_8xb2-12e_coco.py"
       deformable-detr:
-        resnet: "mmdet_run/myfiles/defaultModelConfig/DETR/deformable_detr/deformable-detr_r50_16xb2-50e_coco.py"
-        swint: "mmdet_run/myfiles/defaultModelConfig/DETR/deformable_detr/deformable-detr_swin_16xb2-50e_coco.py"
-    local-data-path: "mmdet_run/myfiles/defaultModelConfig/dataset.py"
-    local-train-path: "mmdet_run/myfiles/defaultModelConfig/schedule.py"
-    local-runtime-path: "mmdet_run/myfiles/defaultModelConfig/default_runtime.py"
+        resnet: "engines/mmdet_run/myfiles/defaultModelConfig/DETR/deformable_detr/deformable-detr_r50_16xb2-50e_coco.py"
+        swint: "engines/mmdet_run/myfiles/defaultModelConfig/DETR/deformable_detr/deformable-detr_swin_16xb2-50e_coco.py"
+    local-data-path: "engines/mmdet_run/myfiles/defaultModelConfig/dataset.py"
+    local-train-path: "engines/mmdet_run/myfiles/defaultModelConfig/schedule.py"
+    local-runtime-path: "engines/mmdet_run/myfiles/defaultModelConfig/default_runtime.py"
   instancecfg:
     instancedata-mid-root: "${INSTANCE_DATA_MID_ROOT:data/instance_dataset_mid/}"  # 中间实例数据集根目录
     script-storage-dir: "${INSTANCE_SCRIPT_DIR:data/preprocess_scripts/}"
@@ -112,8 +112,8 @@ sys:
     auto-start: ${RUNNER_AUTO_START:true}
     # 停止后端时是否同时结束本进程拉起的 Runner（默认 false，避免 IDE 点 Stop 后 8009 被关掉）
     auto-stop-on-shutdown: ${RUNNER_AUTO_STOP_ON_SHUTDOWN:false}
-    launch-script: "${RUNNER_LAUNCH_SCRIPT:mmdet_run/mmdet_runner_srv/start_runner.sh}"
-    auto-start-log: "${RUNNER_AUTO_START_LOG:mmdet_run/logs/runner-autostart.log}"
+    launch-script: "${RUNNER_LAUNCH_SCRIPT:engines/mmdet_run/mmdet_runner_srv/start_runner.sh}"
+    auto-start-log: "${RUNNER_AUTO_START_LOG:engines/mmdet_run/logs/runner-autostart.log}"
 
 
 

@@ -20,6 +20,7 @@ import './assets/iconfont/iconfont.css'
 import './style.css'
 //全局注册自定义指令
 import elHeightAdaptiveTable from './directives/el-table-adaptive'
+import permission from './directives/permission'
 //vxe ui插件引入
 import VxeUIAll from 'vxe-pc-ui'
 import 'vxe-pc-ui/lib/style.css'
@@ -37,6 +38,7 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 app.use(createPinia().use(piniaPluginPersistedstate))
 
 app.directive('elHeightAdaptiveTable', elHeightAdaptiveTable) //表格高度自定义指令
+app.directive('permission', permission)
 app.use(router).use(VxeUIAll).use(VxeUITable)
 app.use(ElementPlus, { locale: zhCn, })
 app.mount("#app")

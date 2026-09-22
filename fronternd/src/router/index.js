@@ -3,9 +3,11 @@
 import { useLoginStore ,useUserStore,useMenuStore} from '@/stores/index'
 import Layout from '../components/layout/index.vue'
 import Login from '../views/login.vue'
+import Register from '../views/register.vue'
 import EngineProject from '../views/old_views/engineProject/index.vue'
 import TaskDatasetManageDev from '../views/old_views/taskDatasetManageDev/index.vue'
 import DatasetManageUnified from '../views/datasetManageUnified/index.vue'
+import { canVisitPage } from '@/config/permissions'
 
 const routes=[
     {
@@ -15,10 +17,17 @@ const routes=[
       meta: { title: '用户登录' }
     },
     {
+      path: '/register',
+      name: 'Register',
+      component: Register,
+      meta: { title: '用户注册' }
+    },
+    {
       path:'/layout',
       name:'Layout',
       component:Layout,
       children: [
+        { path: '/userProfile', name: 'UserProfile', component: () => import('@/views/userProfile/index.vue'), meta: { title: '个人中心' } },
         {
           path: '/taskDatasetManageDev',
           name: 'taskDatasetManageDev',
@@ -58,7 +67,7 @@ router.beforeEach(async (to, from) => { // 使用return替代next参数
   const loginStore = useLoginStore()
   const menuStore = useMenuStore()
   //  处理登录页特殊逻辑
-  if (to.path.toLowerCase() === '/login') {
+  if (to.path.toLowerCase() === '/login' || to.path.toLowerCase() === '/register') {
     if(!loginStore.token){
       // 无token时重置路由（仅清除动态路由）
       menuStore.resetRouter()
@@ -72,6 +81,7 @@ router.beforeEach(async (to, from) => { // 使用return替代next参数
   if (!loginStore.token) {
     return {  path: '/login', query: { redirect: to.fullPath }, replace: true }
   }
+  if (!canVisitPage(useUserStore().user, to.path)) return '/trainTask'
   if(menuStore.hasRoute) return true
   try {
     if (!menuStore.menuList.length) {

@@ -44,10 +44,10 @@ public class TrainRunnerService {
     @Value("${sys.runner.train-url:http://127.0.0.1:8009/api/runner/train}")
     private String runnerTrainUrl;
 
-    @Value("${sys.runner.launch-script:mmdet_run/mmdet_runner_srv/start_runner.sh}")
+    @Value("${sys.runner.launch-script:engines/mmdet_run/mmdet_runner_srv/start_runner.sh}")
     private String runnerLaunchScript;
 
-    @Value("${sys.runner.auto-start-log:mmdet_run/logs/runner-autostart.log}")
+    @Value("${sys.runner.auto-start-log:engines/mmdet_run/logs/runner-autostart.log}")
     private String runnerAutoStartLog;
 
     private final AtomicReference<Process> manualRunnerProcessRef = new AtomicReference<>();
@@ -258,6 +258,41 @@ public class TrainRunnerService {
         String query = "runId=" + URLEncoder.encode(runId, StandardCharsets.UTF_8)
                 + "&includeText=" + includeText;
         return getConfigJson("/api/config/read?" + query, Duration.ofSeconds(30));
+    }
+
+    /** 由统一 Runner 用任务指定的解释器检测官方 Ultralytics 依赖，不启动训练。 */
+    public JSONObject checkUltralyticsEnvironment(String trainingPythonPath) {
+        if (StrUtil.isBlank(trainingPythonPath)) {
+            throw new IllegalArgumentException("请选择训练 Python 解释器");
+        }
+        JSONObject payload = new JSONObject();
+        payload.set("training_python_path", trainingPythonPath.trim());
+        try {
+            String json = payload.toString();
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .version(HttpClient.Version.HTTP_1_1)
+                    .build();
+            HttpRequest request = HttpRequest.newBuilder(runnerUri("/api/runner/engines/ultralytics/check"))
+                    .version(HttpClient.Version.HTTP_1_1)
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(json.getBytes(StandardCharsets.UTF_8)))
+                    .build();
+            HttpResponse<String> response = client.send(
+                    request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            JSONObject body = JSONUtil.parseObj(response.body());
+            if (response.statusCode() < 200 || response.statusCode() >= 300 || !body.getBool("ok", false)) {
+                throw new IllegalStateException(body.getStr("error", body.getStr("message", "Ultralytics 环境不可用")));
+            }
+            return body;
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("检查 Ultralytics 环境失败；该功能需要启动 Runner，请先检查模型训练中的 Runner 是否正常启动。详情："
+                    + e.getMessage(), e);
+        }
     }
 
     private JSONObject postConfigJson(String path, JSONObject payload, Duration timeout) {
@@ -502,7 +537,7 @@ public class TrainRunnerService {
             }
             String query = "runId=" + URLEncoder.encode(runId, StandardCharsets.UTF_8)
                     + "&tailLines=" + tailLines;
-            String workRoot = configuredFixedWorkRoot(runnerOptions);
+            String workRoot = configuredWorkRoot(runnerOptions);
             if (StrUtil.isNotBlank(workRoot)) {
                 query += "&workRoot=" + URLEncoder.encode(workRoot, StandardCharsets.UTF_8);
             }
@@ -541,7 +576,7 @@ public class TrainRunnerService {
             if (finishedAt != null) {
                 query += "&finishedAt=" + URLEncoder.encode(finishedAt.toString(), StandardCharsets.UTF_8);
             }
-            String workRoot = configuredFixedWorkRoot(runnerOptions);
+            String workRoot = configuredWorkRoot(runnerOptions);
             if (StrUtil.isNotBlank(workRoot)) {
                 query += "&workRoot=" + URLEncoder.encode(workRoot, StandardCharsets.UTF_8);
             }
@@ -581,7 +616,7 @@ public class TrainRunnerService {
             if (finishedAt != null) {
                 query += "&finishedAt=" + URLEncoder.encode(finishedAt.toString(), StandardCharsets.UTF_8);
             }
-            String workRoot = configuredFixedWorkRoot(runnerOptions);
+            String workRoot = configuredWorkRoot(runnerOptions);
             if (StrUtil.isNotBlank(workRoot)) {
                 query += "&workRoot=" + URLEncoder.encode(workRoot, StandardCharsets.UTF_8);
             }
@@ -629,11 +664,14 @@ public class TrainRunnerService {
         return false;
     }
 
-    private String configuredFixedWorkRoot(JSONObject runnerOptions) {
-        if (runnerOptions == null || !"fixed".equalsIgnoreCase(runnerOptions.getStr("runner_mode"))) {
-            return null;
+    private String configuredWorkRoot(JSONObject runnerOptions) {
+        if (runnerOptions == null) return null;
+        String explicit = StrUtil.trimToNull(runnerOptions.getStr("runner_work_root"));
+        if (explicit != null) return explicit;
+        if ("fixed".equalsIgnoreCase(runnerOptions.getStr("runner_mode"))) {
+            return StrUtil.trimToNull(runnerOptions.getStr("fixed_work_root"));
         }
-        return StrUtil.trimToNull(runnerOptions.getStr("fixed_work_root"));
+        return null;
     }
 
     public JSONObject stopByRunId(String runId) {
@@ -750,12 +788,12 @@ public class TrainRunnerService {
             addSiblingWithName(candidates, configured, "start_runner.cmd");
             addSiblingWithName(candidates, configured, "start_runner.bat");
             addSiblingWithName(candidates, configured, "start_runner.ps1");
-            candidates.add(Path.of("mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
-            candidates.add(Path.of("..", "mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
+            candidates.add(Path.of("engines", "mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
+            candidates.add(Path.of("..", "engines", "mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
         } else {
             addSiblingWithName(candidates, configured, "start_runner.sh");
-            candidates.add(Path.of("mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
-            candidates.add(Path.of("..", "mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
+            candidates.add(Path.of("engines", "mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
+            candidates.add(Path.of("..", "engines", "mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
         }
         return candidates;
     }
@@ -778,9 +816,9 @@ public class TrainRunnerService {
         Path workspace = WorkspacePathUtil.workspaceRoot();
         pb.environment().putIfAbsent("APP_WORKSPACE_ROOT", workspace.toString());
         pb.environment().putIfAbsent("MMDET_REPO_ROOT",
-                workspace.resolve("mmdet_run").resolve("mmdetection-3.0.0").toString());
+                workspace.resolve("engines").resolve("mmdet_run").resolve("mmdetection-3.0.0").toString());
         pb.environment().putIfAbsent("MMDET_UPLOAD_ROOT",
-                workspace.resolve("mmdet_run").resolve("myfiles").toString());
+                workspace.resolve("engines").resolve("mmdet_run").resolve("myfiles").toString());
         pb.environment().putIfAbsent("MMDET_WORK_ROOT",
                 workspace.resolve("artifacts").resolve("mmdet_runs").toString());
     }

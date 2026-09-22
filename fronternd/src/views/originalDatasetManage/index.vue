@@ -1,5 +1,6 @@
 <template>
   <div class="content app-list-page" :class="{ 'content--embed': embedMode }">
+    <PermissionNotice />
     <el-card
         class="original-dataset-panel app-list-panel"
         :class="{ 'original-dataset-panel--embed': embedMode }"
@@ -32,10 +33,10 @@
                   <el-dropdown-item :disabled="loading" @click="reload">
                     CVAT数据刷新
                   </el-dropdown-item>
-                  <el-dropdown-item @click="openImportDialog">
+                  <el-dropdown-item v-permission @click="openImportDialog">
                     导入外来数据集
                   </el-dropdown-item>
-                  <el-dropdown-item @click="goCvatHome">
+                  <el-dropdown-item v-permission @click="goCvatHome">
                     查看CVAT主页
                   </el-dropdown-item>
                 </el-dropdown-menu>
@@ -270,7 +271,7 @@
                   >
                     示例
                   </el-button>
-                  <el-button
+                  <el-button v-permission
                       size="small"
                       type="danger"
                       @click="handleDeleteDataset(scope.row)"
@@ -330,7 +331,7 @@
                 <el-button type="primary" plain size="small" @click="openPreview(row)">
                   示例
                 </el-button>
-                <el-button type="danger" plain size="small" @click="handleDeleteDataset(row)">
+                <el-button v-permission type="danger" plain size="small" @click="handleDeleteDataset(row)">
                   删除
                 </el-button>
               </div>
@@ -447,7 +448,7 @@
       </div>
       <template #footer>
         <el-button @click="datasetDetailVisible = false">关闭</el-button>
-        <el-button type="danger" plain @click="onDatasetDetailDelete">删除</el-button>
+        <el-button v-permission type="danger" plain @click="onDatasetDetailDelete">删除</el-button>
         <el-button type="primary" @click="onDatasetDetailPreview">查看示例</el-button>
       </template>
     </el-dialog>
@@ -546,7 +547,7 @@
       <template #footer>
         <el-button @click="importDialogVisible = false">取消</el-button>
         <el-button :loading="importChecking" @click="checkImportPath">校验路径</el-button>
-        <el-button type="primary" :loading="importing" @click="confirmImport">确认导入</el-button>
+        <el-button v-permission type="primary" :loading="importing" @click="confirmImport">确认导入</el-button>
       </template>
     </el-dialog>
 
@@ -717,6 +718,7 @@
 </template>
 
 <script setup>
+import PermissionNotice from '@/components/PermissionNotice.vue'
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'

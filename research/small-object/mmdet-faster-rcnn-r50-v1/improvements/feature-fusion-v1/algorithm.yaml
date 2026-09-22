@@ -1,0 +1,35 @@
+schema_version: 1
+id: small-object/mmdet-faster-rcnn-r50-v1/feature-fusion-v1
+kind: improvement
+name: 小目标特征融合 v1
+parent: small-object/mmdet-faster-rcnn-r50-v1
+direction: small-object
+engine: mmdet
+engine_version: 3.0.0
+status: draft
+data_format: coco
+entry: mmdet/config.py
+source_root: src
+description: 在父基线基础上增加多尺度特征融合模块。
+stack:
+  enabled: true
+  priority: 20
+  requires: []
+  conflicts: []
+  override_paths:
+    - model.neck
+parameters:
+  - key: model.fusion_levels
+    label: 特征融合层数
+    description: 用于小目标特征融合的金字塔层级数量。
+    type: integer
+    default: 3
+    min: 1
+    max: 5
+    step: 1
+    config_path: model.neck.fusion_levels
+    editable_by:
+      - PlatformAdmin
+      - BaselineMaintainer
+      - ImprovementDeveloper
+      - ExperimentOperator

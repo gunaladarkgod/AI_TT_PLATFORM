@@ -26,7 +26,7 @@
 |------|------|------|
 | **本后端（Java）** | REST API、鉴权、元数据、任务状态、文件路径约定、队列编排、调用 Runner | 默认端口 `8081`（可配置） |
 | **Python MMDet Runner** | 实际执行训练（MMDet）；与 Java 通过 HTTP 交互 | 默认 `http://127.0.0.1:8009`，路径如 `/api/runner/train`、`/health` |
-| **MMDet / YOLO 运行时目录** | 配置模板、日志、上传物 | 如 `mmdet_run/myfiles`、`mmdet_run/logs` |
+| **MMDet / YOLO 运行时目录** | 配置模板、日志、上传物 | 如 `engines/mmdet_run/myfiles`、`engines/mmdet_run/logs` |
 | **CVAT** | 标注与项目来源之一 | `sys.cvat.*` 配置 API；Webhook 推送事件 |
 | **前端静态资源** | SPA 或静态站 | `spring.web.resources.static-locations` 指向本地目录 |
 | **MySQL** | 业务持久化 | 库名示例 `ai_zm_master` |
