@@ -11,6 +11,8 @@ import shutil
 import subprocess
 import threading
 import time
+import base64
+import mimetypes
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -320,6 +322,59 @@ def build_ultralytics_execution(payload: Dict[str, Any], work_dir: Path) -> Tupl
     if not worker.is_file():
         raise FileNotFoundError(f"Ultralytics worker not found: {worker}")
     return [str(python_path), "-u", str(worker), "--spec", str(spec_path)], str(work_dir), str(worker)
+
+
+def safe_upload_name(name: str) -> str:
+    """Preserve only a harmless image filename inside the result directory."""
+    candidate = Path(str(name or "image")).name
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", Path(candidate).stem).strip("._") or "image"
+    suffix = Path(candidate).suffix.lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".bmp", ".gif"}:
+        suffix = ".png"
+    return stem[:80] + suffix
+
+
+def find_inference_checkpoint(work_dir: Path, engine: str) -> Optional[Path]:
+    if engine == "ultralytics":
+        preferred = work_dir / "weights" / "best.pt"
+        if preferred.is_file():
+            return preferred
+        candidates = list(work_dir.rglob("*.pt"))
+    else:
+        candidates = list(work_dir.rglob("*.pth"))
+    candidates = [path for path in candidates if path.is_file()]
+    if not candidates:
+        return None
+    best = [path for path in candidates if path.name.lower().startswith("best")]
+    return max(best or candidates, key=lambda path: path.stat().st_mtime)
+
+
+def inference_engine(payload: Dict[str, Any]) -> str:
+    engine = str(payload.get("engine") or "mmdet").strip().lower()
+    if engine in {"mmdet", "ultralytics"}:
+        return engine
+    if engine in {"custom", "paper"}:
+        raise ValueError("该训练结果未提供统一推理入口，暂不能执行模型推理")
+    raise ValueError(f"unsupported inference engine: {engine}")
+
+
+def read_inference_result(output_dir: Path) -> Dict[str, Any]:
+    result_file = output_dir / "result.json"
+    if not result_file.is_file():
+        raise RuntimeError("inference worker did not write result.json")
+    result = json.loads(result_file.read_text(encoding="utf-8"))
+    image_path = Path(str(result.get("output_path") or "")).resolve()
+    if output_dir not in image_path.parents or not image_path.is_file():
+        raise RuntimeError("inference output image is missing or outside the result directory")
+    image_bytes = image_path.read_bytes()
+    if len(image_bytes) > 15 * 1024 * 1024:
+        raise RuntimeError("inference output image is too large to return")
+    return {
+        "output_path": str(image_path),
+        "image_base64": base64.b64encode(image_bytes).decode("ascii"),
+        "image_mime": mimetypes.guess_type(image_path.name)[0] or "image/png",
+        "detections": (result.get("detections") or [])[:200],
+    }
 
 
 @app.post("/api/runner/engines/ultralytics/check")
@@ -958,6 +1013,79 @@ def open_result_directory(
     # Runner 仅负责定位目录；实际打开由 Java 后端调用系统文件浏览器，
     # 避免 Windows 后台 Python 进程触发 WinError 5。
     return api_response(True, 0, "resolved", work_dir=str(work_dir))
+
+
+@app.post("/api/runner/result/infer")
+def infer_result(
+    runId: str = Query(..., description="训练任务名称/runId"),
+    finishedAt: Optional[str] = Query(None, description="用于定位单次训练结果"),
+    workRoot: Optional[str] = Query(None, description="任务输出根目录"),
+    payload: Optional[Dict[str, Any]] = Body(None),
+):
+    """Run one uploaded image through the exact checkpoint of a completed result."""
+    payload = payload or {}
+    try:
+        work_dir = find_result_work_dir(runId, finishedAt, workRoot)
+        if work_dir is None:
+            raise FileNotFoundError("result files not found")
+        engine = inference_engine(payload)
+        encoded = str(payload.get("image_base64") or "")
+        if not encoded:
+            raise ValueError("missing inference image")
+        image_bytes = base64.b64decode(encoded, validate=True)
+        if not image_bytes or len(image_bytes) > 10 * 1024 * 1024:
+            raise ValueError("inference image must be between 1 byte and 10 MB")
+        checkpoint = find_inference_checkpoint(work_dir, engine)
+        if checkpoint is None:
+            raise FileNotFoundError("no trained checkpoint found for this result")
+        inference_dir = work_dir / "inference" / ts_for_path()
+        input_dir = inference_dir / "input"
+        output_dir = inference_dir / "output"
+        ensure_dir(input_dir)
+        input_path = input_dir / safe_upload_name(payload.get("image_name"))
+        input_path.write_bytes(image_bytes)
+        if engine == "mmdet":
+            config_path = work_dir / "config.py"
+            if not config_path.is_file():
+                raise FileNotFoundError("result config snapshot not found; this historical result cannot be inferred safely")
+            python_path = Path(str(payload.get("training_python_path") or DEFAULT_TRAINING_PYTHON)).expanduser()
+            worker = _RUNNER_DIR / "mmdet_infer_worker.py"
+            command = [str(python_path), "-u", str(worker), "--config", str(config_path),
+                       "--checkpoint", str(checkpoint), "--input", str(input_path),
+                       "--output-dir", str(output_dir)]
+        else:
+            python_path = Path(str(payload.get("training_python_path") or "")).expanduser()
+            worker = _RUNNER_DIR / "ultralytics_infer_worker.py"
+            command = [str(python_path), "-u", str(worker), "--checkpoint", str(checkpoint),
+                       "--input", str(input_path), "--output-dir", str(output_dir)]
+        if not python_path.is_file():
+            raise FileNotFoundError(f"inference Python not found: {python_path}")
+        if not worker.is_file():
+            raise FileNotFoundError(f"inference worker not found: {worker}")
+        log_path = inference_dir / "inference.log"
+        with log_path.open("w", encoding="utf-8") as log_file:
+            completed = subprocess.run(
+                command,
+                cwd=REPO_ROOT if engine == "mmdet" else str(work_dir),
+                env=make_env(engine),
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                timeout=180,
+                check=False,
+            )
+        if completed.returncode != 0:
+            detail = log_path.read_text(encoding="utf-8", errors="replace")[-4000:]
+            raise RuntimeError("inference failed: " + detail)
+        response = read_inference_result(output_dir)
+        response.update({"run_id": runId, "engine": engine, "checkpoint": str(checkpoint),
+                         "inference_dir": str(inference_dir), "log_path": str(log_path)})
+        return api_response(True, 0, "inference finished", **response)
+    except subprocess.TimeoutExpired:
+        return JSONResponse(content=api_response(False, 408, "inference timed out"), status_code=408)
+    except (ValueError, FileNotFoundError, RuntimeError) as e:
+        return JSONResponse(content=api_response(False, 400, "inference failed", error=str(e)), status_code=400)
+    except Exception as e:
+        return JSONResponse(content=api_response(False, 500, "inference failed", error=f"{type(e).__name__}: {e}"), status_code=500)
 
 
 # 健康检查

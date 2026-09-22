@@ -118,6 +118,9 @@
                     <el-dropdown-item :disabled="openPathLoadingId === row.id" command="path">
                       <el-icon><FolderOpened /></el-icon>打开路径
                     </el-dropdown-item>
+                    <el-dropdown-item :disabled="row.training || inferenceLoadingId === row.id" command="infer">
+                      <el-icon><Aim /></el-icon>模型推理
+                    </el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -170,13 +173,47 @@
         <el-button @click="textVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="inferenceVisible" width="min(920px, 92vw)" top="6vh"
+      :title="`模型推理 - ${inferenceRow?.resultName || inferenceRow?.taskName || ''}`" @closed="resetInferenceDialog">
+      <div class="inference-dialog">
+        <el-alert type="info" :closable="false" show-icon
+          title="上传一张本地图片，系统会使用本次训练结果的权重进行推理并保存带标注的输出。" />
+        <el-upload v-model:file-list="inferenceFileList" action="#" :auto-upload="false" :limit="1"
+          accept="image/jpeg,image/png,image/bmp,image/gif" :on-change="handleInferenceFileChange"
+          :on-exceed="handleInferenceFileExceed" class="inference-upload">
+          <el-button type="primary" plain>选择图片</el-button>
+          <template #tip><div class="el-upload__tip">支持 JPG、PNG、BMP、GIF，单张不超过 10 MB。</div></template>
+        </el-upload>
+        <el-image v-if="inferencePreviewUrl" :src="inferencePreviewUrl" fit="contain" class="inference-image-preview" />
+        <el-empty v-else description="请选择待推理图片" :image-size="88" />
+        <div v-if="inferenceResult" class="inference-output">
+          <el-divider content-position="left">推理结果（{{ inferenceResult.detections?.length || 0 }} 个目标）</el-divider>
+          <el-image :src="inferenceResult.imageUrl" fit="contain" class="inference-image-preview" preview-teleported />
+          <el-table v-if="inferenceResult.detections?.length" :data="inferenceResult.detections" border size="small" max-height="220">
+            <el-table-column prop="label" label="类别" min-width="150" />
+            <el-table-column prop="score" label="置信度" width="110">
+              <template #default="{ row }">{{ Number(row.score).toFixed(4) }}</template>
+            </el-table-column>
+            <el-table-column prop="bbox" label="检测框 (x1, y1, x2, y2)" min-width="260">
+              <template #default="{ row }">{{ row.bbox?.join(', ') }}</template>
+            </el-table-column>
+          </el-table>
+          <el-text v-else type="info">未检测到符合当前模型阈值的目标。</el-text>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="inferenceVisible = false">关闭</el-button>
+        <el-button type="primary" :disabled="!inferenceFile" :loading="inferenceLoadingId !== null" @click="runInference">开始推理</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
     import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
     import { ElMessage, ElMessageBox } from 'element-plus';
-    import { ArrowDown, Document, FolderOpened, View } from '@element-plus/icons-vue';
+    import { Aim, ArrowDown, Document, FolderOpened, View } from '@element-plus/icons-vue';
     import dayjs   from 'dayjs'
     import { ResultQueryService, TrainTaskService } from "../../api/api";
 
@@ -195,6 +232,13 @@
     const logLoadingTaskId = ref(null);
     const configLoadingTaskId = ref(null);
     const openPathLoadingId = ref(null);
+    const inferenceLoadingId = ref(null);
+    const inferenceVisible = ref(false);
+    const inferenceRow = ref(null);
+    const inferenceFileList = ref([]);
+    const inferenceFile = ref(null);
+    const inferencePreviewUrl = ref('');
+    const inferenceResult = ref(null);
     const detailVisible = ref(false);
     const detailLoading = ref(false);
     const detailSaving = ref(false);
@@ -590,10 +634,72 @@
         openPathLoadingId.value = null;
       }
     };
+    const clearInferencePreview = () => {
+      if (inferencePreviewUrl.value) URL.revokeObjectURL(inferencePreviewUrl.value);
+      inferencePreviewUrl.value = '';
+    };
+    const resetInferenceDialog = () => {
+      clearInferencePreview();
+      inferenceRow.value = null;
+      inferenceFile.value = null;
+      inferenceFileList.value = [];
+      inferenceResult.value = null;
+    };
+    const openInferenceDialog = (row) => {
+      if (!row?.id || row.training) {
+        ElMessage.warning('训练中的任务暂不支持模型推理');
+        return;
+      }
+      resetInferenceDialog();
+      inferenceRow.value = row;
+      inferenceVisible.value = true;
+    };
+    const handleInferenceFileChange = (file) => {
+      const raw = file?.raw;
+      const supported = ['image/jpeg', 'image/png', 'image/bmp', 'image/gif'];
+      if (!raw || !supported.includes(raw.type) || raw.size > 10 * 1024 * 1024) {
+        ElMessage.warning('请选择不超过 10 MB 的 JPG、PNG、BMP 或 GIF 图片');
+        inferenceFile.value = null;
+        inferenceFileList.value = [];
+        clearInferencePreview();
+        return;
+      }
+      clearInferencePreview();
+      inferenceFile.value = raw;
+      inferencePreviewUrl.value = URL.createObjectURL(raw);
+      inferenceResult.value = null;
+    };
+    const handleInferenceFileExceed = () => ElMessage.warning('一次只能选择一张推理图片');
+    const runInference = async () => {
+      if (!inferenceRow.value?.id || !inferenceFile.value || inferenceLoadingId.value !== null) return;
+      inferenceLoadingId.value = inferenceRow.value.id;
+      inferenceResult.value = null;
+      try {
+        const formData = new FormData();
+        formData.append('id', String(inferenceRow.value.id));
+        formData.append('file', inferenceFile.value);
+        const res = await ResultQueryService.inferResult(formData);
+        if (res.code !== 0 || !res.data?.image_base64) {
+          ElMessage.warning(res.msg || '模型推理失败');
+          return;
+        }
+        const data = res.data;
+        inferenceResult.value = {
+          imageUrl: `data:${data.image_mime || 'image/png'};base64,${data.image_base64}`,
+          detections: Array.isArray(data.detections) ? data.detections : [],
+        };
+        ElMessage.success('模型推理完成');
+      } catch (error) {
+        ElMessage.error(error?.msg || error?.message || '模型推理失败');
+      } finally {
+        inferenceLoadingId.value = null;
+      }
+    };
     const handleResultCommand = (command, row) => {
       if (command === 'log') return viewResultLog(row);
       if (command === 'config') return viewResultConfigSnapshot(row);
       if (command === 'path') return openResultPath(row);
+      if (command === 'infer') return openInferenceDialog(row);
     };
 
 const refreshTimer = window.setInterval(() => loadResults(true), 2000);
@@ -601,6 +707,7 @@ const elapsedTimer = window.setInterval(() => { nowTick.value = Date.now(); }, 1
 onBeforeUnmount(() => {
   window.clearInterval(refreshTimer);
   window.clearInterval(elapsedTimer);
+  clearInferencePreview();
 });
 loadResults();
    
@@ -695,6 +802,30 @@ loadResults();
     background: #f7f9fc;
     border: 1px solid #e4e7ed;
     border-radius: 8px;
+    }
+
+    .inference-dialog {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .inference-upload {
+      align-self: flex-start;
+    }
+
+    .inference-image-preview {
+      width: 100%;
+      max-height: 420px;
+      background: #f7f9fc;
+      border: 1px solid #e4e7ed;
+      border-radius: 8px;
+    }
+
+    .inference-output {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
 
 
