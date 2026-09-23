@@ -193,6 +193,8 @@ public class PreprocessServiceImpl implements PreprocessService {
                 }
                 result.setConfigList(objectMapper.writeValueAsString(configList));
 
+                writeUltralyticsDataYaml(datasetOut, result);
+
                 Map<String, Object> allParams = new HashMap<>();
                 allParams.put("enhance", enhanceParams);
                 allParams.put("augment", augmentParams);
@@ -335,6 +337,49 @@ public class PreprocessServiceImpl implements PreprocessService {
         if (images < 1) {
             throw new IllegalStateException(side + "没有可用图片");
         }
+    }
+
+    /** Write a portable Ultralytics dataset description beside the processed dataset. */
+    private void writeUltralyticsDataYaml(Path datasetOut, InstanceDataset dataset) throws IOException {
+        List<String> classNames = classNames(dataset.getClassList());
+        if (classNames.isEmpty()) {
+            throw new IllegalStateException("预处理结果没有可用于生成 data.yaml 的类别");
+        }
+        StringBuilder yaml = new StringBuilder();
+        yaml.append("path: .\n");
+        yaml.append("train: images/train\n");
+        yaml.append("val: images/test\n");
+        yaml.append("names:\n");
+        for (int i = 0; i < classNames.size(); i++) {
+            yaml.append("  ").append(i).append(": ").append(yamlScalar(classNames.get(i))).append('\n');
+        }
+        Files.writeString(datasetOut.resolve("data.yaml"), yaml.toString(), StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+    }
+
+    private List<String> classNames(String rawClassList) {
+        if (StrUtil.isBlank(rawClassList)) return Collections.emptyList();
+        try {
+            Object parsed = JSONUtil.parse(rawClassList);
+            if (parsed instanceof JSONObject object) {
+                return new ArrayList<>(object.keySet());
+            }
+            if (parsed instanceof JSONArray array) {
+                List<String> names = new ArrayList<>();
+                for (Object value : array) {
+                    String name = StrUtil.trimToEmpty(String.valueOf(value));
+                    if (StrUtil.isNotBlank(name)) names.add(name);
+                }
+                return names;
+            }
+        } catch (Exception ignored) {
+        }
+        return Collections.emptyList();
+    }
+
+    private String yamlScalar(String value) {
+        String escaped = StrUtil.nullToEmpty(value).replace("'", "''");
+        return "'" + escaped + "'";
     }
 
     private void materializeStoredMidCoco(String imagePath, String annotationPath) throws IOException {
