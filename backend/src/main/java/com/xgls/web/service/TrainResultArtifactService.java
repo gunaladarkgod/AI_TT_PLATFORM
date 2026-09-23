@@ -51,6 +51,8 @@ public class TrainResultArtifactService {
         meta.set("resultId", result.getId());
         meta.set("taskId", result.getTaskId());
         meta.set("taskName", result.getTaskName());
+        String engine = runnerPayload == null ? null : runnerPayload.getStr("engine");
+        meta.set("engine", StrUtil.blankToDefault(engine, "mmdet"));
         meta.set("resultName", StrUtil.blankToDefault(meta.getStr("resultName"), result.getTaskName()));
         meta.set("remark", StrUtil.blankToDefault(meta.getStr("remark"), ""));
         if (!(meta.get("tags") instanceof JSONArray)) meta.set("tags", new ArrayList<String>());
@@ -62,7 +64,16 @@ public class TrainResultArtifactService {
             writeMeta(meta);
             return;
         }
-        meta.set("resultDir", workDir.toString());
+        meta.set("resultDir", artifactsRoot().relativize(workDir).toString().replace("\\", "/"));
+        meta.set("weights", normalizeWeights(runnerPayload == null ? null : runnerPayload.getJSONArray("weights")));
+        meta.set("weightStatus", runnerPayload == null ? "unknown" :
+                StrUtil.blankToDefault(runnerPayload.getStr("weight_status"), "missing"));
+
+        if (!"mmdet".equalsIgnoreCase(meta.getStr("engine"))) {
+            meta.set("configStatus", "当前引擎不使用 MMDet config.py 配置快照");
+            writeMeta(meta);
+            return;
+        }
 
         Path configSource = TrainConfigPathUtil.findExistingConfig(
                 WorkspacePathUtil.workspaceRoot().resolve("engines").resolve("mmdet_run").resolve("myfiles"), task.getName());
@@ -75,7 +86,7 @@ public class TrainResultArtifactService {
             Path target = workDir.resolve("config.py").normalize();
             if (!target.startsWith(workDir)) throw new IOException("配置副本路径越界");
             Files.copy(configSource, target, StandardCopyOption.REPLACE_EXISTING);
-            meta.set("configPath", target.toString());
+            meta.set("configPath", artifactsRoot().relativize(target).toString().replace("\\", "/"));
             meta.set("configStatus", "copied");
         } catch (IOException e) {
             meta.set("configStatus", "复制配置快照失败：" + e.getMessage());
@@ -93,6 +104,26 @@ public class TrainResultArtifactService {
         result.setConfigPath(meta.getStr("configPath"));
     }
 
+    private List<Map<String, String>> normalizeWeights(JSONArray rawWeights) {
+        List<Map<String, String>> weights = new ArrayList<>();
+        if (rawWeights == null) return weights;
+        for (Object item : rawWeights) {
+            if (!(item instanceof JSONObject weight)) continue;
+            String relative = StrUtil.trim(weight.getStr("path"));
+            if (StrUtil.isBlank(relative)) continue;
+            try {
+                Path path = artifactsRoot().resolve(relative).normalize();
+                if (!path.startsWith(artifactsRoot()) || !Files.isRegularFile(path)) continue;
+                Map<String, String> entry = new LinkedHashMap<>();
+                entry.put("role", StrUtil.blankToDefault(weight.getStr("role"), "checkpoint"));
+                entry.put("path", artifactsRoot().relativize(path).toString().replace("\\", "/"));
+                weights.add(entry);
+            } catch (Exception ignored) {
+            }
+        }
+        return weights;
+    }
+
     public Map<String, Object> detail(TrainResult result) {
         mergeMetadata(result);
         Map<String, Object> out = new LinkedHashMap<>();
@@ -101,7 +132,25 @@ public class TrainResultArtifactService {
         out.put("resultDir", meta.getStr("resultDir"));
         out.put("configPath", meta.getStr("configPath"));
         out.put("configStatus", meta.getStr("configStatus"));
+        out.put("engine", meta.getStr("engine"));
+        out.put("weights", meta.getJSONArray("weights"));
+        out.put("weightStatus", meta.getStr("weightStatus"));
         return out;
+    }
+
+    public String resultDirectory(Integer resultId) {
+        if (resultId == null) return null;
+        JSONObject meta = readMeta(resultId);
+        String stored = StrUtil.trim(meta.getStr("resultDir"));
+        if (StrUtil.isBlank(stored)) return null;
+        try {
+            Path relative = Path.of(stored);
+            Path resolved = (relative.isAbsolute() ? relative : artifactsRoot().resolve(relative))
+                    .toAbsolutePath().normalize();
+            if (resolved.startsWith(artifactsRoot()) && Files.isDirectory(resolved)) return resolved.toString();
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     public Map<String, Object> updateMetadata(TrainResult result, String resultName, String remark, Collection<?> tags) {
@@ -125,7 +174,9 @@ public class TrainResultArtifactService {
             throw new IOException(StrUtil.blankToDefault(meta.getStr("configStatus"),
                     "该结果没有配置快照。旧结果需要重新训练后才会自动生成快照。"));
         }
-        Path path = Path.of(stored).toAbsolutePath().normalize();
+        Path storedPath = Path.of(stored);
+        Path path = (storedPath.isAbsolute() ? storedPath : artifactsRoot().resolve(storedPath))
+                .toAbsolutePath().normalize();
         if (!path.startsWith(artifactsRoot()) || !Files.isRegularFile(path)) {
             throw new IOException("结果配置快照不存在：" + path);
         }
@@ -148,12 +199,16 @@ public class TrainResultArtifactService {
     }
 
     private JSONObject readMeta(TrainResult result) {
-        Path file = metadataFile(result == null ? null : result.getId());
+        return readMeta(result == null ? null : result.getId());
+    }
+
+    private JSONObject readMeta(Integer resultId) {
+        Path file = metadataFile(resultId);
         if (file != null && Files.isRegularFile(file)) {
             try {
                 return JSONUtil.parseObj(Files.readString(file, StandardCharsets.UTF_8));
             } catch (Exception e) {
-                log.warn("read result metadata failed, resultId={}, detail={}", result.getId(), e.getMessage());
+                log.warn("read result metadata failed, resultId={}, detail={}", resultId, e.getMessage());
             }
         }
         return new JSONObject();

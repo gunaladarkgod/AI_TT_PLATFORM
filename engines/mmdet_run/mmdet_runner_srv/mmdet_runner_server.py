@@ -59,6 +59,12 @@ FIXED_PYTHON_PATH = ""
 FIXED_EXEC_DIR = str(_ENGINE_ROOT_DIR / "mmdetection-3.0.0")
 FIXED_COMMAND_LINE = "tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}"
 FIXED_WORK_ROOT = str(_REPO_ROOT_DIR / "artifacts" / "custom")
+ENGINE_WORK_ROOTS = {
+    "mmdet": _REPO_ROOT_DIR / "artifacts" / "mmdet_runs",
+    "ultralytics": _REPO_ROOT_DIR / "artifacts" / "yolo_runs",
+    "custom": _REPO_ROOT_DIR / "artifacts" / "custom",
+}
+WEIGHT_SUFFIXES = {".pth", ".pt", ".ckpt", ".onnx"}
 
 # 追加的可选参数（保持你之前成功用过的设置）
 EXTRA_ARGS = ["--cfg-options", "default_scope=mmdet"]
@@ -125,7 +131,7 @@ _CATALOG_SEGMENT = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 def resolve_research_work_root(payload: Dict[str, Any], fallback_root: Path) -> Path:
-    """Put catalogued research runs under artifacts/research/<direction>/<baseline>.
+    """Put catalogued research runs below their engine's artifact root.
 
     Historical and ordinary platform tasks have no research identifiers and retain their
     existing output root.  The identifiers are deliberately restricted to catalog-style
@@ -139,7 +145,30 @@ def resolve_research_work_root(payload: Dict[str, Any], fallback_root: Path) -> 
         raise ValueError("research_direction and research_baseline must be provided together")
     if not _CATALOG_SEGMENT.fullmatch(direction) or not _CATALOG_SEGMENT.fullmatch(baseline):
         raise ValueError("research_direction and research_baseline must use lowercase catalog slugs")
-    return (_REPO_ROOT_DIR / "artifacts" / "research" / direction / baseline).resolve()
+    return (fallback_root / "research" / direction / baseline).resolve()
+
+
+def resolve_engine_work_root(engine: str) -> Path:
+    normalized = str(engine or "mmdet").strip().lower()
+    return ENGINE_WORK_ROOTS.get(normalized, ENGINE_WORK_ROOTS["custom"])
+
+
+def collect_weight_artifacts(work_dir: Path) -> List[Dict[str, str]]:
+    """Return model files produced inside this run, preferring conventional best/last names."""
+    candidates = sorted(
+        (path for path in work_dir.rglob("*") if path.is_file() and path.suffix.lower() in WEIGHT_SUFFIXES),
+        key=lambda path: (path.name.lower() not in ("best.pt", "best.pth"),
+                          path.name.lower() not in ("last.pt", "last.pth"), str(path).lower()),
+    )
+    weights = []
+    for path in candidates:
+        try:
+            relative = path.resolve().relative_to((_REPO_ROOT_DIR / "artifacts").resolve())
+        except ValueError:
+            continue
+        role = "best" if path.name.lower().startswith("best") else "last" if path.name.lower().startswith("last") else "checkpoint"
+        weights.append({"role": role, "path": relative.as_posix()})
+    return weights
 
 
 def resolve_work_root(root_override: Optional[str], mode_override: Optional[str] = None) -> Path:
@@ -171,12 +200,18 @@ def find_latest_train_log(run_id: str, work_root: Optional[str] = None) -> Optio
 
 
 def find_result_work_dir(
-    run_id: str, finished_at: Optional[str], work_root: Optional[str] = None
+    run_id: str, finished_at: Optional[str], work_root: Optional[str] = None,
+    result_dir: Optional[str] = None,
 ) -> Optional[Path]:
     """在 Runner 输出根目录内定位与结果完成时间最接近的单个训练目录。"""
     if not run_id or run_id in (".", "..") or any(c in run_id for c in ("/", "\\")):
         raise ValueError("invalid runId")
     root = resolve_work_root(work_root)
+    if result_dir:
+        exact = Path(resolve_project_path(result_dir)).resolve()
+        if exact == root or root not in exact.parents:
+            raise ValueError("resultDir must be inside workRoot")
+        return exact if exact.is_dir() else None
     if not root.is_dir():
         return None
     prefix = f"{run_id}_from_pyserver_sync_"
@@ -650,9 +685,9 @@ def start_train(
 
     # 每次发布都先创建独立运行目录和日志。这样即使参数校验未通过，
     # artifacts 下也会保留可追踪的失败原因，而不会产生空目录。
-    configured_root = str(payload.get("runner_work_root") or "").strip()
-    if not configured_root:
-        configured_root = str(payload.get("fixed_work_root") or FIXED_WORK_ROOT) if mode == "fixed" else DEFAULT_WORK_ROOT
+    # Keep each engine's outputs in its own managed directory. Research runs are
+    # nested under this root by resolve_research_work_root.
+    configured_root = str(resolve_engine_work_root(engine))
     try:
         base_work_root = resolve_work_root(configured_root, mode)
         work_root = resolve_research_work_root(payload, base_work_root)
@@ -810,10 +845,18 @@ def start_train(
 
     # 8) 落盘 coco_metrics.txt
     results_file = write_coco_txt(work_dir, parsed)
+    weights = collect_weight_artifacts(work_dir)
+    _append_log(log_path, f"[server] weight_artifact_count={len(weights)}")
+    artifacts_saved = bool(weights)
+    if exit_code == 0 and not artifacts_saved:
+        _append_log(log_path, "[server] error=no model weight artifact was produced")
 
     # 9) 返回 JSON（训练进程失败时使用 HTTP 200 + ok:false，避免误判成 Runner HTTP 异常；详见 train.log）
     resp = {
-        **api_response(exit_code == 0, 0 if exit_code == 0 else 500, "training finished" if exit_code == 0 else "training failed"),
+        **api_response(exit_code == 0 and artifacts_saved,
+                       0 if exit_code == 0 and artifacts_saved else 500,
+                       "training finished" if exit_code == 0 and artifacts_saved else
+                       "training finished without model weights" if exit_code == 0 else "training failed"),
         "exit_code": exit_code,
         "pid": proc.pid if proc is not None else None,
         "cfg_path": str(cfg_path),
@@ -823,6 +866,9 @@ def start_train(
         "cmd": cmd_str,
         "repo_root": process_cwd,
         "runner_mode": mode,
+        "engine": engine,
+        "weights": weights,
+        "weight_status": "saved" if artifacts_saved else "missing",
         "executed_script": executed_script,
         "results_file": str(results_file),
         "results_txt": parsed,
@@ -903,9 +949,10 @@ def delete_result_files(
     runId: str = Query(..., description="训练任务名称/runId"),
     finishedAt: Optional[str] = Query(None, description="结果完成时间，用于匹配对应训练目录"),
     workRoot: Optional[str] = Query(None, description="任务输出根目录；用于定位自定义任务产物"),
+    resultDir: Optional[str] = Query(None, description="元数据保存的精确结果目录"),
 ):
     try:
-        work_dir = find_result_work_dir(runId, finishedAt, workRoot)
+        work_dir = find_result_work_dir(runId, finishedAt, workRoot, resultDir)
     except ValueError as e:
         return JSONResponse(
             content=api_response(False, 400, "invalid delete request", error=str(e)),
@@ -942,9 +989,10 @@ def open_result_directory(
     runId: str = Query(..., description="训练任务名称/runId"),
     finishedAt: Optional[str] = Query(None, description="结果完成时间，用于匹配对应训练目录"),
     workRoot: Optional[str] = Query(None, description="任务输出根目录；用于定位自定义任务产物"),
+    resultDir: Optional[str] = Query(None, description="元数据保存的精确结果目录"),
 ):
     try:
-        work_dir = find_result_work_dir(runId, finishedAt, workRoot)
+        work_dir = find_result_work_dir(runId, finishedAt, workRoot, resultDir)
     except ValueError as e:
         return JSONResponse(
             content=api_response(False, 400, "invalid open request", error=str(e)),
