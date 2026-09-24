@@ -18,6 +18,19 @@ def _detections(prediction, classes):
     return out
 
 
+def _find_visualization_image(output_dir):
+    """MMDetection 3.0 writes visualizations to ``vis``; keep old output compatible."""
+    images = []
+    for directory in (output_dir / 'vis', output_dir / 'visualizations'):
+        if not directory.exists():
+            continue
+        images.extend(
+            path for path in directory.rglob('*')
+            if path.suffix.lower() in {'.jpg', '.jpeg', '.png', '.bmp'}
+        )
+    return max(images, key=lambda path: path.stat().st_mtime, default=None)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', required=True)
@@ -39,16 +52,11 @@ def main():
     predictions = result.get('predictions') or []
     prediction = predictions[0] if predictions else {}
     classes = list((inferencer.visualizer.dataset_meta or {}).get('classes') or [])
-    visualizations = output_dir / 'visualizations'
-    images = sorted(
-        (path for path in visualizations.rglob('*') if path.suffix.lower() in {'.jpg', '.jpeg', '.png', '.bmp'}),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    ) if visualizations.exists() else []
-    if not images:
+    image = _find_visualization_image(output_dir)
+    if image is None:
         raise RuntimeError('MMDetection did not generate a visualization image')
     (output_dir / 'result.json').write_text(json.dumps({
-        'output_path': str(images[0]),
+        'output_path': str(image),
         'detections': _detections(prediction, classes),
     }, ensure_ascii=False), encoding='utf-8')
 
