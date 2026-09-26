@@ -640,6 +640,42 @@ public class TrainRunnerService {
         }
     }
 
+    /** 使用某次完成训练的精确产物目录执行单张图片推理。 */
+    public JSONObject inferResult(String runId, LocalDateTime finishedAt, JSONObject runnerOptions, JSONObject payload) {
+        try {
+            URI train = URI.create(runnerTrainUrl);
+            int port = train.getPort();
+            if (port < 0) port = "https".equalsIgnoreCase(train.getScheme()) ? 443 : 80;
+            String query = "runId=" + URLEncoder.encode(runId, StandardCharsets.UTF_8);
+            if (finishedAt != null) {
+                query += "&finishedAt=" + URLEncoder.encode(finishedAt.toString(), StandardCharsets.UTF_8);
+            }
+            String workRoot = configuredWorkRoot(runnerOptions);
+            if (StrUtil.isNotBlank(workRoot)) {
+                query += "&workRoot=" + URLEncoder.encode(workRoot, StandardCharsets.UTF_8);
+            }
+            String endpoint = new URI(train.getScheme(), null, train.getHost(), port,
+                    "/api/runner/result/infer", null, null).toString();
+            String json = payload == null ? "{}" : payload.toString();
+            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+            HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint + "?" + query))
+                    .timeout(Duration.ofMinutes(4))
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(json.getBytes(StandardCharsets.UTF_8)))
+                    .build();
+            HttpResponse<String> response = client.send(
+                    request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            JSONObject body = JSONUtil.parseObj(response.body());
+            if (response.statusCode() < 200 || response.statusCode() >= 300 || !body.getBool("ok", false)) {
+                throw new IllegalStateException(body.getStr("error", body.getStr("message", "模型推理失败")));
+            }
+            return body;
+        } catch (Exception e) {
+            throw new IllegalStateException(runnerRequestFailureMessage("模型推理失败", e), e);
+        }
+    }
+
     /**
      * 日志、结果目录等能力由独立 Runner 提供。仅在连接失败时补充启动指引，
      * 保留目录不存在、参数错误等 Runner 已返回的原始原因，避免产生误导。

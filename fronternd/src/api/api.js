@@ -744,6 +744,10 @@ export class ResultQueryService {
     static async readResultConfig(id) {
         return request('/trainResult/config/read', { id, includeText: true }, 'post');
     }
+
+    static async inferResult(formData) {
+        return request('/trainResult/infer', formData, 'post', 'multipart/form-data');
+    }
 }
 
 /** 项目内研究方向、基线与改进包目录（只读，不依赖数据库）。 */

@@ -11,6 +11,10 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.nio.file.Path;
+import java.io.ByteArrayInputStream;
+import java.util.Base64;
+
+import javax.imageio.ImageIO;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.xgls.web.base.CodeMap;
@@ -20,6 +24,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.http.MediaType;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.xgls.web.base.AjaxResult;
@@ -226,6 +233,35 @@ public class TrainResultController {
         }
     }
 
+    /** 上传一张本地图片，使用该条完成训练的权重和配置进行推理。 */
+    @PostMapping(value = "infer", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public AjaxResult inferResult(@RequestParam Integer id, @RequestParam("file") MultipartFile file) {
+        if (id == null || file == null || file.isEmpty()) return AjaxResult.error("请选择一张推理图片");
+        TrainResult result = trainResultService.getById(id);
+        if (result == null) return AjaxResult.error("结果记录不存在");
+        if (!SessionUtil.hasAdminOrSelf(result.getUserName())) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        if (file.getSize() > 10L * 1024 * 1024) return AjaxResult.error("推理图片不能超过 10 MB");
+        try {
+            byte[] bytes = file.getBytes();
+            if (ImageIO.read(new ByteArrayInputStream(bytes)) == null) {
+                return AjaxResult.error("请选择 JPG、PNG、BMP 或 GIF 格式的有效图片");
+            }
+            JSONObject options = runnerOptionsForResult(result);
+            TrainTask task = result.getTaskId() == null ? null : trainTaskService.getById(result.getTaskId());
+            JSONObject payload = new JSONObject();
+            payload.set("engine", resolveInferenceEngine(options, task));
+            payload.set("training_python_path", options == null ? null : options.getStr("training_python_path"));
+            payload.set("image_name", file.getOriginalFilename());
+            payload.set("image_base64", Base64.getEncoder().encodeToString(bytes));
+            return AjaxResult.success(trainRunnerService.inferResult(
+                    result.getTaskName(), result.getTime(), options, payload));
+        } catch (IOException e) {
+            return AjaxResult.error("读取推理图片失败：" + e.getMessage());
+        } catch (IllegalStateException e) {
+            return AjaxResult.error(e.getMessage());
+        }
+    }
+
     @PostMapping("del")
     public AjaxResult delete(Integer id) {
         if (id == null) {
@@ -314,5 +350,15 @@ public class TrainResultController {
     private JSONObject runnerOptionsForResult(TrainResult result) {
         if (result == null || result.getTaskId() == null) return null;
         return trainTaskService.runnerOptionsForTask(result.getTaskId());
+    }
+
+    private String resolveInferenceEngine(JSONObject options, TrainTask task) {
+        String explicit = options == null ? null : StrUtil.trim(options.getStr("engine"));
+        if (StrUtil.isNotBlank(explicit)) return explicit.toLowerCase();
+        String type = task == null ? null : StrUtil.trim(task.getType());
+        if ("ultralytics".equalsIgnoreCase(type) || "yolo".equalsIgnoreCase(type)) return "ultralytics";
+        if ("custom".equalsIgnoreCase(type) || "自定义".equals(type)
+                || (options != null && "fixed".equalsIgnoreCase(options.getStr("runner_mode")))) return "custom";
+        return "mmdet";
     }
 }
