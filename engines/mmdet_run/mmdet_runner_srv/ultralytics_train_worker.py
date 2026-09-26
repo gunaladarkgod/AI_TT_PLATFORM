@@ -15,6 +15,9 @@ def main() -> None:
     model = YOLO(spec["model"])
     model.train(data=spec["data"], project=str(work_dir.parent), name=work_dir.name,
                 exist_ok=True, **spec.get("parameters", {}))
+    weights_dir = work_dir / "weights"
+    if not (weights_dir / "best.pt").is_file() and not (weights_dir / "last.pt").is_file():
+        raise RuntimeError(f"Ultralytics training completed without a checkpoint in {weights_dir}")
 
 
 if __name__ == "__main__":
