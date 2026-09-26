@@ -194,6 +194,7 @@ public class PreprocessServiceImpl implements PreprocessService {
                 result.setConfigList(objectMapper.writeValueAsString(configList));
 
                 writeUltralyticsDataYaml(datasetOut, result);
+                createLabelsAlias(datasetOut);
 
                 Map<String, Object> allParams = new HashMap<>();
                 allParams.put("enhance", enhanceParams);
@@ -355,6 +356,53 @@ public class PreprocessServiceImpl implements PreprocessService {
         }
         Files.writeString(datasetOut.resolve("data.yaml"), yaml.toString(), StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+    }
+
+    /** Ultralytics maps images/train to labels/train; expose the COCO-side directory under that name. */
+    private void createLabelsAlias(Path datasetOut) throws IOException {
+        Path labels = datasetOut.resolve("labels").normalize();
+        Path annotations = datasetOut.resolve("annotations").normalize();
+        if (!Files.isDirectory(annotations)) {
+            throw new IOException("生成 labels 链接失败：annotations 目录不存在");
+        }
+        if (Files.exists(labels, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("生成 labels 链接失败：labels 路径已存在");
+        }
+        try {
+            // A relative target keeps the processed dataset movable as one directory.
+            Files.createSymbolicLink(labels, Path.of("annotations"));
+        } catch (UnsupportedOperationException | SecurityException | IOException symbolicLinkError) {
+            if (!isWindows()) throw new IOException("无法创建 labels 符号链接", symbolicLinkError);
+            createWindowsDirectoryJunction(labels, annotations, symbolicLinkError);
+        }
+        if (!Files.isDirectory(labels.resolve("train")) || !Files.isDirectory(labels.resolve("test"))) {
+            throw new IOException("生成 labels 链接失败：labels/train 或 labels/test 不可访问");
+        }
+    }
+
+    private void createWindowsDirectoryJunction(Path labels, Path annotations, Exception previousError) throws IOException {
+        Process process = new ProcessBuilder("cmd", "/c", "mklink", "/J",
+                labels.toString(), annotations.toString())
+                .redirectErrorStream(true)
+                .start();
+        StringBuilder output = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) output.append(line).append('\n');
+        }
+        try {
+            if (process.waitFor() != 0) {
+                throw new IOException("无法创建 labels 目录 Junction: " + output.toString().trim(), previousError);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("创建 labels 目录 Junction 被中断", e);
+        }
+    }
+
+    private boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     }
 
     private List<String> classNames(String rawClassList) {
