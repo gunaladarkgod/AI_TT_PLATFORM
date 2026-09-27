@@ -181,6 +181,7 @@
         <el-alert type="info" :closable="false" show-icon
           title="上传一张本地图片，系统会使用本次训练结果的权重进行推理并保存带标注的输出。" />
         <el-upload v-model:file-list="inferenceFileList" action="#" :auto-upload="false" :limit="1"
+          :disabled="inferenceLoadingId !== null" :on-remove="clearInferenceFile"
           accept="image/jpeg,image/png,image/bmp,image/gif" :on-change="handleInferenceFileChange"
           :on-exceed="handleInferenceFileExceed" class="inference-upload">
           <el-button type="primary" plain>选择图片</el-button>
@@ -190,17 +191,7 @@
         <el-empty v-else description="请选择待推理图片" :image-size="88" />
         <div v-if="inferenceResult" class="inference-output">
           <el-divider content-position="left">推理结果（{{ inferenceResult.detections?.length || 0 }} 个目标）</el-divider>
-          <el-image :src="inferenceResult.imageUrl" fit="contain" class="inference-image-preview" preview-teleported />
-          <el-table v-if="inferenceResult.detections?.length" :data="inferenceResult.detections" border size="small" max-height="220">
-            <el-table-column prop="label" label="类别" min-width="150" />
-            <el-table-column prop="score" label="置信度" width="110">
-              <template #default="{ row }">{{ Number(row.score).toFixed(4) }}</template>
-            </el-table-column>
-            <el-table-column prop="bbox" label="检测框 (x1, y1, x2, y2)" min-width="260">
-              <template #default="{ row }">{{ row.bbox?.join(', ') }}</template>
-            </el-table-column>
-          </el-table>
-          <el-text v-else type="info">未检测到符合当前模型阈值的目标。</el-text>
+          <InferenceResult :image-url="inferenceResult.sourceUrl" :detections="inferenceResult.detections" />
         </div>
       </div>
       <template #footer>
@@ -213,6 +204,7 @@
 
 <script setup>
 import PermissionNotice from '@/components/PermissionNotice.vue'
+import InferenceResult from '@/components/InferenceResult.vue'
     import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
     import { ElMessage, ElMessageBox } from 'element-plus';
     import { Aim, ArrowDown, Document, FolderOpened, View } from '@element-plus/icons-vue';
@@ -647,6 +639,12 @@ import PermissionNotice from '@/components/PermissionNotice.vue'
       inferenceFileList.value = [];
       inferenceResult.value = null;
     };
+    const clearInferenceFile = () => {
+      clearInferencePreview();
+      inferenceFile.value = null;
+      inferenceFileList.value = [];
+      inferenceResult.value = null;
+    };
     const openInferenceDialog = (row) => {
       if (!row?.id || row.training) {
         ElMessage.warning('训练中的任务暂不支持模型推理');
@@ -661,9 +659,7 @@ import PermissionNotice from '@/components/PermissionNotice.vue'
       const supported = ['image/jpeg', 'image/png', 'image/bmp', 'image/gif'];
       if (!raw || !supported.includes(raw.type) || raw.size > 10 * 1024 * 1024) {
         ElMessage.warning('请选择不超过 10 MB 的 JPG、PNG、BMP 或 GIF 图片');
-        inferenceFile.value = null;
-        inferenceFileList.value = [];
-        clearInferencePreview();
+        clearInferenceFile();
         return;
       }
       clearInferencePreview();
@@ -676,18 +672,22 @@ import PermissionNotice from '@/components/PermissionNotice.vue'
       if (!inferenceRow.value?.id || !inferenceFile.value || inferenceLoadingId.value !== null) return;
       inferenceLoadingId.value = inferenceRow.value.id;
       inferenceResult.value = null;
+      const sourceFile = inferenceFile.value;
+      const sourceRow = inferenceRow.value;
+      const sourceUrl = inferencePreviewUrl.value;
       try {
         const formData = new FormData();
         formData.append('id', String(inferenceRow.value.id));
         formData.append('file', inferenceFile.value);
         const res = await ResultQueryService.inferResult(formData);
+        if (!inferenceVisible.value || inferenceFile.value !== sourceFile || inferenceRow.value !== sourceRow) return;
         if (res.code !== 0 || !res.data?.image_base64) {
           ElMessage.warning(res.msg || '模型推理失败');
           return;
         }
         const data = res.data;
         inferenceResult.value = {
-          imageUrl: `data:${data.image_mime || 'image/png'};base64,${data.image_base64}`,
+          sourceUrl,
           detections: Array.isArray(data.detections) ? data.detections : [],
         };
         ElMessage.success('模型推理完成');

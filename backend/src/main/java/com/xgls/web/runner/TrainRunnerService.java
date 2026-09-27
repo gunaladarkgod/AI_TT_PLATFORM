@@ -671,8 +671,11 @@ public class TrainRunnerService {
             String endpoint = new URI(train.getScheme(), null, train.getHost(), port,
                     "/api/runner/result/infer", null, null).toString();
             String json = payload == null ? "{}" : payload.toString();
-            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+            // Runner 使用 HTTP/1.1；带图片的大请求不能尝试 h2c 协议升级。
+            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
+                    .version(HttpClient.Version.HTTP_1_1).build();
             HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint + "?" + query))
+                    .version(HttpClient.Version.HTTP_1_1)
                     .timeout(Duration.ofMinutes(4))
                     .header("Content-Type", "application/json; charset=UTF-8")
                     .header("Accept", "application/json")
@@ -680,7 +683,7 @@ public class TrainRunnerService {
                     .build();
             HttpResponse<String> response = client.send(
                     request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            JSONObject body = JSONUtil.parseObj(response.body());
+            JSONObject body = parseInferenceResponse(response);
             if (response.statusCode() < 200 || response.statusCode() >= 300 || !body.getBool("ok", false)) {
                 throw new IllegalStateException(body.getStr("error", body.getStr("message", "模型推理失败")));
             }
@@ -688,6 +691,21 @@ public class TrainRunnerService {
         } catch (Exception e) {
             throw new IllegalStateException(runnerRequestFailureMessage("模型推理失败", e), e);
         }
+    }
+
+    private JSONObject parseInferenceResponse(HttpResponse<String> response) {
+        String text = StrUtil.trimToEmpty(response.body());
+        try {
+            if (text.startsWith("{")) {
+                return JSONUtil.parseObj(text);
+            }
+        } catch (RuntimeException ignored) {
+            // 保留 HTTP 状态和有限响应摘要，避免 JSON 异常覆盖 Runner 的真实错误。
+        }
+        String detail = text.isEmpty() ? "空响应" : text.replaceAll("\\s+", " ");
+        if (detail.length() > 500) detail = detail.substring(0, 500) + "…";
+        throw new IllegalStateException("Runner 返回无效 JSON 对象（HTTP "
+                + response.statusCode() + "）：" + detail);
     }
 
     /**
