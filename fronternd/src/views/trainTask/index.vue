@@ -1414,7 +1414,11 @@
                 </el-form-item>
                 <el-form-item label="YOLO data.yaml" required>
                   <el-input v-model="ultralyticsForm.dataYaml" :disabled="isSee"
-                    placeholder="例如：data/instance_dataset/任务数据集/实例数据集/data.yaml" />
+                    placeholder="例如：data/instance_dataset/任务数据集/实例数据集/data.yaml">
+                    <template #append>
+                      <el-button :disabled="isSee" @click="openUltraYamlBrowser">选择文件夹</el-button>
+                    </template>
+                  </el-input>
                 </el-form-item>
                 <div class="el-form-item__tip">
                   当前版本需填写预处理导出的 YOLO data.yaml。若尚未导出 YOLO 格式，请先完成实例数据集预处理。
@@ -1946,6 +1950,35 @@
       </span>
     </template>
   </el-dialog>
+  <el-dialog v-model="ultraYamlBrowserVisible" title="选择 YOLO data.yaml 所在文件夹" width="720px"
+    :close-on-click-modal="false">
+    <el-alert type="info" show-icon :closable="false"
+      title="请选择训练服务器上的实例数据集目录；目录中存在 data.yaml 或 data.yml 时即可选择。" />
+    <div class="ultra-yaml-browser-current">
+      <span>当前目录：</span><el-text type="primary">{{ ultraYamlBrowser.base || '根目录' }}</el-text>
+    </div>
+    <div class="ultra-yaml-browser-actions">
+      <el-button size="small" :disabled="!ultraYamlBrowser.parent"
+        @click="loadUltraYamlBrowser(ultraYamlBrowser.parent)">上一级</el-button>
+      <el-button size="small" @click="loadUltraYamlBrowser('')">根目录</el-button>
+      <el-button size="small" type="success" :disabled="!ultraYamlBrowser.files.length"
+        @click="selectUltraYamlInCurrentDir">选择当前目录 YAML</el-button>
+    </div>
+    <el-table v-loading="ultraYamlBrowserLoading" :data="ultraYamlBrowserRows" height="360" size="small" border>
+      <el-table-column prop="kind" label="类型" width="90" />
+      <el-table-column prop="name" label="名称" min-width="260" show-overflow-tooltip />
+      <el-table-column prop="path" label="路径" min-width="300" show-overflow-tooltip />
+      <el-table-column label="操作" width="120" fixed="right">
+        <template #default="{ row }">
+          <el-button v-if="row.kind === '目录'" link type="primary" @click="loadUltraYamlBrowser(row.path)">打开</el-button>
+          <el-button v-else link type="success" @click="selectUltraYaml(row.path)">选择</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <template #footer>
+      <el-button @click="ultraYamlBrowserVisible = false">取消</el-button>
+    </template>
+  </el-dialog>
   <el-dialog top="1vh" v-model="dataVisible" width="70%" title="查看" draggable :close-on-click-modal="false"
     @close="base_path = null">
     <div class="fileViewDialog">
@@ -2395,7 +2428,7 @@ import { VueDraggable } from 'vue-draggable-plus'
 import { computed, reactive, ref, toRaw, watch } from "@vue/reactivity";
 import { useRouter } from "vue-router";
 import { useUserStore } from "../../stores/index";
-import { FileService, EngineProjectService, EngineTaskService, TrainLabelService, TrainTaskService, TrainScriptService, TrainYoloService, ApiService, ModelTransService, trainService, transService , InstanceDatasetService, ResearchCatalogService } from "../../api/api";
+import { FileService, EngineProjectService, EngineTaskService, TrainLabelService, TrainTaskService, TrainScriptService, TrainYoloService, ApiService, ModelTransService, trainService, transService , InstanceDatasetService, ResearchCatalogService, OriginalDatasetService } from "../../api/api";
 import { ElMessage, dayjs, ElMessageBox, ElMain, genFileId } from "element-plus";
 import { Aim, ArrowDown, CircleCheck, Close, CopyDocument, Document, Edit, Switch, Top, View } from '@element-plus/icons-vue';
 import { nextTick, onBeforeUnmount, onMounted, watchEffect } from "@vue/runtime-core";
@@ -4450,6 +4483,63 @@ const ultralyticsForm = reactive({
   model: 'yolo11n.pt',
   parameters: {},
 })
+const joinServerPath = (base, name) => {
+  const b = String(base || '').replace(/\\/g, '/')
+  const n = String(name || '').replace(/\\/g, '/')
+  if (!b) return n
+  if (/^[A-Za-z]:\/?$/.test(b)) return `${b.replace(/\/?$/, '/')}${n}`
+  return `${b.replace(/\/+$/, '')}/${n}`
+}
+const ultraYamlBrowserVisible = ref(false)
+const ultraYamlBrowserLoading = ref(false)
+const ultraYamlBrowser = reactive({ base: '', parent: null, dirs: [], files: [] })
+const ultraYamlBrowserRows = computed(() => [
+  ...ultraYamlBrowser.dirs.map(name => ({ kind: '目录', name, path: joinServerPath(ultraYamlBrowser.base, name) })),
+  ...ultraYamlBrowser.files.map(name => ({ kind: '文件', name, path: joinServerPath(ultraYamlBrowser.base, name) })),
+])
+
+const loadUltraYamlBrowser = async (base = '') => {
+  ultraYamlBrowserLoading.value = true
+  try {
+    const res = await OriginalDatasetService.browseExternalYaml(base)
+    if (res?.code !== 0) {
+      ElMessage.error(res?.msg || '读取目录失败')
+      return
+    }
+    const data = res.data || {}
+    ultraYamlBrowser.base = data.base || ''
+    ultraYamlBrowser.parent = data.parent || null
+    ultraYamlBrowser.dirs = Array.isArray(data.dirs) ? data.dirs : []
+    ultraYamlBrowser.files = Array.isArray(data.files) ? data.files : []
+  } catch (e) {
+    ElMessage.error(`读取目录失败：${e?.message || e}`)
+  } finally {
+    ultraYamlBrowserLoading.value = false
+  }
+}
+
+const openUltraYamlBrowser = async () => {
+  const current = String(ultralyticsForm.dataYaml || '').trim().replace(/\\/g, '/')
+  const slash = current.lastIndexOf('/')
+  ultraYamlBrowserVisible.value = true
+  const currentDir = slash > 0 && (current.startsWith('/') || /^[A-Za-z]:\//.test(current))
+    ? current.slice(0, slash) : ''
+  await loadUltraYamlBrowser(currentDir)
+}
+
+const selectUltraYaml = (path) => {
+  ultralyticsForm.dataYaml = path
+  ultraYamlBrowserVisible.value = false
+  ElMessage.success(`已选择：${path}`)
+}
+
+const selectUltraYamlInCurrentDir = () => {
+  if (ultraYamlBrowser.files.length !== 1) {
+    ElMessage.warning('当前目录需要且只能包含一个 data.yaml 或 data.yml')
+    return
+  }
+  selectUltraYaml(joinServerPath(ultraYamlBrowser.base, ultraYamlBrowser.files[0]))
+}
 const isUltralyticsSelected = computed(() => trainingEngine.value === 'ultralytics')
 const selectedUltraBaseline = computed(() => ultralyticsBaselines.value.find(item => item.id === ultralyticsForm.baselineId) || null)
 const selectedUltraParameters = computed(() => Array.isArray(ultralyticsStack.parameters)

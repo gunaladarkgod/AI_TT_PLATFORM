@@ -566,6 +566,10 @@ public class TrainRunnerService {
 
     /** 按任务保存的输出根目录删除训练产物，支持 MMDet 与自定义任务分别存放。 */
     public boolean deleteResultFiles(String runId, LocalDateTime finishedAt, JSONObject runnerOptions) {
+        return deleteResultFiles(runId, finishedAt, runnerOptions, null);
+    }
+
+    public boolean deleteResultFiles(String runId, LocalDateTime finishedAt, JSONObject runnerOptions, String resultDir) {
         try {
             URI train = URI.create(runnerTrainUrl);
             int port = train.getPort();
@@ -579,6 +583,9 @@ public class TrainRunnerService {
             String workRoot = configuredWorkRoot(runnerOptions);
             if (StrUtil.isNotBlank(workRoot)) {
                 query += "&workRoot=" + URLEncoder.encode(workRoot, StandardCharsets.UTF_8);
+            }
+            if (StrUtil.isNotBlank(resultDir)) {
+                query += "&resultDir=" + URLEncoder.encode(resultDir, StandardCharsets.UTF_8);
             }
             String endpoint = new URI(train.getScheme(), null, train.getHost(), port,
                     "/api/runner/result/delete", null, null).toString();
@@ -606,6 +613,10 @@ public class TrainRunnerService {
     /** 请求 Runner 停止指定训练进程及其子进程。 */
     /** 打开某次训练结果的实际产物目录，目录定位与删除逻辑共用同一组 runId/完成时间规则。 */
     public JSONObject openResultDirectory(String runId, LocalDateTime finishedAt, JSONObject runnerOptions) {
+        return openResultDirectory(runId, finishedAt, runnerOptions, null);
+    }
+
+    public JSONObject openResultDirectory(String runId, LocalDateTime finishedAt, JSONObject runnerOptions, String resultDir) {
         try {
             URI train = URI.create(runnerTrainUrl);
             int port = train.getPort();
@@ -619,6 +630,9 @@ public class TrainRunnerService {
             String workRoot = configuredWorkRoot(runnerOptions);
             if (StrUtil.isNotBlank(workRoot)) {
                 query += "&workRoot=" + URLEncoder.encode(workRoot, StandardCharsets.UTF_8);
+            }
+            if (StrUtil.isNotBlank(resultDir)) {
+                query += "&resultDir=" + URLEncoder.encode(resultDir, StandardCharsets.UTF_8);
             }
             String endpoint = new URI(train.getScheme(), null, train.getHost(), port,
                     "/api/runner/result/open", null, null).toString();

@@ -274,7 +274,7 @@ git push origin --delete fix/123-result-open-path
 | `engines/mmdet_run/` | MMDetection、Python Runner、训练模板与生成配置目录 | 提交 Runner 与模板；不提交运行日志和生成配置 |
 | `engines/yolo_run/` | 官方 Ultralytics 依赖版本与说明 | 提交版本约束与说明；由统一 Runner 调度，不提交数据、权重和运行输出 |
 | `data/` | 中间实例数据集、最终实例数据集、预处理脚本等本地数据 | 运行数据，不提交 |
-| `artifacts/` | MMDet、自定义算法、研究基线任务的日志、权重、运行规格、结果配置快照与元数据；研究任务位于 `artifacts/research/{方向}/{基线}/` | 运行产物，不提交 |
+| `artifacts/` | `result_metadata/` 保存结果索引；`mmdet_runs/`、`yolo_runs/`、`custom/` 分别保存对应引擎的日志、权重与运行规格，研究任务位于引擎目录下的 `research/{方向}/{基线}/` | 运行产物，不提交 |
 | `research/` | 研究方向、基线、改进包和项目内算法清单 | 提交算法定义与源码；不提交 `.runtime_cache/` |
 | `logs/` | 后端主日志及历史归档日志 | 本机日志，不提交 |
 | `docs/` | 使用、技术、协作与算法集成文档 | 提交 |

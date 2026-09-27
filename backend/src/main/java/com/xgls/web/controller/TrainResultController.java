@@ -153,7 +153,9 @@ public class TrainResultController {
     private String resolveResultModelType(Integer taskId, String taskType) {
         if (taskId != null) {
             JSONObject options = trainTaskService.runnerOptionsForTask(taskId);
-            if ("fixed".equalsIgnoreCase(options.getStr("runner_mode"))) return "自定义";
+            String engine = options.getStr("engine");
+            if ("ultralytics".equalsIgnoreCase(engine)) return "Ultralytics";
+            if ("custom".equalsIgnoreCase(engine) || "fixed".equalsIgnoreCase(options.getStr("runner_mode"))) return "自定义";
         }
         if ("custom".equalsIgnoreCase(taskType) || "自定义".equals(taskType)) return "自定义";
         return "mmdet";
@@ -215,7 +217,8 @@ public class TrainResultController {
         }
         try {
             JSONObject opened = trainRunnerService.openResultDirectory(
-                    result.getTaskName(), result.getTime(), runnerOptionsForResult(result));
+                    result.getTaskName(), result.getTime(), runnerOptionsForResult(result),
+                    trainResultArtifactService.resultDirectory(result.getId()));
             Path openedPath = SystemDirectoryOpener.openDirectory(Path.of(opened.getStr("work_dir")));
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("id", result.getId());
@@ -242,7 +245,8 @@ public class TrainResultController {
         final boolean fileDeleted;
         try {
             fileDeleted = trainRunnerService.deleteResultFiles(
-                    result.getTaskName(), result.getTime(), runnerOptionsForResult(result));
+                    result.getTaskName(), result.getTime(), runnerOptionsForResult(result),
+                    trainResultArtifactService.resultDirectory(result.getId()));
         } catch (IllegalStateException e) {
             return AjaxResult.error(e.getMessage());
         }
@@ -289,7 +293,8 @@ public class TrainResultController {
             }
             try {
                 boolean fileDeleted = trainRunnerService.deleteResultFiles(
-                        result.getTaskName(), result.getTime(), runnerOptionsForResult(result));
+                        result.getTaskName(), result.getTime(), runnerOptionsForResult(result),
+                        trainResultArtifactService.resultDirectory(result.getId()));
                 if (!trainResultService.removeById(id)) {
                     errors.add("结果“" + result.getTaskName() + "”记录删除失败");
                     continue;

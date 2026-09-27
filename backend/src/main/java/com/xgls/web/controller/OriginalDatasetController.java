@@ -75,6 +75,12 @@ public class OriginalDatasetController {
         return originalDatasetService.browseExternalDirs(base);
     }
 
+    /** 浏览后端可访问目录并列出其中的 Ultralytics data.yaml 文件。 */
+    @GetMapping("/external/browse-yaml")
+    public AjaxResult browseExternalYaml(@RequestParam(required = false) String base) {
+        return originalDatasetService.browseExternalYamlFiles(base);
+    }
+
     /** 仅验证外部数据集路径，不写入记录 */
     @PostMapping("/external/validate")
     public AjaxResult validateExternal(@RequestBody Map<String, String> req) {

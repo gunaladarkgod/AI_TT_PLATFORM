@@ -508,6 +508,10 @@ export class OriginalDatasetService {
     return request('/original-dataset/external/browse', { base }, 'get', 'application/json', 'json')
   }
 
+  static async browseExternalYaml(base = '') {
+    return request('/original-dataset/external/browse-yaml', { base }, 'get', 'application/json', 'json')
+  }
+
   static async pickExternalDir() {
     return request('/original-dataset/external/pick-dir', {}, 'post', 'application/json')
   }
