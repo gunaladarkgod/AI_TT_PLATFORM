@@ -77,6 +77,12 @@
         <el-table-column prop="networkName" label="网络名称" align="center" width="130" column-key="networkName"
           sortable="custom" :filters="networkFilterOptions" :filter-method="tableColumnFilterPassAll" />
 
+        <el-table-column label="运行状态" align="center" width="140">
+          <template #default="{ row }">
+            {{ ({completed: '已完成', running: '训练中', starting: '启动中', failed: '失败 / 已停止', unknown: '状态未知（历史）'})[row.runStatus] || '历史记录' }}
+          </template>
+        </el-table-column>
+
         <el-table-column prop="time" label="完成时间" align="center" width="170" sortable="custom">
           <template #default="{ row }">
             <el-text size="small">{{ row.training ? '训练中' : showDateTime(row.time) }}</el-text>
@@ -348,7 +354,7 @@ import InferenceResult from '@/components/InferenceResult.vue'
       }
     };
 
-    const resultRowKey = (row) => row.training ? `training-${row.taskId}` : `result-${row.id}`;
+    const resultRowKey = (row) => `result-${row.id}`;
 
     const compareValues = (a, b, prop) => {
       if (prop === 'time') return new Date(a || 0) - new Date(b || 0);
@@ -529,19 +535,15 @@ import InferenceResult from '@/components/InferenceResult.vue'
     };
 
     const viewResultLog = async (row) => {
-      if (!row.taskId) {
-        ElMessage.warning('该结果没有关联训练任务，无法读取日志');
-        return;
-      }
       logLoadingTaskId.value = row.taskId;
       try {
-        const res = await TrainTaskService.latestTrainLog({ id: row.taskId, lines: 2000 });
+        const res = await ResultQueryService.readResultLog(row.id);
         if (res.code !== 0 || !res.data) {
           ElMessage.warning(res.msg || '该任务还没有训练日志');
           return;
         }
         const log = res.data;
-        textTitle.value = `最新训练日志 - ${row.taskName}`;
+        textTitle.value = `训练日志 - ${row.taskName}`;
         textContent.value = [
           `日志文件：${log.log_path || '-'}`,
           `更新时间：${log.modified_time || '-'}`,

@@ -758,7 +758,17 @@ def start_train(
     _append_log(log_path, f"[server] work_root={work_root}")
     _append_log(log_path, f"[server] work_dir={work_dir}")
 
+    def save_run_status(status: str, **extra):
+        target = work_dir / "run_status.json"
+        temporary = work_dir / "run_status.json.tmp"
+        temporary.write_text(json.dumps({"status": status, "engine": engine, "run_id": runId,
+                                         "updated_at": now_str(), **extra}), encoding="utf-8")
+        temporary.replace(target)
+
+    save_run_status("starting")
+
     def reject_before_start(status_code: int, message: str, error: str) -> JSONResponse:
+        save_run_status("failed")
         _append_log(log_path, "=== PROCESS NOT STARTED ===")
         _append_log(log_path, f"[server] failure_stage=preflight")
         _append_log(log_path, f"[server] message={message}")
@@ -851,6 +861,7 @@ def start_train(
             with _ACTIVE_PROCESSES_LOCK:
                 _ACTIVE_PROCESSES[runId] = proc
             write_active_pid(runId, proc.pid)
+            save_run_status("running", pid=proc.pid)
             try:
                 exit_code = proc.wait()
             finally:
@@ -859,6 +870,7 @@ def start_train(
                         _ACTIVE_PROCESSES.pop(runId, None)
                 clear_active_pid(runId, proc.pid)
     except Exception as e:
+        save_run_status("failed")
         _append_log(log_path, "=== PROCESS START FAILED ===")
         _append_log(log_path, f"[server] failure_stage=process_start")
         _append_log(log_path, f"[server] error={type(e).__name__}: {e}")
@@ -905,6 +917,8 @@ def start_train(
     artifacts_saved = bool(weights)
     if exit_code == 0 and not artifacts_saved:
         _append_log(log_path, "[server] error=no model weight artifact was produced")
+
+    save_run_status("completed" if exit_code == 0 and artifacts_saved else "failed", exit_code=exit_code)
 
     # 9) 返回 JSON（训练进程失败时使用 HTTP 200 + ok:false，避免误判成 Runner HTTP 异常；详见 train.log）
     resp = {
@@ -1073,7 +1087,7 @@ def infer_result(
     """Run one uploaded image through the exact checkpoint of a completed result."""
     payload = payload or {}
     try:
-        work_dir = find_result_work_dir(runId, finishedAt, workRoot)
+        work_dir = find_result_work_dir(runId, finishedAt, workRoot, payload.get("result_dir"))
         if work_dir is None:
             raise FileNotFoundError("result files not found")
         engine = inference_engine(payload)

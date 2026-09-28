@@ -721,6 +721,10 @@ export class TaskDatasetService {
 
 /**结果查询管理 */
 export class ResultQueryService {
+    static async readResultLog(id) {
+        return request('/trainResult/log', { id }, 'post');
+    }
+
     static async queryList(params) {
         return request('/trainResult/all', params, 'post');
     }

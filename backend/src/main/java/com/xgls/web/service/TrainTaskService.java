@@ -62,8 +62,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
     @Value("${sys.root-upload}")
     String rootPath;
 
-    @Autowired private TrainResultService trainResultService;
-    @Autowired private TrainResultArtifactService trainResultArtifactService;
+    @Autowired private LocalTrainResultService localTrainResultService;
     @Autowired TrainArgsMapper tArgsMapper;
     @Autowired TrainDataMapper tDataMapper;
     @Autowired TrainScriptMapper tScriptMapper;
@@ -239,8 +238,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         tr.setApl(apl);
 
         try {
-            trainResultService.save(tr);
-            trainResultArtifactService.createSnapshot(tr, task, jo);
+            localTrainResultService.save(tr, task, jo);
             log.info("[train_result] saved: taskId={}, runId={}, mAP={}, AP50={}, AP75={}, APs={}, APm={}, APl={}",
                     task.getId(), task.getName(), mAP, ap50, ap75, aps, apm, apl);
         } catch (Exception e) {
@@ -754,7 +752,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         if (task == null) {
             return runnerResp.summary();
         }
-        if (runnerResp.isOk() && runnerResp.getRawBody() != null) {
+        if (runnerResp.getRawBody() != null) {
             try {
                 cn.hutool.json.JSONObject jo = cn.hutool.json.JSONUtil.parseObj(runnerResp.getRawBody());
                 saveCocoResultFromRunner(task, jo);

@@ -929,27 +929,8 @@ public class TrainRunnerService {
 
     /** 同步启动训练（等待 Python Runner 返回），可传 runner_mode/fixed 参数。 */
     public RunnerTrainResponse startByRunId(String runId, JSONObject runnerOptions) {
-        // Runner 可能随后端刚拉起；略加长间隔以便自动启动完成健康检查后再连上
-        int[] retryDelaysMs = {0, 2000, 5000};
-        RunnerTrainResponse lastError = RunnerTrainResponse.transportError("runner not called");
-        for (int i = 0; i < retryDelaysMs.length; i++) {
-            if (retryDelaysMs[i] > 0) {
-                try {
-                    Thread.sleep(retryDelaysMs[i]);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    return RunnerTrainResponse.transportError("interrupted before retry");
-                }
-            }
-            RunnerTrainResponse resp = callRunner(runId, runnerOptions);
-            if (resp.isOk()) {
-                return resp;
-            }
-            lastError = resp;
-            log.warn("runner call failed (attempt {}/{}), runId={}, error={}",
-                    i + 1, retryDelaysMs.length, runId, resp.getError());
-        }
-        return lastError;
+        // 启动训练不是幂等操作：响应丢失或超时并不意味着训练没有启动。
+        return callRunner(runId, runnerOptions);
     }
 
     private RunnerTrainResponse callRunner(String runId, JSONObject runnerOptions) {
@@ -964,7 +945,6 @@ public class TrainRunnerService {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .version(HttpClient.Version.HTTP_1_1)
-                    .timeout(Duration.ofMinutes(90))
                     .header("Content-Type", "application/json; charset=UTF-8")
                     .header("Accept", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofByteArray(json.getBytes(StandardCharsets.UTF_8)))

@@ -40,7 +40,7 @@ public class TrainResultArtifactService {
     }
 
     private Path metadataFile(Integer resultId) {
-        if (resultId == null || resultId <= 0) return null;
+        if (resultId == null || resultId == 0) return null;
         return metadataRoot().resolve(resultId + ".json").normalize();
     }
 
@@ -153,7 +153,7 @@ public class TrainResultArtifactService {
         return null;
     }
 
-    public Map<String, Object> updateMetadata(TrainResult result, String resultName, String remark, Collection<?> tags) {
+    public synchronized Map<String, Object> updateMetadata(TrainResult result, String resultName, String remark, Collection<?> tags) {
         JSONObject meta = readMeta(result);
         String safeName = StrUtil.trim(resultName);
         meta.set("resultId", result.getId());
@@ -202,7 +202,7 @@ public class TrainResultArtifactService {
         return readMeta(result == null ? null : result.getId());
     }
 
-    private JSONObject readMeta(Integer resultId) {
+    public JSONObject readMeta(Integer resultId) {
         Path file = metadataFile(resultId);
         if (file != null && Files.isRegularFile(file)) {
             try {
@@ -214,13 +214,21 @@ public class TrainResultArtifactService {
         return new JSONObject();
     }
 
-    private void writeMeta(JSONObject meta) {
+    public synchronized void writeMeta(JSONObject meta) {
         Integer resultId = meta.getInt("resultId");
         Path file = metadataFile(resultId);
         if (file == null) return;
         try {
+            String content = JSONUtil.toJsonPrettyStr(meta);
+            if (Files.isRegularFile(file) && Files.readString(file, StandardCharsets.UTF_8).equals(content)) return;
             Files.createDirectories(file.getParent());
-            Files.writeString(file, JSONUtil.toJsonPrettyStr(meta), StandardCharsets.UTF_8);
+            Path temp = Files.createTempFile(file.getParent(), "result-", ".tmp");
+            try {
+                Files.writeString(temp, content, StandardCharsets.UTF_8);
+                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } finally {
+                Files.deleteIfExists(temp);
+            }
         } catch (IOException e) {
             throw new IllegalStateException("保存结果元数据失败：" + e.getMessage(), e);
         }
