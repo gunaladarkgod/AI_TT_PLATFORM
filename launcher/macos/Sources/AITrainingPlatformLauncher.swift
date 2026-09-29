@@ -3,6 +3,7 @@ import Foundation
 import Network
 
 private let workspaceOverrideKey = "APP_WORKSPACE_ROOT"
+private let savedWorkspaceKey = "AITrainingPlatformLauncher.workspaceRoot"
 
 private struct ServiceDefinition {
     let key: String
@@ -143,6 +144,9 @@ private final class LauncherViewController: NSViewController {
         workspace = findWorkspace()
         configureServices()
         buildView()
+        if workspace == nil {
+            showError("没有选择有效的平台项目目录。请重新打开启动器，并选择包含 backend 和 fronternd 的项目根目录。")
+        }
         refreshStatuses()
     }
 
@@ -214,14 +218,38 @@ private final class LauncherViewController: NSViewController {
     }
 
     private func findWorkspace() -> URL? {
-        let fileManager = FileManager.default
-        if let override = ProcessInfo.processInfo.environment[workspaceOverrideKey], fileManager.fileExists(atPath: override) { return URL(fileURLWithPath: override) }
+        if let override = ProcessInfo.processInfo.environment[workspaceOverrideKey] {
+            let url = URL(fileURLWithPath: override, isDirectory: true)
+            if isWorkspace(url) { return url }
+        }
+        if let savedPath = UserDefaults.standard.string(forKey: savedWorkspaceKey) {
+            let url = URL(fileURLWithPath: savedPath, isDirectory: true)
+            if isWorkspace(url) { return url }
+        }
         var candidate = Bundle.main.bundleURL.deletingLastPathComponent()
         for _ in 0..<4 {
-            if fileManager.fileExists(atPath: candidate.appendingPathComponent("backend").path), fileManager.fileExists(atPath: candidate.appendingPathComponent("fronternd").path) { return candidate }
+            if isWorkspace(candidate) { return candidate }
             candidate.deleteLastPathComponent()
         }
+        let panel = NSOpenPanel()
+        panel.title = "选择 AI 训练平台项目目录"
+        panel.message = "请选择包含 backend 和 fronternd 文件夹的项目根目录。"
+        panel.prompt = "选择项目目录"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let selected = panel.url, isWorkspace(selected) {
+            UserDefaults.standard.set(selected.path, forKey: savedWorkspaceKey)
+            return selected
+        }
         return nil
+    }
+
+    private func isWorkspace(_ url: URL) -> Bool {
+        let root = url.standardizedFileURL
+        return FileManager.default.fileExists(atPath: root.appendingPathComponent("backend/pom.xml").path)
+            && FileManager.default.fileExists(atPath: root.appendingPathComponent("fronternd/package.json").path)
+            && FileManager.default.fileExists(atPath: root.appendingPathComponent("engines/mmdet_run/mmdet_runner_srv/start_runner.sh").path)
     }
 
     private func environment() -> [String: String] {
