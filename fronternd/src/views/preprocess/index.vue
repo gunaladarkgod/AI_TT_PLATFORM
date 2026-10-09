@@ -206,6 +206,15 @@
             增广仅作用于训练集，避免同源图片进入测试集。当前原始图片训练集 {{ trainRatioPercent }}%，测试集 {{ 100 - trainRatioPercent }}%。
           </div>
         </div>
+        <div class="export-format-section">
+          <span class="script-label">导出标注格式：</span>
+          <el-radio-group v-model="exportFormat" aria-label="导出标注格式">
+            <el-radio value="coco">COCO（MMDetection）</el-radio>
+            <el-radio value="yolo">YOLO（Ultralytics）</el-radio>
+            <el-radio value="both">两者</el-radio>
+          </el-radio-group>
+          <div class="export-format-hint">格式选择界面已就绪；后端尚未接入该字段，本次创建仍按现有导出规则执行。</div>
+        </div>
       </div>
     </div>
       <template #footer>
@@ -605,6 +614,7 @@ const createFormRef = ref()
 const selectedAugmentationScript = ref(0)
 const selectedEnhancementScript = ref(0)
 const trainRatioPercent = ref(80)
+const exportFormat = ref('both')
 
 const augmentationScripts = ref([])
 const enhancementScripts = ref([])
@@ -1120,7 +1130,8 @@ if (selectedAugmentationScript.value && selectedAugmentationScriptObj.value) {
           enhanceParams: enhanceParams,
           augmentScriptId: selectedAugmentationScript.value || null,
           augmentParams: augmentParams,
-          trainRatio: trainRatioPercent.value / 100
+          trainRatio: trainRatioPercent.value / 100,
+          exportFormat: exportFormat.value
         };
         const result = await InstanceDatasetService.runPreprocess(requestBody)
         if (result && (result.code === 200 || result.code === 0)) {
@@ -1375,6 +1386,26 @@ const openUploadDialog = () => {
   border: 1px solid #e9eef5;
   border-radius: 8px;
   background: #fafcff;
+}
+
+:deep(.preprocess-create-dialog .export-format-section) {
+  padding: 14px;
+  border: 1px solid #e9eef5;
+  border-radius: 8px;
+  background: #fafcff;
+}
+
+:deep(.preprocess-create-dialog .export-format-section .el-radio-group) {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+:deep(.preprocess-create-dialog .export-format-hint) {
+  margin-top: 8px;
+  color: #7a8493;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 :deep(.preprocess-create-dialog .split-ratio-section .el-slider) {
