@@ -110,6 +110,9 @@
                 </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
+                    <el-dropdown-item command="metrics">
+                      <el-icon><DataLine /></el-icon>训练看板
+                    </el-dropdown-item>
                     <el-dropdown-item :disabled="logLoadingTaskId === row.taskId" command="log">
                       <el-icon><View /></el-icon>查看日志
                     </el-dropdown-item>
@@ -199,15 +202,17 @@
         <el-button type="primary" :disabled="!inferenceFile" :loading="inferenceLoadingId !== null" @click="runInference">开始推理</el-button>
       </template>
     </el-dialog>
+    <TrainingMetricsDialog v-model="metricsVisible" :target="metricsTarget" />
   </div>
 </template>
 
 <script setup>
 import PermissionNotice from '@/components/PermissionNotice.vue'
 import InferenceResult from '@/components/InferenceResult.vue'
+import TrainingMetricsDialog from '@/components/training/TrainingMetricsDialog.vue'
     import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
     import { ElMessage, ElMessageBox } from 'element-plus';
-    import { Aim, ArrowDown, Document, FolderOpened, View } from '@element-plus/icons-vue';
+    import { Aim, ArrowDown, DataLine, Document, FolderOpened, View } from '@element-plus/icons-vue';
     import dayjs   from 'dayjs'
     import { ResultQueryService, TrainTaskService } from "../../api/api";
 
@@ -233,6 +238,8 @@ import InferenceResult from '@/components/InferenceResult.vue'
     const inferenceFile = ref(null);
     const inferencePreviewUrl = ref('');
     const inferenceResult = ref(null);
+    const metricsVisible = ref(false);
+    const metricsTarget = ref(null);
     const detailVisible = ref(false);
     const detailLoading = ref(false);
     const detailSaving = ref(false);
@@ -698,6 +705,16 @@ import InferenceResult from '@/components/InferenceResult.vue'
       }
     };
     const handleResultCommand = (command, row) => {
+      if (command === 'metrics') {
+        metricsTarget.value = {
+          type: row.training ? 'task' : 'result',
+          id: row.training ? row.taskId : row.id,
+          name: row.resultName || row.taskName,
+          running: !!row.training,
+        };
+        metricsVisible.value = true;
+        return;
+      }
       if (command === 'log') return viewResultLog(row);
       if (command === 'config') return viewResultConfigSnapshot(row);
       if (command === 'path') return openResultPath(row);

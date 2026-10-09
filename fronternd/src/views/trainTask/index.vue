@@ -161,6 +161,11 @@
                       <el-icon><View /></el-icon>
                       查看日志
                     </el-dropdown-item>
+                    <el-dropdown-item v-if="row.started_date && (isSys || curUser == row.username)"
+                      @click="openTrainingMetrics(row)">
+                      <el-icon><DataLine /></el-icon>
+                      训练看板
+                    </el-dropdown-item>
                     <el-dropdown-item v-if="isSys || curUser == row.username" :disabled="configLoadingId === row.id"
                       @click="viewTaskConfig(row)">
                       <el-icon><Document /></el-icon>
@@ -259,6 +264,8 @@
         </div>
       </el-popover>
     </div>
+
+    <TrainingMetricsDialog v-model="metricsVisible" :target="metricsTarget" />
 
   </div>
 
@@ -2430,7 +2437,7 @@ import { useRouter } from "vue-router";
 import { useUserStore } from "../../stores/index";
 import { FileService, EngineProjectService, EngineTaskService, TrainLabelService, TrainTaskService, TrainScriptService, TrainYoloService, ApiService, ModelTransService, trainService, transService , InstanceDatasetService, ResearchCatalogService, OriginalDatasetService } from "../../api/api";
 import { ElMessage, dayjs, ElMessageBox, ElMain, genFileId } from "element-plus";
-import { Aim, ArrowDown, CircleCheck, Close, CopyDocument, Document, Edit, Switch, Top, View } from '@element-plus/icons-vue';
+import { Aim, ArrowDown, CircleCheck, Close, CopyDocument, DataLine, Document, Edit, Switch, Top, View } from '@element-plus/icons-vue';
 import { nextTick, onBeforeUnmount, onMounted, watchEffect } from "@vue/runtime-core";
 import { basePath_TASK, basePath_YOLO, basePath_TRAIN, basePath_WS_TASK, nginx_tensorboard, apiRequest } from "../../api/axios";
 import fileview from "../../components/fileview.vue";
@@ -2439,6 +2446,7 @@ import { taskStatusMap, taskStatusList, perspectiveMap } from '../../utils/selfm
 import { uuid } from 'vue-uuid'
 import authimg from '../../components/authimg.vue'
 import AceEdit from '@/components/AceEdit/index.vue'
+import TrainingMetricsDialog from '@/components/training/TrainingMetricsDialog.vue'
 import { showRemark } from "../../utils/str";
 import { add } from 'lodash';
 const encode_src = ref(false);
@@ -3942,6 +3950,12 @@ const txtVisible = ref(false);
 const cur_text = ref('')
 const txtTitle = ref('查看')
 const latestLogLoadingId = ref(null)
+const metricsVisible = ref(false)
+const metricsTarget = ref(null)
+const openTrainingMetrics = row => {
+  metricsTarget.value = { type: 'task', id: row.id, name: row.name, running: row.status === 3 }
+  metricsVisible.value = true
+}
 const configLoadingId = ref(null)
 const textViewerRef = ref(null)
 const textViewerMode = ref('file')

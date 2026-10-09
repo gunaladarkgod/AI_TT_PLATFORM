@@ -754,6 +754,16 @@ export class ResultQueryService {
     }
 }
 
+export class TrainingMetricsService {
+    static async forTask(id) {
+        return request('/trainMetrics/task', { id }, 'post');
+    }
+
+    static async forResult(id) {
+        return request('/trainMetrics/result', { id }, 'post');
+    }
+}
+
 /** 项目内研究方向、基线与改进包目录（只读，不依赖数据库）。 */
 export class ResearchCatalogService {
     static async directions() {
