@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Linux launcher for the AI training platform.
-
-The launcher owns the three development services (backend, runner and
-frontend) and keeps each in its own session so Stop All can terminate the
-service process group without touching unrelated services.
-"""
+"""Linux launcher for the AI training platform."""
 
 from __future__ import annotations
 
@@ -27,6 +22,7 @@ from tkinter import messagebox, ttk
 
 APP_NAME = "AI 训练平台启动器"
 START_TIMEOUT = 120
+BUILD_TIMEOUT = 180
 POLL_INTERVAL = 0.5
 
 
@@ -59,6 +55,8 @@ def prepare_process_path() -> None:
 
 
 ROOT = find_workspace()
+FRONTEND_DIR = ROOT / "fronternd"
+FRONTEND_INDEX = FRONTEND_DIR / "dist" / "index.html"
 LOG_DIR = ROOT / "logs" / "launcher"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -73,14 +71,26 @@ def append_log(message: str) -> None:
         pass
 
 
-def log_failure(service: "Service", reason: str) -> None:
-    append_log(f"{service.key}: {reason}; detail log: {service.log_path}")
+def log_failure(name: str, log_path: Path, reason: str) -> None:
+    append_log(f"{name}: {reason}; detail log: {log_path}")
     try:
-        with service.log_path.open("r", encoding="utf-8", errors="replace") as stream:
+        with log_path.open("r", encoding="utf-8", errors="replace") as stream:
             for line in deque(stream, maxlen=20):
-                append_log(f"{service.key}> {line.rstrip()}")
+                append_log(f"{name}> {line.rstrip()}")
     except OSError:
         pass
+
+
+def frontend_needs_build() -> bool:
+    if not FRONTEND_INDEX.is_file():
+        return True
+    built_at = FRONTEND_INDEX.stat().st_mtime
+    sources = [FRONTEND_DIR / name for name in
+               ("index.html", "vite.config.js", "package.json", "package-lock.json")]
+    for directory in (FRONTEND_DIR / "src", FRONTEND_DIR / "public", ROOT / "docs" / "v1.0"):
+        if directory.is_dir():
+            sources.extend(path for path in directory.rglob("*") if path.is_file())
+    return any(path.is_file() and path.stat().st_mtime > built_at for path in sources)
 
 
 def port_open(port: int) -> bool:
@@ -131,7 +141,7 @@ class Launcher(tk.Tk):
         self.probe_lock = threading.Lock()
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.closing = False
-        self.opened_platform = False
+        self.build_process: subprocess.Popen | None = None
         self.services = self._create_services()
         self.status_labels: dict[str, ttk.Label] = {}
         self.detail_labels: dict[str, ttk.Label] = {}
@@ -143,7 +153,6 @@ class Launcher(tk.Tk):
     def _create_services(self) -> list[Service]:
         backend_dir = ROOT / "backend"
         runner_dir = ROOT / "engines" / "mmdet_run" / "mmdet_runner_srv"
-        frontend_dir = ROOT / "fronternd"
         backend_cmd = self._backend_command()
         return [
             Service("mysql", "MySQL", None, ROOT, "mysql.log", lambda: port_open(3306), 3306),
@@ -151,8 +160,6 @@ class Launcher(tk.Tk):
                     lambda: port_open(8081), 8081, "java"),
             Service("runner", "Runner", ["bash", str(runner_dir / "start_runner.sh")],
                     runner_dir, "runner.log", lambda: http_ready(8009, "/health"), 8009, "bash"),
-            Service("frontend", "前端", ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--strictPort"],
-                    frontend_dir, "frontend.log", lambda: http_ready(5173, "/dist"), 5173, "npm"),
         ]
 
     def _backend_command(self) -> list[str]:
@@ -224,8 +231,6 @@ class Launcher(tk.Tk):
                     self.closing = True
                     self.destroy()
                     return
-                elif event == "open_platform":
-                    self.open_platform()
                 elif event == "stop_after_cancel":
                     self.stop_all()
         except queue.Empty:
@@ -278,7 +283,9 @@ class Launcher(tk.Tk):
 
     def _start_worker(self) -> None:
         try:
-            self.events.put(("message", "正在并行启动服务…"))
+            if not self._prepare_frontend():
+                return
+            self.events.put(("message", "正在启动后端和 Runner…"))
             for service in self.services[1:]:
                 if self.cancel_start.is_set():
                     break
@@ -294,19 +301,15 @@ class Launcher(tk.Tk):
                 if service.port and port_open(service.port):
                     reason = f"端口 {service.port} 已被占用，但健康检查未通过"
                     self._emit_state(service, "failed", reason)
-                    log_failure(service, reason)
+                    log_failure(service.key, service.log_path, reason)
                     continue
                 if not service.command:
                     self._emit_state(service, "failed", "未找到 Maven，请安装 JDK 17 和 Maven")
-                    log_failure(service, "未找到 Maven")
+                    log_failure(service.key, service.log_path, "未找到 Maven")
                     continue
                 if not service.cwd.is_dir():
                     self._emit_state(service, "failed", f"目录不存在：{service.cwd}")
-                    log_failure(service, f"目录不存在：{service.cwd}")
-                    continue
-                if service.key == "frontend" and not (service.cwd / "node_modules" / ".bin" / "vite").exists():
-                    self._emit_state(service, "failed", "未安装前端依赖，请先运行 npm install")
-                    log_failure(service, "未安装前端依赖")
+                    log_failure(service.key, service.log_path, f"目录不存在：{service.cwd}")
                     continue
                 missing = self._missing_command(service)
                 if missing:
@@ -318,6 +321,8 @@ class Launcher(tk.Tk):
                 env.update({"APP_WORKSPACE_ROOT": str(ROOT), "APP_REDIS_REQUIRED": "false",
                             "APP_REDIS_FALLBACK_MEMORY": "true", "RUNNER_AUTO_START": "false",
                             "PYTHONUNBUFFERED": "1"})
+                if service.key == "backend":
+                    env["STATIC_ROOT"] = str(FRONTEND_DIR)
                 try:
                     log_stream = service.log_path.open("a", encoding="utf-8")
                     try:
@@ -329,7 +334,7 @@ class Launcher(tk.Tk):
                     append_log(f"started {service.key}: {' '.join(service.command)}")
                 except OSError as exc:
                     self._emit_state(service, "failed", str(exc))
-                    log_failure(service, str(exc))
+                    log_failure(service.key, service.log_path, str(exc))
 
             deadline = time.monotonic() + START_TIMEOUT
             while time.monotonic() < deadline and not self.cancel_start.is_set():
@@ -340,12 +345,9 @@ class Launcher(tk.Tk):
                     pending = True
                     if service.readiness():
                         self._emit_state(service, "ready", f"127.0.0.1:{service.port}")
-                        if service.key == "frontend" and not self.opened_platform:
-                            self.opened_platform = True
-                            self.events.put(("open_platform", None))
                     elif service.process is not None and service.process.poll() is not None:
                         self._emit_state(service, "failed", f"进程已退出（{service.process.returncode}），请查看日志")
-                        log_failure(service, f"进程已退出（{service.process.returncode}）")
+                        log_failure(service.key, service.log_path, f"进程已退出（{service.process.returncode}）")
                 if not pending:
                     break
                 time.sleep(POLL_INTERVAL)
@@ -353,11 +355,7 @@ class Launcher(tk.Tk):
                 for service in self.services[1:]:
                     if service.state == "starting":
                         self._emit_state(service, "failed", "启动超时，请查看日志")
-                        log_failure(service, "启动超时")
-                frontend = self.services[-1]
-                if frontend.state == "ready" and not self.opened_platform:
-                    self.opened_platform = True
-                    self.events.put(("open_platform", None))
+                        log_failure(service.key, service.log_path, "启动超时")
                 self.events.put(("message", "服务启动检查完成"))
         except Exception as exc:
             append_log(f"start worker failed: {exc!r}")
@@ -365,6 +363,67 @@ class Launcher(tk.Tk):
         finally:
             self.operation_lock.release()
             self.events.put(("stop_after_cancel" if self.cancel_start.is_set() else "buttons", True))
+
+    def _prepare_frontend(self) -> bool:
+        if not frontend_needs_build():
+            return True
+        log_path = LOG_DIR / "frontend-build.log"
+        if not (FRONTEND_DIR / "node_modules" / ".bin" / "vite").exists():
+            reason = "网页尚未构建，且未安装前端依赖"
+            self.events.put(("message", reason))
+            append_log(f"frontend build: {reason}")
+            return False
+        if not shutil.which("npm"):
+            reason = "网页尚未构建，且桌面环境找不到 npm"
+            self.events.put(("message", reason))
+            append_log(f"frontend build: {reason}")
+            return False
+
+        self.events.put(("message", "正在构建网页，请稍候…"))
+        append_log("frontend build started")
+        try:
+            with log_path.open("a", encoding="utf-8") as stream:
+                self.build_process = subprocess.Popen(
+                    ["npm", "run", "build"], cwd=FRONTEND_DIR, stdin=subprocess.DEVNULL,
+                    stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
+            deadline = time.monotonic() + BUILD_TIMEOUT
+            while self.build_process.poll() is None:
+                if self.cancel_start.is_set() or time.monotonic() >= deadline:
+                    self._terminate_build()
+                    if self.cancel_start.is_set():
+                        return False
+                    reason = "网页构建超时"
+                    self.events.put(("message", reason))
+                    log_failure("frontend build", log_path, reason)
+                    return False
+                time.sleep(0.2)
+            if self.build_process.returncode != 0 or not FRONTEND_INDEX.is_file():
+                reason = f"网页构建失败（退出码 {self.build_process.returncode}）"
+                self.events.put(("message", reason))
+                log_failure("frontend build", log_path, reason)
+                return False
+            append_log("frontend build completed")
+            return True
+        except OSError as exc:
+            self.events.put(("message", f"网页构建失败：{exc}"))
+            log_failure("frontend build", log_path, str(exc))
+            return False
+        finally:
+            self.build_process = None
+
+    def _terminate_build(self) -> None:
+        process = self.build_process
+        if process is None or process.poll() is not None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+            process.wait(timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
 
     def _missing_command(self, service: Service) -> str:
         if service.key == "backend":
@@ -439,7 +498,13 @@ class Launcher(tk.Tk):
         self._open_path(path)
 
     def open_platform(self) -> None:
-        self._open_path("http://127.0.0.1:5173/dist")
+        if not FRONTEND_INDEX.is_file():
+            messagebox.showerror(APP_NAME, "网页尚未构建，请先点击“启动全部”并查看启动日志。")
+            return
+        if not http_ready(8081, "/dist/index.html"):
+            messagebox.showerror(APP_NAME, "后端尚未提供网页，请检查后端状态和启动日志。")
+            return
+        self._open_path("http://127.0.0.1:8081/")
 
     def _open_path(self, path) -> None:
         opener = shutil.which("xdg-open")

@@ -1,10 +1,11 @@
 # Linux 启动器
 
-Linux 版本使用 Python 标准库 Tkinter，不新增第三方 GUI 依赖。启动器会并行启动：
+Linux 版本使用 Python 标准库 Tkinter，不新增第三方 GUI 依赖。点击“启动全部”后，启动器管理：
 
 - Spring Boot 后端（端口 `8081`）
 - Python Runner（端口 `8009`）
-- Vite 前端（端口 `5173`）
+
+前端不再运行常驻 Vite 进程。启动器首次使用或检测到前端源码更新时，会执行一次 `npm run build`，把网页生成到 `fronternd/dist/`；后端直接提供这些静态文件。点击“打开平台”会在浏览器中打开 `http://127.0.0.1:8081/`。
 
 MySQL（端口 `3306`）只做状态检查，不由启动器停止。每个由启动器创建的服务使用独立进程组，点击“停止全部”时会停止这些服务及同进程组的子进程；启动过程中也可点击它取消等待并清理已创建的服务。Runner 创建的训练任务可能位于独立进程组，停止服务前应先在平台中停止训练任务。日志写入项目的 `logs/launcher/`，主界面通过“打开启动日志”查看 `launcher.log`。
 
@@ -16,7 +17,7 @@ MySQL（端口 `3306`）只做状态检查，不由启动器停止。每个由�
 ./install_desktop.sh
 ```
 
-之后从系统应用菜单打开“AI 训练平台启动器”即可，日常启动和停止都不需要终端。启动器会在前端就绪后打开浏览器。运行环境需要 JDK 17、Maven（若 `backend/target/` 已有可执行 JAR 则不需要）、Node.js、npm、Python 3.8+、Tkinter 和 `xdg-open`；Runner 的 Python 依赖由仓库现有 `start_runner.sh` 按项目配置处理。首次准备这些开发依赖和数据库仍需按项目部署文档完成。
+之后从系统应用菜单打开“AI 训练平台启动器”，点击“启动全部”，再点击“打开平台”即可，日常启动和停止都不需要终端。运行环境需要 JDK 17、Maven（若 `backend/target/` 已有可执行 JAR 则不需要）、Node.js、npm、已安装的前端依赖、Python 3.8+、Tkinter 和 `xdg-open`；Runner 的 Python 依赖由仓库现有 `start_runner.sh` 按项目配置处理。首次准备这些开发依赖和数据库仍需按项目部署文档完成。
 
 桌面环境的 `PATH` 往往比交互式 Shell 少。启动器会自动查找常见的 `~/.nvm` Node 和 `~/.sdkman` JDK/Maven 路径；若仍提示找不到命令，请把工具安装到系统可执行路径，或从应用菜单启动后查看 `logs/launcher/launcher.log` 的诊断。
 
