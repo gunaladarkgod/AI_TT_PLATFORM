@@ -12,6 +12,7 @@ import com.xgls.web.service.PreprocessService;
 import com.xgls.web.service.TaskDataset1Service;
 import com.xgls.web.utils.InstanceDatasetPathUtil;
 import com.xgls.web.utils.InstanceDatasetTrainTestRandomSplitUtil;
+import com.xgls.web.utils.DatasetAnnotationExportUtil;
 import com.xgls.web.utils.WorkspacePathUtil;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,8 +56,10 @@ public class PreprocessServiceImpl implements PreprocessService {
             Map<String, Object> enhanceParams,
             Integer augmentScriptId,
             Map<String, Object> augmentParams,
-            Double trainRatio) throws Exception {
+            Double trainRatio,
+            String exportFormat) throws Exception {
 
+        String selectedFormat = DatasetAnnotationExportUtil.normalizeFormat(exportFormat);
         double effectiveTrainRatio = trainRatio == null ? 0.8D : trainRatio;
         if (effectiveTrainRatio < 0.01D || effectiveTrainRatio > 0.99D) {
             throw new IllegalArgumentException("训练集占比须在 0.01～0.99 之间");
@@ -193,14 +196,15 @@ public class PreprocessServiceImpl implements PreprocessService {
                 }
                 result.setConfigList(objectMapper.writeValueAsString(configList));
 
-                writeUltralyticsDataYaml(datasetOut, result);
-                createLabelsAlias(datasetOut);
+                DatasetAnnotationExportUtil.export(datasetOut, classNames(result.getClassList()), selectedFormat);
+                if (!"coco".equals(selectedFormat)) writeUltralyticsDataYaml(datasetOut, result);
 
                 Map<String, Object> allParams = new HashMap<>();
                 allParams.put("enhance", enhanceParams);
                 allParams.put("augment", augmentParams);
                 allParams.put("trainRatio", effectiveTrainRatio);
                 allParams.put("splitBeforePreprocess", true);
+                allParams.put("exportFormat", selectedFormat);
                 allParams.put("sourceTrainImages", sourceSplit.trainImages());
                 allParams.put("sourceTestImages", sourceSplit.testImages());
                 result.setParamSchema(objectMapper.writeValueAsString(allParams));
@@ -356,53 +360,6 @@ public class PreprocessServiceImpl implements PreprocessService {
         }
         Files.writeString(datasetOut.resolve("data.yaml"), yaml.toString(), StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
-    }
-
-    /** Ultralytics maps images/train to labels/train; expose the COCO-side directory under that name. */
-    private void createLabelsAlias(Path datasetOut) throws IOException {
-        Path labels = datasetOut.resolve("labels").normalize();
-        Path annotations = datasetOut.resolve("annotations").normalize();
-        if (!Files.isDirectory(annotations)) {
-            throw new IOException("生成 labels 链接失败：annotations 目录不存在");
-        }
-        if (Files.exists(labels, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("生成 labels 链接失败：labels 路径已存在");
-        }
-        try {
-            // A relative target keeps the processed dataset movable as one directory.
-            Files.createSymbolicLink(labels, Path.of("annotations"));
-        } catch (UnsupportedOperationException | SecurityException | IOException symbolicLinkError) {
-            if (!isWindows()) throw new IOException("无法创建 labels 符号链接", symbolicLinkError);
-            createWindowsDirectoryJunction(labels, annotations, symbolicLinkError);
-        }
-        if (!Files.isDirectory(labels.resolve("train")) || !Files.isDirectory(labels.resolve("test"))) {
-            throw new IOException("生成 labels 链接失败：labels/train 或 labels/test 不可访问");
-        }
-    }
-
-    private void createWindowsDirectoryJunction(Path labels, Path annotations, Exception previousError) throws IOException {
-        Process process = new ProcessBuilder("cmd", "/c", "mklink", "/J",
-                labels.toString(), annotations.toString())
-                .redirectErrorStream(true)
-                .start();
-        StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) output.append(line).append('\n');
-        }
-        try {
-            if (process.waitFor() != 0) {
-                throw new IOException("无法创建 labels 目录 Junction: " + output.toString().trim(), previousError);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("创建 labels 目录 Junction 被中断", e);
-        }
-    }
-
-    private boolean isWindows() {
-        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     }
 
     private List<String> classNames(String rawClassList) {

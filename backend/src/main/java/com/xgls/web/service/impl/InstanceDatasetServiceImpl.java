@@ -8,7 +8,11 @@ import com.xgls.web.mapper.InstanceDatasetMapper;
 import com.xgls.web.service.InstanceDatasetService;
 import com.xgls.web.utils.InstanceDatasetPathUtil;
 import com.xgls.web.utils.InstanceDatasetTrainTestRandomSplitUtil;
+import com.xgls.web.utils.DatasetAnnotationExportUtil;
 import com.xgls.web.utils.WorkspacePathUtil;
+import cn.hutool.json.JSONUtil;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONArray;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.Logger;
@@ -200,6 +204,23 @@ public class InstanceDatasetServiceImpl extends ServiceImpl<InstanceDatasetMappe
             return result;
         }
         var p = paths.get();
+        if (d.getParamSchema() != null && JSONUtil.isTypeJSONObject(d.getParamSchema())) {
+            JSONObject params = JSONUtil.parseObj(d.getParamSchema());
+            String format = params.getStr("exportFormat");
+            if (format != null) {
+                List<String> classNames;
+                Object parsed = JSONUtil.parse(d.getClassList());
+                if (parsed instanceof JSONObject classes) {
+                    classNames = new ArrayList<>(classes.keySet());
+                } else if (parsed instanceof JSONArray classes) {
+                    classNames = classes.stream().map(String::valueOf).toList();
+                } else {
+                    throw new IllegalStateException("实例数据集类别列表格式无效");
+                }
+                Path datasetRoot = Path.of(p.trainImgPath()).normalize().getParent().getParent();
+                DatasetAnnotationExportUtil.export(datasetRoot, classNames, format);
+            }
+        }
         int imgN = InstanceDatasetTrainTestRandomSplitUtil.countImages(Path.of(p.trainImgPath()))
                 + InstanceDatasetTrainTestRandomSplitUtil.countImages(Path.of(p.testImgPath()));
         int annoN = InstanceDatasetTrainTestRandomSplitUtil.countAnnoLabelFiles(Path.of(p.trainAnnoPath()))

@@ -24,6 +24,7 @@ public interface PreprocessService {
             Map<String, Object> enhanceParams,
             Integer augmentScriptId,
             Map<String, Object> augmentParams,
-            Double trainRatio
+            Double trainRatio,
+            String exportFormat
     ) throws Exception;
 }

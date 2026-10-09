@@ -213,7 +213,7 @@
             <el-radio value="yolo">YOLO（Ultralytics）</el-radio>
             <el-radio value="both">两者</el-radio>
           </el-radio-group>
-          <div class="export-format-hint">格式选择界面已就绪；后端尚未接入该字段，本次创建仍按现有导出规则执行。</div>
+          <div class="export-format-hint">COCO 生成 annotations/train.json、test.json；YOLO 生成 labels/train、test 和 data.yaml。选择“两者”会同时生成。</div>
         </div>
       </div>
     </div>
