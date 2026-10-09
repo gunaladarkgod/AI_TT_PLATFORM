@@ -9,6 +9,7 @@ service process group without touching unrelated services.
 from __future__ import annotations
 
 import glob
+import http.client
 import os
 import queue
 import shutil
@@ -18,8 +19,6 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
 from collections import deque
 from pathlib import Path
 import tkinter as tk
@@ -92,13 +91,16 @@ def port_open(port: int) -> bool:
         return False
 
 
-def http_ready(url: str) -> bool:
+def http_ready(port: int, path: str) -> bool:
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
     try:
-        request = urllib.request.Request(url, headers={"User-Agent": "AITrainingPlatformLauncher/1.0"})
-        with urllib.request.urlopen(request, timeout=0.8) as response:
-            return 200 <= response.status < 500
-    except (OSError, urllib.error.URLError):
+        connection.request("GET", path, headers={"Connection": "close"})
+        response = connection.getresponse()
+        return 200 <= response.status < 400
+    except (OSError, http.client.HTTPException):
         return False
+    finally:
+        connection.close()
 
 
 class Service:
@@ -148,9 +150,9 @@ class Launcher(tk.Tk):
             Service("backend", "后端", backend_cmd, backend_dir, "backend.log",
                     lambda: port_open(8081), 8081, "java"),
             Service("runner", "Runner", ["bash", str(runner_dir / "start_runner.sh")],
-                    runner_dir, "runner.log", lambda: http_ready("http://127.0.0.1:8009/health"), 8009, "bash"),
+                    runner_dir, "runner.log", lambda: http_ready(8009, "/health"), 8009, "bash"),
             Service("frontend", "前端", ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--strictPort"],
-                    frontend_dir, "frontend.log", lambda: http_ready("http://127.0.0.1:5173"), 5173, "npm"),
+                    frontend_dir, "frontend.log", lambda: http_ready(5173, "/dist"), 5173, "npm"),
         ]
 
     def _backend_command(self) -> list[str]:
@@ -289,6 +291,11 @@ class Launcher(tk.Tk):
                     self._emit_state(service, "starting", "继续等待已有进程")
                     continue
                 service.process = None
+                if service.port and port_open(service.port):
+                    reason = f"端口 {service.port} 已被占用，但健康检查未通过"
+                    self._emit_state(service, "failed", reason)
+                    log_failure(service, reason)
+                    continue
                 if not service.command:
                     self._emit_state(service, "failed", "未找到 Maven，请安装 JDK 17 和 Maven")
                     log_failure(service, "未找到 Maven")
@@ -432,7 +439,7 @@ class Launcher(tk.Tk):
         self._open_path(path)
 
     def open_platform(self) -> None:
-        self._open_path("http://127.0.0.1:5173")
+        self._open_path("http://127.0.0.1:5173/dist")
 
     def _open_path(self, path) -> None:
         opener = shutil.which("xdg-open")
