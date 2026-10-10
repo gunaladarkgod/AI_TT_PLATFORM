@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AI 训练平台启动器
+Comment=启动 AI 训练平台的前端、后端和 Runner
+Exec=__LAUNCH_COMMAND__
+Path=__WORKSPACE_ROOT__
+Terminal=false
+Icon=applications-development
+Categories=Development;Education;
+StartupNotify=true
