@@ -3219,6 +3219,12 @@ public class TrainTaskController {
         if (info == null) {
             throw new IllegalArgumentException("实例数据集不存在：" + datasetName);
         }
+        if (StrUtil.isNotBlank(info.getParamSchema()) && JSONUtil.isTypeJSONObject(info.getParamSchema())) {
+            String exportFormat = JSONUtil.parseObj(info.getParamSchema()).getStr("exportFormat");
+            if ("yolo".equalsIgnoreCase(exportFormat)) {
+                throw new IllegalArgumentException("该实例数据集仅导出 YOLO 标注，请选择 COCO 或两者格式的数据集");
+            }
+        }
 
         InstanceDatasetPathUtil.ResolvedInstanceDiskPaths disk =
                 InstanceDatasetPathUtil.resolveTargetOrThrow(info, WorkspacePathUtil.instanceDatasetRoot().toString());
@@ -3263,8 +3269,8 @@ public class TrainTaskController {
         }
 
         // 6. DOTA -> COCO
-        generateCocoFromDotaDir(trainImgDir, trainAnnoDir, trainJson, classNames);
-        generateCocoFromDotaDir(testImgDir,  testAnnoDir,  testJson,  classNames);
+        if (!Files.isRegularFile(trainJson)) generateCocoFromDotaDir(trainImgDir, trainAnnoDir, trainJson, classNames);
+        if (!Files.isRegularFile(testJson)) generateCocoFromDotaDir(testImgDir, testAnnoDir, testJson, classNames);
 
         // 7. 回填 DatasetCfg
         DatasetCfg cfg = new DatasetCfg();
