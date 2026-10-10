@@ -4,7 +4,13 @@
 
 平台核心提供前后端、统一 Runner、任务队列和数据集处理；`research/` 保存研究方向、可复现基线和可叠加改进包。引擎属于平台核心，基线引用引擎，改进包只能叠加到指定基线。
 
-## 快速启动（Windows）
+## 快速启动（跨平台图形启动器）
+
+项目根目录提供图形启动器。macOS 使用原生 `启动AI训练平台.app`，Windows 使用 `启动AI训练平台.bat`，Linux 使用 `启动AI训练平台.sh`，直接双击对应入口即可，不需要手动输入启动命令。
+
+macOS 分发包可从仓库分支下载 `launcher/macos/dist/启动AI训练平台-macOS.dmg`。打开 DMG 后运行其中的 App；首次启动时选择本地 `AI_TT_PLATFORM` 项目根目录，后续会记住该位置。
+
+启动器会在窗口中检查 JDK、Maven、Node.js、MySQL，后台启动 Spring Boot、Python Runner 和 Vite，并在服务就绪后打开浏览器。macOS 原生启动器直接管理三个服务；Windows/Linux 启动器由后端自动拉起 Runner。日志写入 `logs/launcher/`，停止按钮只会停止本次启动器创建的进程。
 
 ### 1. 准备环境
 
@@ -13,6 +19,10 @@
 - Node.js 18 或更高版本。
 - 可选：Redis 6+。未安装 Redis 时可使用内存降级模式。
 - 训练功能还需要已安装 MMDetection 依赖的 Python 环境。
+
+首次启动如果 `fronternd/node_modules` 不存在，启动器会自动安装前端依赖；安装过程显示在启动日志中。
+
+下面的命令仅用于开发维护或故障排查，日常启动不需要打开终端。
 
 数据库、Redis、数据目录与 Runner 的默认配置在 [backend/src/main/resources/application.yml](backend/src/main/resources/application.yml)。中间实例数据集和实例数据集均使用相对项目根目录的路径，迁移项目后无需修改绝对路径。
 
