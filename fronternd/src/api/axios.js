@@ -100,6 +100,7 @@ axios.interceptors.response.use(
 )
 
 function normalizeApiResponse(payload) {
+    if (typeof Blob !== 'undefined' && payload instanceof Blob) return payload
     if (!payload || typeof payload !== 'object') {
         return payload
     }

@@ -9,6 +9,7 @@
         <el-button size="small" @click="clearTableSort">清除列排序</el-button>
       </div>
       <div class="flex-start">
+        <el-button v-permission size="small" plain type="primary" @click="importVisible = true">导入 ZIP</el-button>
         <el-input
           v-model="searchName"
           placeholder="按任务名称/指标搜索"
@@ -48,7 +49,12 @@
         <el-table-column prop="resultName" label="项目名称" align="center" fixed="left" width="260"
           column-key="resultName" sortable="custom" :filters="resultNameFilterOptions"
           :filter-method="tableColumnFilterPassAll">
-          <template #default="{ row }">{{ row.resultName || row.taskName }}</template>
+          <template #default="{ row }">
+            <div class="result-name-cell">
+              <span :title="row.resultName || row.taskName">{{ row.resultName || row.taskName }}</span>
+              <el-tag v-if="row.externalImported" size="small" type="info" effect="plain">导入</el-tag>
+            </div>
+          </template>
         </el-table-column>
 
         <el-table-column label="标签" align="center" width="180">
@@ -101,7 +107,7 @@
 
         <el-table-column prop="apl" label="APl" align="center" width="80" sortable="custom"/>
 
-        <el-table-column label="操作" align="center" width="185" fixed="right">
+        <el-table-column label="操作" align="center" width="250" fixed="right">
           <template #default="{ row }">
             <div class="result-action-group" @click.stop>
               <el-dropdown trigger="click" @command="command => handleResultCommand(command, row)">
@@ -113,7 +119,7 @@
                     <el-dropdown-item command="metrics">
                       <el-icon><DataLine /></el-icon>训练看板
                     </el-dropdown-item>
-                    <el-dropdown-item :disabled="logLoadingTaskId === row.taskId" command="log">
+                    <el-dropdown-item :disabled="row.externalImported || logLoadingTaskId === row.taskId" command="log">
                       <el-icon><View /></el-icon>查看日志
                     </el-dropdown-item>
                     <el-dropdown-item :disabled="configLoadingTaskId === row.taskId" command="config">
@@ -122,12 +128,14 @@
                     <el-dropdown-item :disabled="openPathLoadingId === row.id" command="path">
                       <el-icon><FolderOpened /></el-icon>打开路径
                     </el-dropdown-item>
-                    <el-dropdown-item :disabled="row.training || inferenceLoadingId === row.id" command="infer">
+                    <el-dropdown-item :disabled="row.training || row.externalImported || inferenceLoadingId === row.id" command="infer">
                       <el-icon><Aim /></el-icon>模型推理
                     </el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
+              <el-button v-if="!row.training" size="small" plain type="primary" :icon="Download"
+                :loading="exportingId === row.id" @click="exportResultPackage(row)">导出 ZIP</el-button>
               <el-button v-permission v-if="!row.training" type="danger" size="small" @click="deleteResult(row)">删除</el-button>
             </div>
           </template>
@@ -178,6 +186,24 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="importVisible" width="min(520px, 92vw)" title="导入训练结果 ZIP"
+      @closed="importFile = null">
+      <div class="result-import-dialog">
+        <p>支持 Ultralytics 训练目录（根目录含 results.csv）和 MMDetection 训练目录（含 vis_data/scalars.json）。可将整个训练目录压缩为 ZIP。</p>
+        <el-upload action="#" :auto-upload="false" :limit="1" :file-list="importFile ? [importFile] : []"
+          :disabled="importing"
+          accept=".zip,application/zip" :on-change="file => importFile = file"
+          :on-remove="() => importFile = null" :on-exceed="() => ElMessage.warning('一次只能导入一个结果包')">
+          <el-button type="primary" plain>选择 ZIP 文件</el-button>
+          <template #tip><div class="el-upload__tip">单个 ZIP 不超过 500 MB，导入后可在列表中打开训练看板。</div></template>
+        </el-upload>
+      </div>
+      <template #footer>
+        <el-button @click="importVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!importFile" :loading="importing" @click="importResultPackage">导入结果</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="inferenceVisible" width="min(920px, 92vw)" top="6vh"
       :title="`模型推理 - ${inferenceRow?.resultName || inferenceRow?.taskName || ''}`" @closed="resetInferenceDialog">
       <div class="inference-dialog">
@@ -212,7 +238,7 @@ import InferenceResult from '@/components/InferenceResult.vue'
 import TrainingMetricsDialog from '@/components/training/TrainingMetricsDialog.vue'
     import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
     import { ElMessage, ElMessageBox } from 'element-plus';
-    import { Aim, ArrowDown, DataLine, Document, FolderOpened, View } from '@element-plus/icons-vue';
+    import { Aim, ArrowDown, DataLine, Document, Download, FolderOpened, View } from '@element-plus/icons-vue';
     import dayjs   from 'dayjs'
     import { ResultQueryService, TrainTaskService } from "../../api/api";
 
@@ -232,6 +258,10 @@ import TrainingMetricsDialog from '@/components/training/TrainingMetricsDialog.v
     const configLoadingTaskId = ref(null);
     const openPathLoadingId = ref(null);
     const inferenceLoadingId = ref(null);
+    const importVisible = ref(false);
+    const importFile = ref(null);
+    const importing = ref(false);
+    const exportingId = ref(null);
     const inferenceVisible = ref(false);
     const inferenceRow = ref(null);
     const inferenceFileList = ref([]);
@@ -352,6 +382,51 @@ import TrainingMetricsDialog from '@/components/training/TrainingMetricsDialog.v
       } finally {
         if (!silent) loading.value = false;
         refreshing.value = false;
+      }
+    };
+
+    const importResultPackage = async () => {
+      const raw = importFile.value?.raw;
+      if (!raw || importing.value) return;
+      if (!raw.name.toLowerCase().endsWith('.zip') || raw.size > 500 * 1024 * 1024) {
+        ElMessage.warning('请选择不超过 500 MB 的 ZIP 文件');
+        return;
+      }
+      importing.value = true;
+      try {
+        const form = new FormData();
+        form.append('file', raw);
+        const res = await ResultQueryService.importResultPackage(form);
+        if (res.code !== 0) throw new Error(res.msg || '导入失败');
+        importVisible.value = false;
+        importFile.value = null;
+        await loadResults();
+        ElMessage.success('训练结果已导入，可以打开训练看板');
+      } catch (error) {
+        ElMessage.error(error?.msg || error?.message || '导入失败');
+      } finally {
+        importing.value = false;
+      }
+    };
+
+    const exportResultPackage = async (row) => {
+      if (!row?.id || exportingId.value !== null) return;
+      exportingId.value = row.id;
+      try {
+        const blob = await ResultQueryService.exportResultPackage(row.id);
+        if (!(blob instanceof Blob) || !blob.size) throw new Error('导出文件为空');
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `${(row.resultName || row.taskName || 'training-result').replace(/[\\/:*?"<>|]/g, '_')}.zip`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      } catch (error) {
+        ElMessage.error(error?.msg || error?.message || '导出失败，请确认结果产物目录仍存在');
+      } finally {
+        exportingId.value = null;
       }
     };
 
@@ -759,7 +834,14 @@ loadResults();
 
     .result-search {
     width: 220px;
+    margin-left: 8px;
     }
+
+    .result-import-dialog p { margin: 0 0 16px; color: #606266; font-size: 13px; line-height: 1.7; }
+
+    .result-name-cell { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; }
+    .result-name-cell span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .result-name-cell .el-tag { flex: 0 0 auto; }
 
     .result-manage-button {
     margin-left: 8px;

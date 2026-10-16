@@ -721,6 +721,14 @@ export class TaskDatasetService {
 
 /**结果查询管理 */
 export class ResultQueryService {
+    static async importResultPackage(formData) {
+        return request('/trainResult/package/import', formData, 'post', 'multipart/form-data', 'json');
+    }
+
+    static async exportResultPackage(id) {
+        return request('/trainResult/package/export', { id }, 'get', null, 'blob');
+    }
+
     static async queryList(params) {
         return request('/trainResult/all', params, 'post');
     }

@@ -102,6 +102,34 @@ public class TrainResultArtifactService {
         result.setRemark(meta.getStr("remark", ""));
         result.setTags(readTags(meta.get("tags")));
         result.setConfigPath(meta.getStr("configPath"));
+        result.setExternalImported(meta.getBool("externalImported", false));
+    }
+
+    /** 登记已校验并复制到产物根目录的外部训练结果。 */
+    public void createImportedSnapshot(TrainResult result, String engine, String displayName, Path workDir) {
+        Path root = artifactsRoot();
+        Path directory = workDir.toAbsolutePath().normalize();
+        if (!directory.startsWith(root) || !Files.isDirectory(directory)) {
+            throw new IllegalStateException("导入结果目录不在产物根目录内");
+        }
+        JSONObject meta = new JSONObject();
+        meta.set("resultId", result.getId());
+        meta.set("taskName", result.getTaskName());
+        meta.set("engine", engine);
+        meta.set("resultName", displayName);
+        meta.set("remark", "由 ZIP 导入的训练结果");
+        meta.set("tags", new ArrayList<String>());
+        meta.set("externalImported", true);
+        meta.set("createdAt", LocalDateTime.now().toString());
+        meta.set("resultDir", root.relativize(directory).toString().replace("\\", "/"));
+        Path config = directory.resolve("ultralytics".equals(engine) ? "args.yaml" : "config.py");
+        if (Files.isRegularFile(config)) {
+            meta.set("configPath", root.relativize(config).toString().replace("\\", "/"));
+            meta.set("configStatus", "原训练配置快照（仅供查看）");
+        } else {
+            meta.set("configStatus", "结果包未包含配置快照");
+        }
+        writeMeta(meta);
     }
 
     private List<Map<String, String>> normalizeWeights(JSONArray rawWeights) {

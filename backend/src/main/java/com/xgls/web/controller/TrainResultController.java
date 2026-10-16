@@ -13,6 +13,8 @@ import java.util.regex.Pattern;
 import java.nio.file.Path;
 import java.io.ByteArrayInputStream;
 import java.util.Base64;
+import java.nio.file.Files;
+import jakarta.servlet.http.HttpServletResponse;
 
 import javax.imageio.ImageIO;
 
@@ -21,6 +23,7 @@ import com.xgls.web.base.CodeMap;
 import com.xgls.web.vo.query.TrainTaskQuery;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -37,6 +40,7 @@ import com.xgls.web.service.TrainResultService;
 import com.xgls.web.service.TrainExtService;
 import com.xgls.web.service.TrainTaskService;
 import com.xgls.web.service.TrainResultArtifactService;
+import com.xgls.web.service.TrainResultPackageService;
 import com.xgls.web.runner.TrainRunnerService;
 import com.xgls.web.utils.SessionUtil;
 import com.xgls.web.utils.SystemDirectoryOpener;
@@ -67,6 +71,9 @@ public class TrainResultController {
     @Autowired
     private TrainResultArtifactService trainResultArtifactService;
 
+    @Autowired
+    private TrainResultPackageService trainResultPackageService;
+
     @PostMapping("all")
     public AjaxResult queryAll(TrainTaskQuery query) {
         LambdaQueryWrapper<TrainResult> wrapper = new LambdaQueryWrapper<>();
@@ -91,7 +98,7 @@ public class TrainResultController {
         }
         List<TrainResult> finishedRecords = trainResultService.list(wrapper);
         for (TrainResult result : finishedRecords) {
-            result.setModelType(resolveResultModelType(result.getTaskId(), null));
+            if (result.getTaskId() != null) result.setModelType(resolveResultModelType(result.getTaskId(), null));
             trainResultArtifactService.mergeMetadata(result);
         }
         records.addAll(finishedRecords);
@@ -174,8 +181,38 @@ public class TrainResultController {
         TrainResult result = trainResultService.getById(id);
         if (result == null) return AjaxResult.error("结果记录不存在");
         if (!SessionUtil.hasAdminOrSelf(result.getUserName())) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
-        result.setModelType(resolveResultModelType(result.getTaskId(), null));
+        if (result.getTaskId() != null) result.setModelType(resolveResultModelType(result.getTaskId(), null));
         return AjaxResult.success(trainResultArtifactService.detail(result));
+    }
+
+    @PostMapping(value = "package/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public AjaxResult importResultPackage(@RequestParam("file") MultipartFile file) {
+        if (SessionUtil.getCurUser() == null) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        if (!List.of(CodeMap.USER_TYPE_SYS, CodeMap.USER_TYPE_ADMIN, CodeMap.USER_TYPE_IMPROVEMENT)
+                .contains(SessionUtil.getCurRoleId())) {
+            return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        }
+        try {
+            return AjaxResult.success(trainResultPackageService.importPackage(file,
+                    SessionUtil.getCurUser().getUsername()));
+        } catch (IOException | IllegalArgumentException | IllegalStateException e) {
+            return AjaxResult.error("导入结果包失败：" + e.getMessage());
+        }
+    }
+
+    @GetMapping("package/export")
+    public void exportResultPackage(@RequestParam Integer id, HttpServletResponse response) throws IOException {
+        TrainResult result = id == null ? null : trainResultService.getById(id);
+        if (result == null) { response.sendError(404, "结果记录不存在"); return; }
+        if (!SessionUtil.hasAdminOrSelf(result.getUserName())) { response.sendError(403); return; }
+        String stored = trainResultArtifactService.resultDirectory(id);
+        if (StrUtil.isBlank(stored) || !Files.isDirectory(Path.of(stored))) {
+            response.sendError(404, "结果产物目录不存在");
+            return;
+        }
+        response.setContentType("application/zip");
+        response.setHeader("Content-Disposition", "attachment; filename=training-result-" + id + ".zip");
+        trainResultPackageService.exportPackage(Path.of(stored), response.getOutputStream());
     }
 
     @PostMapping("meta/update")
@@ -243,6 +280,10 @@ public class TrainResultController {
         TrainResult result = trainResultService.getById(id);
         if (result == null) return AjaxResult.error("结果记录不存在");
         if (!SessionUtil.hasAdminOrSelf(result.getUserName())) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        trainResultArtifactService.mergeMetadata(result);
+        if (Boolean.TRUE.equals(result.getExternalImported())) {
+            return AjaxResult.error("外部导入结果仅支持查看和导出，不能直接执行模型推理");
+        }
         if (file.getSize() > 10L * 1024 * 1024) return AjaxResult.error("推理图片不能超过 10 MB");
         try {
             byte[] bytes = file.getBytes();
@@ -353,7 +394,13 @@ public class TrainResultController {
     }
 
     private JSONObject runnerOptionsForResult(TrainResult result) {
-        if (result == null || result.getTaskId() == null) return null;
+        if (result == null) return null;
+        if (result.getTaskId() == null) {
+            String directory = trainResultArtifactService.resultDirectory(result.getId());
+            JSONObject options = new JSONObject();
+            if (StrUtil.isNotBlank(directory)) options.set("runner_work_root", Path.of(directory).getParent().toString());
+            return options;
+        }
         return trainTaskService.runnerOptionsForTask(result.getTaskId());
     }
 

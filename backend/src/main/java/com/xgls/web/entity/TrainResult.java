@@ -73,6 +73,10 @@ public class TrainResult implements Serializable {
     @TableField(exist = false)
     private String configPath;
 
+    /** 由本地 ZIP 导入，不能直接执行原机器的配置和权重。 */
+    @TableField(exist = false)
+    private Boolean externalImported;
+
     /** 仅用于结果查询实时展示，不对应数据库字段。 */
     @TableField(exist = false)
     private Boolean training;
