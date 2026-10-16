@@ -14,7 +14,7 @@ test('实验操作员可使用主流程和个人中心，不能访问旧维护�
   assert.equal(canVisitPage({ type: 4 }, '/taskDatabaseManageOld'), true)
 })
 test('维护请求被识别，POST 查询、训练和个人资料保存保持可用', () => {
-  for (const path of ['/original-dataset/external/import', '/original-dataset/external/delete', '/taskDatasetDev/tasks', '/taskDatasetDev/tasks/mapping', '/taskDatasetDev/tasks/export', '/taskDatasetDev/tasks/clear', '/preprocess/upload', '/api/preprocess/run', '/instance/instancedatasets/splitTrainTest', '/instance/trainTestSplit/save', '/trainResult/del/batch', '/trainResult/meta/update', '/api/runner/start']) assert.equal(isMaintenanceRequest(path, 'post'), true, path)
+  for (const path of ['/original-dataset/external/import', '/original-dataset/external/delete', '/taskDatasetDev/tasks', '/taskDatasetDev/tasks/mapping', '/taskDatasetDev/tasks/export', '/taskDatasetDev/tasks/clear', '/preprocess/upload', '/api/preprocess/run', '/instance/instancedatasets/splitTrainTest', '/instance/trainTestSplit/save', '/trainResult/del/batch', '/trainResult/meta/update', '/trainResult/package/import', '/api/runner/start']) assert.equal(isMaintenanceRequest(path, 'post'), true, path)
   assert.equal(isMaintenanceRequest('/instance/instancedatasets/1', 'delete'), true)
   for (const path of ['/auth/profile', '/auth/login', '/menu/list', '/original-dataset/sample-random', '/taskDatasetDev/tasks/list', '/taskDatasetDev/tasks/open-path', '/instance/instancedatasets', '/instance/getTrainableNames', '/instance/instancedatasets/trainingReadiness', '/trainTask/add', '/trainTask/update', '/trainTask/enqueue', '/trainTask/stop', '/trainResult/all', '/trainResult/detail', '/api/research/stack/resolve']) assert.equal(isMaintenanceRequest(path, 'post'), false, path)
 })

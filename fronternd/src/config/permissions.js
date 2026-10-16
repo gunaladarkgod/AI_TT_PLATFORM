@@ -31,5 +31,5 @@ export function isMaintenanceRequest(url = '', method = 'get') {
   return /^\/(original-dataset|taskDatasetDev|taskDataset|instance|instanceDataset|preprocess|engineProject|engineTask|trainScript|trainLabel|profile_train|profile_trans|menu|user|userProject|files)(\/|$)/.test(path)
     && (verb === 'delete' || /\/(add|update|delete|del|save|import|mark-subsets|mapping|export|clear|upload|upload-template|merge-target|merge-pretrain|splitTrainTest|reset)(\/|$)/.test(path) || path === '/taskDatasetDev/tasks' || path === '/instance/instancedatasets/create')
     || /^\/api\/(preprocess\/run|template\/upload|runner\/(start|restart|dependencies\/install))$/.test(path)
-    || /^\/trainResult\/(del(?:\/batch)?|meta\/update)$/.test(path)
+    || /^\/trainResult\/(del(?:\/batch)?|meta\/update|package\/import)$/.test(path)
 }

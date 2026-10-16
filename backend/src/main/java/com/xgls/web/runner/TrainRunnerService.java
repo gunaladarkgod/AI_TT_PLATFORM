@@ -559,6 +559,39 @@ public class TrainRunnerService {
         }
     }
 
+    /** Read structured metrics for one run; resultDir is supplied only by server-side result metadata. */
+    public JSONObject getTrainingMetrics(String runId, String engine, JSONObject runnerOptions,
+                                         String resultDir, LocalDateTime startedAt) {
+        try {
+            StringBuilder query = new StringBuilder("runId=")
+                    .append(URLEncoder.encode(runId, StandardCharsets.UTF_8))
+                    .append("&engine=").append(URLEncoder.encode(engine, StandardCharsets.UTF_8));
+            String workRoot = configuredWorkRoot(runnerOptions);
+            if (StrUtil.isNotBlank(workRoot)) {
+                query.append("&workRoot=").append(URLEncoder.encode(workRoot, StandardCharsets.UTF_8));
+            }
+            if (StrUtil.isNotBlank(resultDir)) {
+                query.append("&resultDir=").append(URLEncoder.encode(resultDir, StandardCharsets.UTF_8));
+            }
+            if (startedAt != null) {
+                query.append("&startedAt=").append(URLEncoder.encode(startedAt.toString(), StandardCharsets.UTF_8));
+            }
+            URI uri = URI.create(runnerUri("/api/runner/metrics") + "?" + query);
+            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3))
+                    .version(HttpClient.Version.HTTP_1_1).build();
+            HttpRequest request = HttpRequest.newBuilder(uri).version(HttpClient.Version.HTTP_1_1)
+                    .timeout(Duration.ofSeconds(15)).GET().build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            JSONObject body = JSONUtil.parseObj(response.body());
+            if (response.statusCode() < 200 || response.statusCode() >= 300 || !body.getBool("ok", false)) {
+                throw new IllegalStateException(body.getStr("error", body.getStr("message", "读取指标失败")));
+            }
+            return body;
+        } catch (Exception e) {
+            throw new IllegalStateException(runnerRequestFailureMessage("读取训练指标失败", e), e);
+        }
+    }
+
     /** 删除某条训练结果对应的 Runner 本地产物目录。 */
     public boolean deleteResultFiles(String runId, LocalDateTime finishedAt) {
         return deleteResultFiles(runId, finishedAt, null);

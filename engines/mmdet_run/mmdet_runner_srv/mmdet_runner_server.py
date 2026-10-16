@@ -21,6 +21,7 @@ from fastapi import Body, FastAPI, Query
 from fastapi.responses import JSONResponse
 
 from mmdet_config_service import generate_config, list_templates, read_config, template_defaults
+from training_metrics import read_training_metrics
 
 app = FastAPI(title="Platform Training Runner (sync)")
 
@@ -997,6 +998,64 @@ def latest_train_log(
         returned_lines=min(len(all_lines), tailLines),
         content="\n".join(all_lines[-tailLines:]),
     )
+
+
+@app.get("/api/runner/metrics")
+def training_metrics(
+    runId: str = Query(...),
+    engine: str = Query(...),
+    workRoot: Optional[str] = Query(None),
+    resultDir: Optional[str] = Query(None),
+    startedAt: Optional[str] = Query(None),
+):
+    engine = engine.strip().lower()
+    if engine not in ENGINE_WORK_ROOTS:
+        return JSONResponse(content=api_response(False, 400, "unsupported engine"), status_code=400)
+    try:
+        root = resolve_work_root(workRoot)
+        engine_root = ENGINE_WORK_ROOTS[engine].resolve()
+        if root != engine_root and engine_root not in root.parents:
+            raise ValueError("workRoot does not match engine")
+        if not runId or runId in (".", "..") or any(char in runId for char in ("/", "\\")):
+            raise ValueError("invalid runId")
+        prefix = f"{runId}_from_pyserver_sync_"
+        if resultDir:
+            work_dir = find_result_work_dir(runId, None, str(root), resultDir)
+            if work_dir is not None and not work_dir.name.startswith(prefix):
+                raise ValueError("resultDir does not match runId")
+        else:
+            started = datetime.fromisoformat(startedAt) if startedAt else None
+            if started is not None and started.tzinfo is not None:
+                raise ValueError("startedAt must be local time without a timezone")
+            candidates = []
+            if root.is_dir():
+                for child in root.iterdir():
+                    if not child.is_dir() or not child.name.startswith(prefix):
+                        continue
+                    child = child.resolve()
+                    if child.parent != root:
+                        continue
+                    if started is not None:
+                        try:
+                            created = datetime.strptime(child.name[len(prefix):], "%Y%m%d_%H%M%S_%f")
+                        except ValueError:
+                            continue
+                        if created < started:
+                            continue
+                    candidates.append(child)
+            work_dir = max(candidates, key=lambda path: path.name, default=None)
+    except ValueError as exc:
+        return JSONResponse(content=api_response(False, 400, "invalid metrics request", error=str(exc)), status_code=400)
+    if work_dir is None:
+        return api_response(True, 0, "等待本次训练写入指标", engine=engine, axis="epoch",
+                            current_step=None, series=[], updated_at=None)
+    try:
+        metrics = read_training_metrics(work_dir, engine)
+    except OSError:
+        return api_response(True, 0, "指标文件暂不可读", engine=engine, axis="epoch",
+                            current_step=None, series=[], updated_at=None)
+    message = metrics.pop("message") or "ok"
+    return api_response(True, 0, message, **metrics)
 
 
 @app.post("/api/runner/result/delete")

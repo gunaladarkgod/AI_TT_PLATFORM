@@ -721,6 +721,19 @@ export class TaskDatasetService {
 
 /**结果查询管理 */
 export class ResultQueryService {
+    static async importResultPackage(formData) {
+        return request('/trainResult/package/import', formData, 'post', 'multipart/form-data', 'json');
+    }
+
+    static async getExportPackageInfo(id) {
+        return request('/trainResult/package/export-info', { id }, 'get', null, 'json');
+    }
+
+    static exportResultPackageUrl(id, mode = 'full') {
+        const prefix = process.env.NODE_ENV == 'development' ? '/develop' : '';
+        return `${prefix}/trainResult/package/export?id=${encodeURIComponent(id)}&mode=${encodeURIComponent(mode)}`;
+    }
+
     static async queryList(params) {
         return request('/trainResult/all', params, 'post');
     }
@@ -751,6 +764,24 @@ export class ResultQueryService {
 
     static async inferResult(formData) {
         return request('/trainResult/infer', formData, 'post', 'multipart/form-data');
+    }
+}
+
+export class TrainingMetricsService {
+    static async forTask(id) {
+        return request('/trainMetrics/task', { id }, 'post');
+    }
+
+    static async forResult(id) {
+        return request('/trainMetrics/result', { id }, 'post');
+    }
+
+    static async imagesForResult(id) {
+        return request('/trainMetrics/result/images', { id }, 'get', null, 'json');
+    }
+
+    static async resultImage(id, name) {
+        return request('/trainMetrics/result/image', { id, name }, 'get', null, 'blob');
     }
 }
 
