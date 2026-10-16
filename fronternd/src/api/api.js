@@ -775,6 +775,14 @@ export class TrainingMetricsService {
     static async forResult(id) {
         return request('/trainMetrics/result', { id }, 'post');
     }
+
+    static async imagesForResult(id) {
+        return request('/trainMetrics/result/images', { id }, 'get', null, 'json');
+    }
+
+    static async resultImage(id, name) {
+        return request('/trainMetrics/result/image', { id, name }, 'get', null, 'blob');
+    }
 }
 
 /** 项目内研究方向、基线与改进包目录（只读，不依赖数据库）。 */

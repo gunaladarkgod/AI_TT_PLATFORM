@@ -170,6 +170,50 @@
           </div>
         </section>
       </template>
+
+      <section v-if="target?.type === 'result' && (imageLoading || trainingImages.length || imageError)"
+        class="training-images">
+        <div class="training-images__heading">
+          <div>
+            <span class="metrics-diagnostics__eyebrow">VISUAL DIAGNOSTICS</span>
+            <h3>训练图像诊断</h3>
+            <p>查看类别分布、评估图像以及训练和验证批次样例</p>
+          </div>
+          <el-radio-group v-if="imageTabs.length" v-model="activeImageCategory" size="small" class="training-image-tabs">
+            <el-radio-button v-for="tab in imageTabs" :key="tab.key" :value="tab.key">
+              {{ tab.label }} {{ tab.count }}
+            </el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <el-alert v-if="imageError" type="warning" :closable="false" show-icon
+          title="部分训练图片读取失败" :description="imageError" />
+        <div v-if="imageLoading && !trainingImages.length" class="training-images__loading">
+          <el-skeleton :rows="3" animated />
+        </div>
+        <div v-else class="training-image-grid">
+          <article v-for="image in visibleTrainingImages" :key="image.name" class="training-image-card">
+            <div class="training-image-card__canvas">
+              <el-image v-if="imageUrls[image.name]" :src="imageUrls[image.name]" fit="contain"
+                :preview-src-list="previewImageUrls" :initial-index="previewImageIndex(image)"
+                preview-teleported hide-on-click-modal />
+              <el-skeleton v-else-if="isTrainingImageLoading(image.name)" animated class="training-image-card__skeleton">
+                <template #template><el-skeleton-item variant="image" /></template>
+              </el-skeleton>
+              <el-result v-else icon="warning" title="图片读取失败" />
+            </div>
+            <footer>
+              <div>
+                <strong>{{ image.label }}</strong>
+                <span>{{ image.name }}</span>
+              </div>
+              <el-tag v-if="image.role === 'labels'" size="small" effect="plain">真实标签</el-tag>
+              <el-tag v-else-if="image.role === 'pred'" size="small" type="success" effect="plain">模型预测</el-tag>
+              <small v-else>{{ formatImageBytes(image.bytes) }}</small>
+            </footer>
+          </article>
+        </div>
+      </section>
     </div>
 
     <template #footer><el-button @click="emit('update:modelValue', false)">关闭</el-button></template>
@@ -193,6 +237,12 @@ const error = ref('')
 const selectedSeriesKeys = ref({})
 const knownSeriesKeys = ref({})
 const activeDiagnosticKey = ref('')
+const trainingImages = ref([])
+const imageLoading = ref(false)
+const imageError = ref('')
+const activeImageCategory = ref('featured')
+const imageUrls = ref({})
+const imageLoadingNames = ref(new Set())
 let refreshTimer = null
 let requestVersion = 0
 
@@ -235,6 +285,26 @@ const allGroups = computed(() => [...coreGroups.value, ...diagnosticGroups.value
 const activeDiagnosticGroup = computed(() => (
   diagnosticGroups.value.find(group => group.key === activeDiagnosticKey.value) || diagnosticGroups.value[0] || null
 ))
+const imageTabs = computed(() => {
+  const count = predicate => trainingImages.value.filter(predicate).length
+  return [
+    { key: 'featured', label: '精选', count: count(image => image.featured) },
+    { key: 'evaluation', label: '评估诊断', count: count(image => ['overview', 'evaluation', 'data'].includes(image.category)) },
+    { key: 'training', label: '训练样本', count: count(image => image.category === 'training') },
+    { key: 'validation', label: '验证对比', count: count(image => image.category === 'validation') },
+    { key: 'all', label: '全部', count: trainingImages.value.length },
+  ].filter(tab => tab.count)
+})
+const visibleTrainingImages = computed(() => {
+  if (activeImageCategory.value === 'featured') return trainingImages.value.filter(image => image.featured)
+  if (activeImageCategory.value === 'evaluation') {
+    return trainingImages.value.filter(image => ['overview', 'evaluation', 'data'].includes(image.category))
+  }
+  if (activeImageCategory.value === 'all') return trainingImages.value
+  return trainingImages.value.filter(image => image.category === activeImageCategory.value)
+})
+const previewImageUrls = computed(() => visibleTrainingImages.value
+  .map(image => imageUrls.value[image.name]).filter(Boolean))
 
 const summaryCards = computed(() => {
   const lossSeries = seriesByGroup('loss')
@@ -376,6 +446,72 @@ const formatTime = value => {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
 }
 
+const formatImageBytes = value => {
+  const bytes = Number(value)
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024).toFixed(0)} KB`
+}
+
+const clearTrainingImages = () => {
+  Object.values(imageUrls.value).forEach(url => URL.revokeObjectURL(url))
+  trainingImages.value = []
+  imageUrls.value = {}
+  imageLoadingNames.value = new Set()
+  imageLoading.value = false
+  imageError.value = ''
+  activeImageCategory.value = 'featured'
+}
+
+const isTrainingImageLoading = name => imageLoadingNames.value.has(name)
+const previewImageIndex = image => Math.max(0, previewImageUrls.value.indexOf(imageUrls.value[image.name]))
+
+const loadTrainingImage = async (image, version = requestVersion) => {
+  if (!image?.name || imageUrls.value[image.name] || imageLoadingNames.value.has(image.name)) return
+  const targetId = props.target?.id
+  imageLoadingNames.value = new Set([...imageLoadingNames.value, image.name])
+  try {
+    const blob = await TrainingMetricsService.resultImage(targetId, image.name)
+    if (!(blob instanceof Blob) || !blob.size) throw new Error('图片内容为空')
+    const url = URL.createObjectURL(blob)
+    if (version !== requestVersion || targetId !== props.target?.id) {
+      URL.revokeObjectURL(url)
+      return
+    }
+    imageUrls.value = { ...imageUrls.value, [image.name]: url }
+  } catch (_) {
+    if (version === requestVersion) imageError.value = '个别图片无法加载，可切换分组或重新打开看板重试。'
+  } finally {
+    if (version === requestVersion) {
+      const pending = new Set(imageLoadingNames.value)
+      pending.delete(image.name)
+      imageLoadingNames.value = pending
+    }
+  }
+}
+
+const loadVisibleTrainingImages = (version = requestVersion) => (
+  Promise.all(visibleTrainingImages.value.map(image => loadTrainingImage(image, version)))
+)
+
+const loadTrainingImages = async (version) => {
+  if (props.target?.type !== 'result' || !props.target?.id) return
+  imageLoading.value = true
+  try {
+    const response = await TrainingMetricsService.imagesForResult(props.target.id)
+    if (version !== requestVersion) return
+    if (response.code !== 0 || !response.data) throw new Error(response.msg || '读取训练图片清单失败')
+    trainingImages.value = Array.isArray(response.data.images) ? response.data.images : []
+    activeImageCategory.value = trainingImages.value.some(image => image.featured) ? 'featured' : (imageTabs.value[0]?.key || 'all')
+    imageError.value = ''
+    await loadVisibleTrainingImages(version)
+  } catch (cause) {
+    if (version === requestVersion) imageError.value = cause?.message || '读取训练图片失败'
+  } finally {
+    if (version === requestVersion) imageLoading.value = false
+  }
+}
+
 const loadMetrics = async () => {
   if (!props.modelValue || !props.target?.id || loading.value) return
   const version = requestVersion
@@ -404,6 +540,7 @@ const loadMetrics = async () => {
 
 watch(() => [props.modelValue, props.target?.type, props.target?.id], ([visible, type, id]) => {
   requestVersion++
+  const version = requestVersion
   if (refreshTimer) window.clearInterval(refreshTimer)
   refreshTimer = null
   loading.value = false
@@ -412,11 +549,18 @@ watch(() => [props.modelValue, props.target?.type, props.target?.id], ([visible,
   selectedSeriesKeys.value = {}
   knownSeriesKeys.value = {}
   activeDiagnosticKey.value = ''
+  clearTrainingImages()
   if (!visible || !id) return
   loadMetrics()
+  if (type === 'result') loadTrainingImages(version)
   if (type === 'task') refreshTimer = window.setInterval(loadMetrics, 4000)
 }, { immediate: true })
-onBeforeUnmount(() => { requestVersion++; if (refreshTimer) window.clearInterval(refreshTimer) })
+watch(activeImageCategory, () => { if (props.modelValue) loadVisibleTrainingImages() })
+onBeforeUnmount(() => {
+  requestVersion++
+  if (refreshTimer) window.clearInterval(refreshTimer)
+  clearTrainingImages()
+})
 </script>
 
 <style scoped>
@@ -617,6 +761,63 @@ onBeforeUnmount(() => { requestVersion++; if (refreshTimer) window.clearInterval
 .diagnostic-chart-card h3 { color: #303133; font-size: 15px; font-weight: 600; line-height: 1.5; }
 .diagnostic-chart-card p { margin-top: 2px; color: #a2a8b0; font-size: 11px; line-height: 1.5; }
 
+.training-images {
+  margin-top: 16px;
+  padding: 18px;
+  background: linear-gradient(135deg, #fbfcff 0%, #fff 62%);
+  border: 1px solid #e1e8f2;
+  border-radius: 12px;
+  box-shadow: 0 4px 18px rgb(64 120 190 / 5%);
+}
+.training-images__heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 14px;
+}
+.training-images__heading h3, .training-images__heading p { margin: 0; }
+.training-images__heading h3 { color: #1f2937; font-size: 16px; font-weight: 650; line-height: 1.5; }
+.training-images__heading p { margin-top: 2px; color: #8b96a7; font-size: 11px; line-height: 1.5; }
+.training-image-tabs { max-width: 100%; flex: 0 0 auto; }
+.training-images__loading { padding: 20px; background: #fff; border: 1px solid #ebeef5; border-radius: 10px; }
+.training-image-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.training-image-card {
+  min-width: 0;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #e7edf5;
+  border-radius: 10px;
+  box-shadow: 0 3px 12px rgb(31 45 61 / 5%);
+}
+.training-image-card__canvas {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  place-items: center;
+  overflow: hidden;
+  background: #f6f8fb;
+}
+.training-image-card__canvas :deep(.el-image) { width: 100%; height: 100%; cursor: zoom-in; }
+.training-image-card__canvas :deep(.el-image__inner) { padding: 8px; box-sizing: border-box; }
+.training-image-card__canvas :deep(.el-result) { padding: 12px; transform: scale(.8); }
+.training-image-card__skeleton, .training-image-card__skeleton :deep(.el-skeleton__template),
+.training-image-card__skeleton :deep(.el-skeleton__item) { width: 100%; height: 100%; }
+.training-image-card footer {
+  display: flex;
+  min-height: 58px;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-top: 1px solid #edf1f6;
+}
+.training-image-card footer > div { display: flex; min-width: 0; flex-direction: column; }
+.training-image-card footer strong { color: #303133; font-size: 13px; font-weight: 600; line-height: 1.5; }
+.training-image-card footer span { overflow: hidden; color: #a2a8b0; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.training-image-card footer small { flex: 0 0 auto; color: #909399; font-size: 10px; }
+
 @keyframes refresh-pulse {
   0% { box-shadow: 0 0 0 0 rgb(64 158 255 / 35%); }
   70% { box-shadow: 0 0 0 5px rgb(64 158 255 / 0%); }
@@ -628,6 +829,7 @@ onBeforeUnmount(() => { requestVersion++; if (refreshTimer) window.clearInterval
   .metrics-charts { grid-template-columns: 1fr; }
   .metrics-section--wide { grid-column: auto; }
   .metrics-diagnostics__heading { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .training-images__heading { align-items: flex-start; flex-direction: column; gap: 10px; }
 }
 @media (max-width: 620px) {
   .metrics-overview { align-items: flex-start; }
@@ -641,6 +843,10 @@ onBeforeUnmount(() => { requestVersion++; if (refreshTimer) window.clearInterval
   .metrics-diagnostics__heading p, .diagnostic-chart-card p { display: none; }
   .diagnostic-tabs { max-width: 100%; overflow-x: auto; }
   .diagnostic-chart-card { padding-right: 10px; padding-left: 10px; }
+  .training-images { padding: 12px 10px; }
+  .training-images__heading p { display: none; }
+  .training-image-tabs { overflow-x: auto; }
+  .training-image-grid { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { .auto-refresh i { animation: none; } }
 </style>
