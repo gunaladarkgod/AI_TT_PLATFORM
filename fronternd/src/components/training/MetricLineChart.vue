@@ -11,6 +11,7 @@ const props = defineProps({
   axis: { type: String, required: true },
   series: { type: Array, required: true },
   colorDomain: { type: Array, default: () => [] },
+  unit: { type: String, default: '' },
 })
 
 const plotElement = ref(null)
@@ -32,6 +33,8 @@ const formatValue = value => {
   if (absolute >= 1000) return number.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
   return Number(number.toPrecision(5)).toString()
 }
+
+const formatDisplayValue = value => `${formatValue(value)}${props.unit ? ` ${props.unit}` : ''}`
 
 const renderPlot = async () => {
   await nextTick()
@@ -73,7 +76,7 @@ const renderPlot = async () => {
     tooltip: {
       showMarkers: true,
       shared: true,
-      formatter: datum => ({ name: datum.metric, value: formatValue(datum.value) }),
+      formatter: datum => ({ name: datum.metric, value: formatDisplayValue(datum.value) }),
     },
     interactions: [{ type: 'legend-filter' }, { type: 'legend-highlight' }],
     animation: false,

@@ -76,7 +76,7 @@
 
         <div class="metrics-charts">
           <section
-            v-for="group in groups"
+            v-for="group in coreGroups"
             :key="group.key"
             class="metrics-section"
             :class="{ 'metrics-section--wide': group.key === 'learning_rate' }"
@@ -112,9 +112,63 @@
               </el-popover>
             </header>
             <MetricLineChart :title="group.title" :axis="metrics.axis" :series="visibleSeries(group)"
-              :color-domain="group.series.map(series => series.label)" />
+              :color-domain="group.series.map(series => series.label)" :unit="group.unit" />
           </section>
         </div>
+
+        <section v-if="activeDiagnosticGroup" class="metrics-diagnostics">
+          <div class="metrics-diagnostics__heading">
+            <div>
+              <span class="metrics-diagnostics__eyebrow">TRAINING INSIGHTS</span>
+              <h3>训练诊断</h3>
+              <p>从训练效果、优化稳定性、执行耗时和资源占用四个维度辅助定位问题</p>
+            </div>
+            <el-radio-group v-model="activeDiagnosticKey" size="small" class="diagnostic-tabs">
+              <el-radio-button v-for="group in diagnosticGroups" :key="group.key" :value="group.key">
+                {{ group.shortTitle }}
+              </el-radio-button>
+            </el-radio-group>
+          </div>
+
+          <div class="diagnostic-chart-card">
+            <header class="metrics-section__header">
+              <div>
+                <h3>{{ activeDiagnosticGroup.title }}</h3>
+                <p>{{ activeDiagnosticGroup.description }}</p>
+              </div>
+              <el-popover placement="bottom-end" :width="300" trigger="click" popper-class="metric-series-popper">
+                <template #reference>
+                  <el-button class="series-picker-button" size="small" plain :icon="Operation">
+                    选择曲线 {{ selectedCount(activeDiagnosticGroup) }}/{{ activeDiagnosticGroup.series.length }}
+                  </el-button>
+                </template>
+                <div class="series-picker">
+                  <div class="series-picker__header">
+                    <div>
+                      <strong>选择对比指标</strong>
+                      <span>至少保留一条曲线</span>
+                    </div>
+                    <el-button link type="primary"
+                      :disabled="selectedCount(activeDiagnosticGroup) === activeDiagnosticGroup.series.length"
+                      @click="selectAllSeries(activeDiagnosticGroup)">全选</el-button>
+                  </div>
+                  <el-checkbox-group :model-value="selectedSeriesKeys[activeDiagnosticGroup.key] || []"
+                    @change="values => updateSeriesSelection(activeDiagnosticGroup, values)">
+                    <el-checkbox v-for="series in activeDiagnosticGroup.series" :key="seriesId(series)"
+                      :value="seriesId(series)" :disabled="isLastSelectedSeries(activeDiagnosticGroup, series)"
+                      :title="series.label">
+                      {{ series.label }}
+                    </el-checkbox>
+                  </el-checkbox-group>
+                </div>
+              </el-popover>
+            </header>
+            <MetricLineChart :key="activeDiagnosticGroup.key" :title="activeDiagnosticGroup.title"
+              :axis="metrics.axis" :series="visibleSeries(activeDiagnosticGroup)"
+              :color-domain="activeDiagnosticGroup.series.map(series => series.label)"
+              :unit="activeDiagnosticGroup.unit" />
+          </div>
+        </section>
       </template>
     </div>
 
@@ -138,6 +192,7 @@ const loading = ref(false)
 const error = ref('')
 const selectedSeriesKeys = ref({})
 const knownSeriesKeys = ref({})
+const activeDiagnosticKey = ref('')
 let refreshTimer = null
 let requestVersion = 0
 
@@ -149,11 +204,37 @@ const engineName = computed(() => ({
 })[metrics.value?.engine] || '')
 const axisLabel = computed(() => metrics.value?.axis === 'epoch' ? '轮次' : '迭代')
 const hasSeries = computed(() => !!metrics.value?.series?.some(series => series.points?.length))
-const groups = computed(() => [
-  { key: 'loss', title: '损失曲线', description: '观察训练收敛趋势与各项损失变化', series: seriesByGroup('loss') },
-  { key: 'accuracy', title: '精度曲线', description: '查看 mAP、AP 等验证指标变化', series: seriesByGroup('accuracy') },
-  { key: 'learning_rate', title: '学习率曲线', description: '检查优化器学习率调度过程', series: seriesByGroup('learning_rate') },
+const coreGroups = computed(() => [
+  { key: 'loss', title: '损失曲线', description: '观察训练收敛趋势与各项损失变化', unit: '', series: seriesByGroup('loss') },
+  { key: 'accuracy', title: '精度曲线', description: '查看 mAP、AP 等验证指标变化', unit: '', series: seriesByGroup('accuracy') },
+  { key: 'learning_rate', title: '学习率曲线', description: '检查优化器学习率调度过程', unit: '', series: seriesByGroup('learning_rate') },
 ].filter(group => group.series.length))
+const diagnosticGroups = computed(() => [
+  {
+    key: 'training_accuracy', title: '分类头训练准确率', shortTitle: '训练准确率', unit: '%',
+    description: '反映分类分支在训练批次上的拟合程度，不等同于验证集 mAP',
+    series: seriesByGroup('training_accuracy'),
+  },
+  {
+    key: 'optimization', title: '梯度范数', shortTitle: '梯度范数', unit: '',
+    description: '观察梯度规模变化，辅助发现梯度爆炸或训练不稳定',
+    series: seriesByGroup('optimization'),
+  },
+  {
+    key: 'performance', title: '训练耗时', shortTitle: '训练耗时', unit: '秒',
+    description: '对比单次迭代总耗时与数据加载耗时，定位训练吞吐瓶颈',
+    series: seriesByGroup('performance'),
+  },
+  {
+    key: 'resource', title: '显存占用', shortTitle: '显存占用', unit: 'MB',
+    description: '观察训练过程中的显存占用变化，辅助评估批大小和模型开销',
+    series: seriesByGroup('resource'),
+  },
+].filter(group => group.series.length))
+const allGroups = computed(() => [...coreGroups.value, ...diagnosticGroups.value])
+const activeDiagnosticGroup = computed(() => (
+  diagnosticGroups.value.find(group => group.key === activeDiagnosticKey.value) || diagnosticGroups.value[0] || null
+))
 
 const summaryCards = computed(() => {
   const lossSeries = seriesByGroup('loss')
@@ -162,7 +243,10 @@ const summaryCards = computed(() => {
   const preferredAccuracy = accuracySeries.find(item => /map(?!50|75)|coco\/bbox_mAP$/i.test(item.key || '')) || accuracySeries[0]
   const latestLoss = lastPoint(primaryLoss)
   const bestAccuracy = bestPoint(preferredAccuracy, 'max')
-  const curveCount = metrics.value?.series?.filter(item => item.points?.length).length || 0
+  const memorySeries = seriesByGroup('resource')[0]
+  const timeSeries = seriesByGroup('performance').find(item => item.key === 'time' || item.key === 'train/time')
+  const peakMemory = bestPoint(memorySeries, 'max')
+  const averageTime = averageValue(timeSeries)
   return [
     { key: 'loss', label: '当前损失', value: formatMetric(latestLoss?.value), detail: primaryLoss?.label || '暂无损失指标' },
     {
@@ -172,12 +256,15 @@ const summaryCards = computed(() => {
       detail: preferredAccuracy ? `${preferredAccuracy.label} · ${axisLabel.value} ${formatStep(bestAccuracy?.step)}` : '暂无精度指标',
     },
     {
-      key: 'progress',
-      label: `当前${axisLabel.value}`,
-      value: metrics.value?.current_step == null ? '--' : formatStep(metrics.value.current_step),
-      detail: isRunning.value ? '训练进行中' : '训练已结束',
+      key: 'memory',
+      label: '峰值显存',
+      value: formatMemory(peakMemory?.value),
+      detail: memorySeries ? `${memorySeries.label} · ${axisLabel.value} ${formatStep(peakMemory?.step)}` : '当前引擎未记录显存',
     },
-    { key: 'series', label: '有效曲线', value: String(curveCount), detail: `${groups.value.length} 个指标分组` },
+    {
+      key: 'time', label: '平均迭代耗时', value: formatDuration(averageTime),
+      detail: timeSeries ? `基于 ${timeSeries.points.length} 个记录点` : '当前引擎未记录耗时',
+    },
   ]
 })
 
@@ -192,7 +279,7 @@ function seriesId(series) {
 function syncSeriesSelection() {
   const nextSelected = { ...selectedSeriesKeys.value }
   const nextKnown = { ...knownSeriesKeys.value }
-  for (const group of groups.value) {
+  for (const group of allGroups.value) {
     const available = group.series.map(seriesId)
     const known = nextKnown[group.key] || []
     const selected = nextSelected[group.key]
@@ -205,6 +292,9 @@ function syncSeriesSelection() {
   }
   selectedSeriesKeys.value = nextSelected
   knownSeriesKeys.value = nextKnown
+  if (!diagnosticGroups.value.some(group => group.key === activeDiagnosticKey.value)) {
+    activeDiagnosticKey.value = diagnosticGroups.value[0]?.key || ''
+  }
 }
 
 function selectedCount(group) {
@@ -248,6 +338,11 @@ function bestPoint(series, direction) {
   }, null)
 }
 
+function averageValue(series) {
+  const values = series?.points?.map(point => Number(point.value)).filter(Number.isFinite) || []
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
+}
+
 const formatMetric = value => {
   const number = Number(value)
   if (!Number.isFinite(number)) return '--'
@@ -260,6 +355,20 @@ const formatMetric = value => {
 const formatStep = value => {
   const number = Number(value)
   return Number.isFinite(number) ? number.toLocaleString('zh-CN') : (value ?? '--')
+}
+
+const formatMemory = value => {
+  const megabytes = Number(value)
+  if (!Number.isFinite(megabytes)) return '--'
+  return megabytes >= 1024 ? `${(megabytes / 1024).toFixed(2)} GB` : `${formatMetric(megabytes)} MB`
+}
+
+const formatDuration = value => {
+  const seconds = Number(value)
+  if (!Number.isFinite(seconds)) return '--'
+  if (seconds < 0.1) return `${Math.round(seconds * 1000)} ms`
+  if (seconds >= 60) return `${(seconds / 60).toFixed(1)} 分钟`
+  return `${Number(seconds.toPrecision(3))} 秒`
 }
 
 const formatTime = value => {
@@ -302,6 +411,7 @@ watch(() => [props.modelValue, props.target?.type, props.target?.id], ([visible,
   error.value = ''
   selectedSeriesKeys.value = {}
   knownSeriesKeys.value = {}
+  activeDiagnosticKey.value = ''
   if (!visible || !id) return
   loadMetrics()
   if (type === 'task') refreshTimer = window.setInterval(loadMetrics, 4000)
@@ -470,6 +580,43 @@ onBeforeUnmount(() => { requestVersion++; if (refreshTimer) window.clearInterval
 .series-picker :deep(.el-checkbox:hover) { background: #f5f7fa; }
 .series-picker :deep(.el-checkbox__label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.metrics-diagnostics {
+  margin-top: 16px;
+  padding: 18px;
+  background: linear-gradient(135deg, #f7faff 0%, #fff 58%);
+  border: 1px solid #dfeafb;
+  border-radius: 12px;
+  box-shadow: 0 4px 18px rgb(64 120 190 / 6%);
+}
+.metrics-diagnostics__heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 14px;
+}
+.metrics-diagnostics__heading h3, .metrics-diagnostics__heading p { margin: 0; }
+.metrics-diagnostics__heading h3 { color: #1f2937; font-size: 16px; font-weight: 650; line-height: 1.5; }
+.metrics-diagnostics__heading p { margin-top: 2px; color: #8b96a7; font-size: 11px; line-height: 1.5; }
+.metrics-diagnostics__eyebrow {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--el-color-primary);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+.diagnostic-tabs { flex: 0 0 auto; }
+.diagnostic-chart-card {
+  padding: 15px 16px 8px;
+  background: rgb(255 255 255 / 92%);
+  border: 1px solid #e7edf5;
+  border-radius: 10px;
+}
+.diagnostic-chart-card h3, .diagnostic-chart-card p { margin: 0; }
+.diagnostic-chart-card h3 { color: #303133; font-size: 15px; font-weight: 600; line-height: 1.5; }
+.diagnostic-chart-card p { margin-top: 2px; color: #a2a8b0; font-size: 11px; line-height: 1.5; }
+
 @keyframes refresh-pulse {
   0% { box-shadow: 0 0 0 0 rgb(64 158 255 / 35%); }
   70% { box-shadow: 0 0 0 5px rgb(64 158 255 / 0%); }
@@ -480,6 +627,7 @@ onBeforeUnmount(() => { requestVersion++; if (refreshTimer) window.clearInterval
   .metrics-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metrics-charts { grid-template-columns: 1fr; }
   .metrics-section--wide { grid-column: auto; }
+  .metrics-diagnostics__heading { align-items: flex-start; flex-direction: column; gap: 10px; }
 }
 @media (max-width: 620px) {
   .metrics-overview { align-items: flex-start; }
@@ -489,6 +637,10 @@ onBeforeUnmount(() => { requestVersion++; if (refreshTimer) window.clearInterval
   .metrics-section { padding-right: 10px; padding-left: 10px; }
   .metrics-section__header { align-items: center; }
   .metrics-section p { display: none; }
+  .metrics-diagnostics { padding: 12px 10px; }
+  .metrics-diagnostics__heading p, .diagnostic-chart-card p { display: none; }
+  .diagnostic-tabs { max-width: 100%; overflow-x: auto; }
+  .diagnostic-chart-card { padding-right: 10px; padding-left: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { .auto-refresh i { animation: none; } }
 </style>

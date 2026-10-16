@@ -29,6 +29,16 @@ def _metric(key, engine):
         if simple.startswith("metrics/"):
             return "accuracy", name.removeprefix("metrics/")
     else:
+        if simple in ("acc", "train/acc"):
+            return "training_accuracy", "分类头准确率"
+        if simple in ("grad_norm", "train/grad_norm"):
+            return "optimization", "梯度范数"
+        if simple in ("data_time", "train/data_time"):
+            return "performance", "数据加载耗时"
+        if simple in ("time", "train/time"):
+            return "performance", "单次迭代耗时"
+        if simple in ("memory", "train/memory"):
+            return "resource", "显存占用"
         if "loss" in simple:
             return "loss", name.removeprefix("train/")
         if simple in ("lr", "train/lr") or simple.endswith("/lr"):

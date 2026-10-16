@@ -41,6 +41,25 @@ class TrainingMetricsTest(unittest.TestCase):
             accuracy = next(series for series in metrics["series"] if series["group"] == "accuracy")
             self.assertEqual(accuracy["points"][-1], {"step": 2.0, "value": 0.34})
 
+    def test_mmdet_exposes_training_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work_dir = Path(directory)
+            scalars = work_dir / "20261009_120000" / "vis_data" / "scalars.json"
+            scalars.parent.mkdir(parents=True)
+            scalars.write_text(
+                '{"epoch": 1, "step": 20, "acc": 68.4, "grad_norm": 4.2, '
+                '"time": 0.82, "data_time": 0.13, "memory": 3874}\n',
+                encoding="utf-8",
+            )
+            metrics = read_training_metrics(work_dir, "mmdet")
+            by_group = {series["group"]: series for series in metrics["series"]}
+
+            self.assertEqual(by_group["training_accuracy"]["label"], "分类头准确率")
+            self.assertEqual(by_group["optimization"]["points"][-1]["value"], 4.2)
+            performance = [series for series in metrics["series"] if series["group"] == "performance"]
+            self.assertEqual({series["label"] for series in performance}, {"单次迭代耗时", "数据加载耗时"})
+            self.assertEqual(by_group["resource"]["points"][-1]["value"], 3874.0)
+
     def test_missing_metrics_has_empty_state(self):
         with tempfile.TemporaryDirectory() as directory:
             metrics = read_training_metrics(Path(directory), "custom")
