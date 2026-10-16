@@ -86,9 +86,33 @@
                 <h3>{{ group.title }}</h3>
                 <p>{{ group.description }}</p>
               </div>
-              <el-tag size="small" effect="plain" round>{{ group.series.length }} 条曲线</el-tag>
+              <el-popover placement="bottom-end" :width="300" trigger="click" popper-class="metric-series-popper">
+                <template #reference>
+                  <el-button class="series-picker-button" size="small" plain :icon="Operation">
+                    选择曲线 {{ selectedCount(group) }}/{{ group.series.length }}
+                  </el-button>
+                </template>
+                <div class="series-picker">
+                  <div class="series-picker__header">
+                    <div>
+                      <strong>选择对比指标</strong>
+                      <span>至少保留一条曲线</span>
+                    </div>
+                    <el-button link type="primary" :disabled="selectedCount(group) === group.series.length"
+                      @click="selectAllSeries(group)">全选</el-button>
+                  </div>
+                  <el-checkbox-group :model-value="selectedSeriesKeys[group.key] || []"
+                    @change="values => updateSeriesSelection(group, values)">
+                    <el-checkbox v-for="series in group.series" :key="seriesId(series)" :value="seriesId(series)"
+                      :disabled="isLastSelectedSeries(group, series)" :title="series.label">
+                      {{ series.label }}
+                    </el-checkbox>
+                  </el-checkbox-group>
+                </div>
+              </el-popover>
             </header>
-            <MetricLineChart :title="group.title" :axis="metrics.axis" :series="group.series" />
+            <MetricLineChart :title="group.title" :axis="metrics.axis" :series="visibleSeries(group)"
+              :color-domain="group.series.map(series => series.label)" />
           </section>
         </div>
       </template>
@@ -100,7 +124,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { DataLine, RefreshRight } from '@element-plus/icons-vue'
+import { DataLine, Operation, RefreshRight } from '@element-plus/icons-vue'
 import { TrainingMetricsService } from '@/api/api'
 import MetricLineChart from './MetricLineChart.vue'
 
@@ -112,6 +136,8 @@ const emit = defineEmits(['update:modelValue'])
 const metrics = ref(null)
 const loading = ref(false)
 const error = ref('')
+const selectedSeriesKeys = ref({})
+const knownSeriesKeys = ref({})
 let refreshTimer = null
 let requestVersion = 0
 
@@ -159,6 +185,55 @@ function seriesByGroup(group) {
   return metrics.value?.series?.filter(item => item.group === group && item.points?.length) || []
 }
 
+function seriesId(series) {
+  return series.key || series.label
+}
+
+function syncSeriesSelection() {
+  const nextSelected = { ...selectedSeriesKeys.value }
+  const nextKnown = { ...knownSeriesKeys.value }
+  for (const group of groups.value) {
+    const available = group.series.map(seriesId)
+    const known = nextKnown[group.key] || []
+    const selected = nextSelected[group.key]
+    const added = available.filter(key => !known.includes(key))
+    const preserved = selected == null
+      ? available
+      : available.filter(key => selected.includes(key) || added.includes(key))
+    nextSelected[group.key] = preserved.length ? preserved : available.slice(0, 1)
+    nextKnown[group.key] = available
+  }
+  selectedSeriesKeys.value = nextSelected
+  knownSeriesKeys.value = nextKnown
+}
+
+function selectedCount(group) {
+  return visibleSeries(group).length
+}
+
+function visibleSeries(group) {
+  const selected = selectedSeriesKeys.value[group.key]
+  if (!selected) return group.series
+  return group.series.filter(series => selected.includes(seriesId(series)))
+}
+
+function updateSeriesSelection(group, values) {
+  if (!values.length) return
+  selectedSeriesKeys.value = { ...selectedSeriesKeys.value, [group.key]: values }
+}
+
+function selectAllSeries(group) {
+  selectedSeriesKeys.value = {
+    ...selectedSeriesKeys.value,
+    [group.key]: group.series.map(seriesId),
+  }
+}
+
+function isLastSelectedSeries(group, series) {
+  const selected = selectedSeriesKeys.value[group.key] || []
+  return selected.length === 1 && selected.includes(seriesId(series))
+}
+
 function lastPoint(series) {
   return series?.points?.length ? series.points[series.points.length - 1] : null
 }
@@ -204,6 +279,7 @@ const loadMetrics = async () => {
     if (version !== requestVersion) return
     if (response.code !== 0 || !response.data) throw new Error(response.msg || '读取训练指标失败')
     metrics.value = response.data
+    syncSeriesSelection()
     error.value = ''
     if (target.type === 'task' && !response.data.running && refreshTimer) {
       window.clearInterval(refreshTimer)
@@ -224,6 +300,8 @@ watch(() => [props.modelValue, props.target?.type, props.target?.id], ([visible,
   loading.value = false
   metrics.value = null
   error.value = ''
+  selectedSeriesKeys.value = {}
+  knownSeriesKeys.value = {}
   if (!visible || !id) return
   loadMetrics()
   if (type === 'task') refreshTimer = window.setInterval(loadMetrics, 4000)
@@ -368,6 +446,29 @@ onBeforeUnmount(() => { requestVersion++; if (refreshTimer) window.clearInterval
 .metrics-section h3, .metrics-section p { margin: 0; }
 .metrics-section h3 { color: #303133; font-size: 15px; font-weight: 600; line-height: 1.5; }
 .metrics-section p { margin-top: 2px; color: #a2a8b0; font-size: 11px; line-height: 1.5; }
+.series-picker-button { flex: 0 0 auto; color: var(--el-color-primary); border-color: var(--el-color-primary-light-7); }
+.series-picker { display: flex; flex-direction: column; gap: 12px; }
+.series-picker__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.series-picker__header > div { display: flex; min-width: 0; flex-direction: column; }
+.series-picker__header strong { color: #303133; font-size: 14px; line-height: 1.5; }
+.series-picker__header span { color: #a2a8b0; font-size: 11px; line-height: 1.5; }
+.series-picker :deep(.el-checkbox-group) {
+  display: flex;
+  max-height: 260px;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+.series-picker :deep(.el-checkbox) {
+  width: 100%;
+  height: auto;
+  min-height: 30px;
+  margin-right: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.series-picker :deep(.el-checkbox:hover) { background: #f5f7fa; }
+.series-picker :deep(.el-checkbox__label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 @keyframes refresh-pulse {
   0% { box-shadow: 0 0 0 0 rgb(64 158 255 / 35%); }

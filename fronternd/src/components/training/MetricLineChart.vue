@@ -10,6 +10,7 @@ const props = defineProps({
   title: { type: String, required: true },
   axis: { type: String, required: true },
   series: { type: Array, required: true },
+  colorDomain: { type: Array, default: () => [] },
 })
 
 const plotElement = ref(null)
@@ -47,7 +48,10 @@ const renderPlot = async () => {
     xField: 'step',
     yField: 'value',
     seriesField: 'metric',
-    color: colors,
+    color: datum => {
+      const colorIndex = props.colorDomain.indexOf(datum.metric)
+      return colors[(colorIndex < 0 ? 0 : colorIndex) % colors.length]
+    },
     lineStyle: { lineWidth: 2 },
     legend: {
       position: 'top-left',
@@ -78,7 +82,7 @@ const renderPlot = async () => {
 }
 
 onMounted(renderPlot)
-watch(() => [props.series, props.axis], renderPlot, { deep: true })
+watch(() => [props.series, props.axis, props.colorDomain], renderPlot, { deep: true })
 onBeforeUnmount(() => { plot?.destroy(); plot = null })
 </script>
 
