@@ -17,6 +17,7 @@ import java.util.zip.ZipOutputStream;
 import java.util.zip.ZipInputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -80,13 +81,26 @@ class TrainResultPackageServiceTest {
         try (var paths = Files.walk(directory.resolve("yolo_runs/imported"))) {
             Path run = paths.filter(path -> Files.isRegularFile(path.resolve("results.csv"))).findFirst().orElseThrow();
             ByteArrayOutputStream output = new ByteArrayOutputStream();
-            packageService.exportPackage(run, output);
+            assertEquals(2, packageService.exportInfo(run, true).fileCount());
+            assertEquals(1, packageService.exportInfo(run, false).fileCount());
+            assertTrue(packageService.exportInfo(run, true).weightBytes() > 0);
+            packageService.exportPackage(run, output, true);
             try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(output.toByteArray()))) {
                 Set<String> names = new java.util.HashSet<>();
                 ZipEntry entry;
                 while ((entry = zip.getNextEntry()) != null) names.add(entry.getName());
                 assertTrue(names.contains("results.csv"));
                 assertTrue(names.contains("weights/best.pt"));
+            }
+
+            ByteArrayOutputStream dashboardOutput = new ByteArrayOutputStream();
+            packageService.exportPackage(run, dashboardOutput, false);
+            try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(dashboardOutput.toByteArray()))) {
+                Set<String> names = new java.util.HashSet<>();
+                ZipEntry entry;
+                while ((entry = zip.getNextEntry()) != null) names.add(entry.getName());
+                assertTrue(names.contains("results.csv"));
+                assertFalse(names.contains("weights/best.pt"));
             }
         }
     }

@@ -16,8 +16,10 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -28,6 +30,9 @@ public class TrainResultPackageService {
     private static final long MAX_ZIP_BYTES = 500L * 1024 * 1024;
     private static final long MAX_EXTRACTED_BYTES = 2L * 1024 * 1024 * 1024;
     private static final int MAX_ENTRIES = 20_000;
+    private static final Set<String> WEIGHT_EXTENSIONS = Set.of(".pt", ".pth", ".ckpt", ".onnx");
+
+    public record ExportPackageInfo(long fileCount, long originalBytes, long weightBytes) { }
 
     private final TrainResultService results;
     private final TrainResultArtifactService artifacts;
@@ -249,20 +254,54 @@ public class TrainResultPackageService {
         }
     }
 
-    public void exportPackage(Path directory, OutputStream stream) throws IOException {
-        Path root = artifactsRoot();
-        Path base = directory.toRealPath();
-        if (!base.startsWith(root.toRealPath())) throw new IllegalArgumentException("结果目录不在产物根目录内");
+    public ExportPackageInfo exportInfo(Path directory, boolean includeWeights) throws IOException {
+        Path base = exportBase(directory);
+        long fileCount = 0;
+        long originalBytes = 0;
+        long weightBytes = 0;
+        try (var paths = Files.walk(base)) {
+            for (Path path : paths.filter(Files::isRegularFile).toList()) {
+                if (!isSafeExportFile(base, path)) continue;
+                boolean weight = isWeight(path);
+                if (!includeWeights && weight) continue;
+                long size = Files.size(path);
+                fileCount++;
+                originalBytes += size;
+                if (weight) weightBytes += size;
+            }
+        }
+        return new ExportPackageInfo(fileCount, originalBytes, weightBytes);
+    }
+
+    public void exportPackage(Path directory, OutputStream stream, boolean includeWeights) throws IOException {
+        Path base = exportBase(directory);
         try (ZipOutputStream zip = new ZipOutputStream(stream, StandardCharsets.UTF_8);
              var paths = Files.walk(base)) {
+            zip.setLevel(Deflater.BEST_SPEED);
             for (Path path : paths.filter(Files::isRegularFile).toList()) {
-                if (Files.isSymbolicLink(path) || !path.toRealPath().startsWith(base)) continue;
+                if (!isSafeExportFile(base, path) || (!includeWeights && isWeight(path))) continue;
                 String name = base.relativize(path).toString().replace('\\', '/');
                 zip.putNextEntry(new ZipEntry(name));
                 Files.copy(path, zip);
                 zip.closeEntry();
             }
         }
+    }
+
+    private Path exportBase(Path directory) throws IOException {
+        Path root = artifactsRoot().toRealPath();
+        Path base = directory.toRealPath();
+        if (!base.startsWith(root)) throw new IllegalArgumentException("结果目录不在产物根目录内");
+        return base;
+    }
+
+    private boolean isSafeExportFile(Path base, Path path) throws IOException {
+        return !Files.isSymbolicLink(path) && path.toRealPath().startsWith(base);
+    }
+
+    private boolean isWeight(Path path) {
+        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        return WEIGHT_EXTENSIONS.stream().anyMatch(name::endsWith);
     }
 
     private void deleteTree(Path directory) {

@@ -725,8 +725,13 @@ export class ResultQueryService {
         return request('/trainResult/package/import', formData, 'post', 'multipart/form-data', 'json');
     }
 
-    static async exportResultPackage(id) {
-        return request('/trainResult/package/export', { id }, 'get', null, 'blob');
+    static async getExportPackageInfo(id) {
+        return request('/trainResult/package/export-info', { id }, 'get', null, 'json');
+    }
+
+    static exportResultPackageUrl(id, mode = 'full') {
+        const prefix = process.env.NODE_ENV == 'development' ? '/develop' : '';
+        return `${prefix}/trainResult/package/export?id=${encodeURIComponent(id)}&mode=${encodeURIComponent(mode)}`;
     }
 
     static async queryList(params) {

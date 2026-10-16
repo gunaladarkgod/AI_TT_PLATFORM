@@ -201,10 +201,16 @@ public class TrainResultController {
     }
 
     @GetMapping("package/export")
-    public void exportResultPackage(@RequestParam Integer id, HttpServletResponse response) throws IOException {
+    public void exportResultPackage(@RequestParam Integer id,
+                                    @RequestParam(defaultValue = "full") String mode,
+                                    HttpServletResponse response) throws IOException {
         TrainResult result = id == null ? null : trainResultService.getById(id);
         if (result == null) { response.sendError(404, "结果记录不存在"); return; }
         if (!SessionUtil.hasAdminOrSelf(result.getUserName())) { response.sendError(403); return; }
+        if (!"full".equalsIgnoreCase(mode) && !"dashboard".equalsIgnoreCase(mode)) {
+            response.sendError(400, "导出范围无效");
+            return;
+        }
         String stored = trainResultArtifactService.resultDirectory(id);
         if (StrUtil.isBlank(stored) || !Files.isDirectory(Path.of(stored))) {
             response.sendError(404, "结果产物目录不存在");
@@ -212,7 +218,24 @@ public class TrainResultController {
         }
         response.setContentType("application/zip");
         response.setHeader("Content-Disposition", "attachment; filename=training-result-" + id + ".zip");
-        trainResultPackageService.exportPackage(Path.of(stored), response.getOutputStream());
+        response.setHeader("Cache-Control", "no-store");
+        trainResultPackageService.exportPackage(Path.of(stored), response.getOutputStream(),
+                "full".equalsIgnoreCase(mode));
+    }
+
+    @GetMapping("package/export-info")
+    public AjaxResult exportResultPackageInfo(@RequestParam Integer id) throws IOException {
+        TrainResult result = id == null ? null : trainResultService.getById(id);
+        if (result == null) return AjaxResult.error("结果记录不存在");
+        if (!SessionUtil.hasAdminOrSelf(result.getUserName())) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        String stored = trainResultArtifactService.resultDirectory(id);
+        if (StrUtil.isBlank(stored) || !Files.isDirectory(Path.of(stored))) {
+            return AjaxResult.error("结果产物目录不存在");
+        }
+        Path directory = Path.of(stored);
+        return AjaxResult.success(Map.of(
+                "dashboard", trainResultPackageService.exportInfo(directory, false),
+                "full", trainResultPackageService.exportInfo(directory, true)));
     }
 
     @PostMapping("meta/update")
