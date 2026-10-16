@@ -776,6 +776,10 @@ export class TrainingMetricsService {
         return request('/trainMetrics/result', { id }, 'post');
     }
 
+    static async compare(ids) {
+        return request('/trainMetrics/compare', { ids }, 'post', 'application/json;charset=UTF-8', 'json');
+    }
+
     static async imagesForResult(id) {
         return request('/trainMetrics/result/images', { id }, 'get', null, 'json');
     }

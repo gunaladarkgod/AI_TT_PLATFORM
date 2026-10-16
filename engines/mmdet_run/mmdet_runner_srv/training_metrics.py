@@ -43,7 +43,7 @@ def _metric(key, engine):
             return "loss", name.removeprefix("train/")
         if simple in ("lr", "train/lr") or simple.endswith("/lr"):
             return "learning_rate", name
-        if any(token in simple for token in ("map", "ap50", "ap75")):
+        if any(token in simple for token in ("map", "ap50", "ap75", "bbox_ap", "/ap")):
             return "accuracy", name.removeprefix("val/")
     return None
 

@@ -28,6 +28,11 @@
           :loading="batchDeleting"
           @click="deleteSelectedResults"
         >批量删除{{ selectedResults.length ? ` (${selectedResults.length})` : '' }}</el-button>
+        <el-button v-if="manageMode" size="small" type="success" plain
+          :disabled="selectedResults.length < 2 || selectedResults.length > 8"
+          @click="openComparison">
+          跨实验对比{{ selectedResults.length ? ` (${selectedResults.length})` : '' }}
+        </el-button>
       </div>
     </div>
 
@@ -273,6 +278,7 @@
       </template>
     </el-dialog>
     <TrainingMetricsDialog v-model="metricsVisible" :target="metricsTarget" />
+    <ExperimentComparisonDialog v-model="comparisonVisible" :ids="comparisonIds" />
   </div>
 </template>
 
@@ -280,6 +286,7 @@
 import PermissionNotice from '@/components/PermissionNotice.vue'
 import InferenceResult from '@/components/InferenceResult.vue'
 import TrainingMetricsDialog from '@/components/training/TrainingMetricsDialog.vue'
+import ExperimentComparisonDialog from '@/components/training/ExperimentComparisonDialog.vue'
 import { useLoginStore } from '@/stores/index'
     import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
     import { ElMessage, ElMessageBox } from 'element-plus';
@@ -325,6 +332,8 @@ import { useLoginStore } from '@/stores/index'
     const inferenceResult = ref(null);
     const metricsVisible = ref(false);
     const metricsTarget = ref(null);
+    const comparisonVisible = ref(false);
+    const comparisonIds = ref([]);
     const detailVisible = ref(false);
     const detailLoading = ref(false);
     const detailSaving = ref(false);
@@ -644,6 +653,20 @@ import { useLoginStore } from '@/stores/index'
       manageMode.value = !manageMode.value;
       selectedResults.value = [];
       nextTick(() => tableRef.value?.clearSelection?.());
+    };
+
+    const openComparison = () => {
+      const rows = selectedResults.value.filter(canSelectResult);
+      if (rows.length < 2) {
+        ElMessage.warning('请选择至少两个已完成的训练结果');
+        return;
+      }
+      if (rows.length > 8) {
+        ElMessage.warning('一次最多对比 8 个训练结果');
+        return;
+      }
+      comparisonIds.value = rows.map(row => row.id);
+      comparisonVisible.value = true;
     };
 
     watch(searchName, () => { currentPage.value = 1; });
