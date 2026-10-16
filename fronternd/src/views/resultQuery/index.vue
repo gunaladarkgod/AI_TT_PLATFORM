@@ -107,7 +107,7 @@
 
         <el-table-column prop="apl" label="APl" align="center" width="80" sortable="custom"/>
 
-        <el-table-column label="操作" align="center" width="250" fixed="right">
+        <el-table-column label="操作" align="center" width="180" fixed="right">
           <template #default="{ row }">
             <div class="result-action-group" @click.stop>
               <el-dropdown trigger="click" @command="command => handleResultCommand(command, row)">
@@ -131,11 +131,12 @@
                     <el-dropdown-item :disabled="row.training || row.externalImported || inferenceLoadingId === row.id" command="infer">
                       <el-icon><Aim /></el-icon>模型推理
                     </el-dropdown-item>
+                    <el-dropdown-item v-if="!row.training" :disabled="exportingId !== null" command="export">
+                      <el-icon><Download /></el-icon>导出 ZIP
+                    </el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
-              <el-button v-if="!row.training" size="small" plain type="primary" :icon="Download"
-                :loading="exportingId === row.id" @click="openExportDialog(row)">导出 ZIP</el-button>
               <el-button v-permission v-if="!row.training" type="danger" size="small" @click="deleteResult(row)">删除</el-button>
             </div>
           </template>
@@ -964,6 +965,7 @@ import { useLoginStore } from '@/stores/index'
       if (command === 'config') return viewResultConfigSnapshot(row);
       if (command === 'path') return openResultPath(row);
       if (command === 'infer') return openInferenceDialog(row);
+      if (command === 'export') return openExportDialog(row);
     };
 
 const refreshTimer = window.setInterval(() => loadResults(true), 2000);
