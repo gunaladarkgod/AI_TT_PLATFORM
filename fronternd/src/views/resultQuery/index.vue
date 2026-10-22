@@ -9,7 +9,6 @@
         <el-button size="small" @click="clearTableSort">清除列排序</el-button>
       </div>
       <div class="flex-start">
-        <el-button v-permission size="small" plain type="primary" @click="importVisible = true">导入 ZIP</el-button>
         <el-input
           v-model="searchName"
           placeholder="按任务名称/指标搜索"
@@ -192,24 +191,6 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="importVisible" width="min(520px, 92vw)" title="导入训练结果 ZIP"
-      @closed="importFile = null">
-      <div class="result-import-dialog">
-        <p>支持 Ultralytics 训练目录（根目录含 results.csv）和 MMDetection 训练目录（含 vis_data/scalars.json）。可将整个训练目录压缩为 ZIP。</p>
-        <el-upload action="#" :auto-upload="false" :limit="1" :file-list="importFile ? [importFile] : []"
-          :disabled="importing"
-          accept=".zip,application/zip" :on-change="file => importFile = file"
-          :on-remove="() => importFile = null" :on-exceed="() => ElMessage.warning('一次只能导入一个结果包')">
-          <el-button type="primary" plain>选择 ZIP 文件</el-button>
-          <template #tip><div class="el-upload__tip">单个 ZIP 不超过 500 MB，导入后可在列表中打开训练看板。</div></template>
-        </el-upload>
-      </div>
-      <template #footer>
-        <el-button @click="importVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="!importFile" :loading="importing" @click="importResultPackage">导入结果</el-button>
-      </template>
-    </el-dialog>
-
     <el-dialog v-model="exportVisible" width="min(680px, 94vw)" title="导出训练结果 ZIP"
       :close-on-click-modal="!exportRunning" :close-on-press-escape="!exportRunning"
       :show-close="!exportRunning" @closed="resetExportDialog">
@@ -310,9 +291,6 @@ import { useLoginStore } from '@/stores/index'
     const configLoadingTaskId = ref(null);
     const openPathLoadingId = ref(null);
     const inferenceLoadingId = ref(null);
-    const importVisible = ref(false);
-    const importFile = ref(null);
-    const importing = ref(false);
     const exportingId = ref(null);
     const exportVisible = ref(false);
     const exportInfoLoading = ref(false);
@@ -454,30 +432,6 @@ import { useLoginStore } from '@/stores/index'
       } finally {
         if (!silent) loading.value = false;
         refreshing.value = false;
-      }
-    };
-
-    const importResultPackage = async () => {
-      const raw = importFile.value?.raw;
-      if (!raw || importing.value) return;
-      if (!raw.name.toLowerCase().endsWith('.zip') || raw.size > 500 * 1024 * 1024) {
-        ElMessage.warning('请选择不超过 500 MB 的 ZIP 文件');
-        return;
-      }
-      importing.value = true;
-      try {
-        const form = new FormData();
-        form.append('file', raw);
-        const res = await ResultQueryService.importResultPackage(form);
-        if (res.code !== 0) throw new Error(res.msg || '导入失败');
-        importVisible.value = false;
-        importFile.value = null;
-        await loadResults();
-        ElMessage.success('训练结果已导入，可以打开训练看板');
-      } catch (error) {
-        ElMessage.error(error?.msg || error?.message || '导入失败');
-      } finally {
-        importing.value = false;
       }
     };
 
@@ -1032,8 +986,6 @@ loadResults();
     width: 220px;
     margin-left: 8px;
     }
-
-    .result-import-dialog p { margin: 0 0 16px; color: #606266; font-size: 13px; line-height: 1.7; }
 
     .result-export-dialog { min-height: 250px; display: flex; flex-direction: column; gap: 14px; }
     .result-export-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: #303133; }

@@ -23,7 +23,7 @@
       <div>
 
         <el-space>
-          <el-button type="primary" @click="showAddModal" size="small"><el-text size="small"
+          <el-button type="primary" @click="openCreateMode" size="small"><el-text size="small"
               class="text-white">创建训练任务</el-text>
           </el-button>
         </el-space>
@@ -269,6 +269,34 @@
 
   </div>
 
+
+  <el-dialog v-model="createModeVisible" title="创建训练任务" width="min(560px, 92vw)"
+    :close-on-click-modal="!historyImporting" :close-on-press-escape="!historyImporting"
+    :show-close="!historyImporting" @closed="resetCreateMode">
+    <el-radio-group v-model="createMode" class="create-mode-options">
+      <el-radio-button value="train">开始训练</el-radio-button>
+      <el-radio-button v-if="canImportHistory" value="history">导入历史结果</el-radio-button>
+    </el-radio-group>
+    <div v-if="createMode === 'history'" class="history-import-content">
+      <el-upload action="#" :auto-upload="false" :limit="1"
+        :file-list="historyImportFile ? [historyImportFile] : []" :disabled="historyImporting"
+        accept=".zip,application/zip" :on-change="file => historyImportFile = file"
+        :on-remove="() => historyImportFile = null"
+        :on-exceed="() => ElMessage.warning('一次只能导入一个结果包')">
+        <el-button plain type="primary">选择 ZIP 文件</el-button>
+        <template #tip>
+          <div class="el-upload__tip">支持 Ultralytics results.csv 或 MMDetection vis_data/scalars.json；单个 ZIP 不超过 500 MB。</div>
+        </template>
+      </el-upload>
+      <el-alert type="info" :closable="false" title="导入后会作为历史结果显示在结果查询中，并标记为“导入”。" />
+    </div>
+    <template #footer>
+      <el-button :disabled="historyImporting" @click="createModeVisible = false">取消</el-button>
+      <el-button v-if="createMode === 'train'" type="primary" @click="continueCreatingTask">继续配置</el-button>
+      <el-button v-else type="primary" :disabled="!historyImportFile" :loading="historyImporting"
+        @click="importHistoryResult">导入结果</el-button>
+    </template>
+  </el-dialog>
 
   <!-- 创建训练任务 -->
   <el-dialog v-model="addVisible" width="94vw" class="train-task-edit-dialog" align-center
@@ -2435,7 +2463,7 @@ import { VueDraggable } from 'vue-draggable-plus'
 import { computed, reactive, ref, toRaw, watch } from "@vue/reactivity";
 import { useRouter } from "vue-router";
 import { useUserStore } from "../../stores/index";
-import { FileService, EngineProjectService, EngineTaskService, TrainLabelService, TrainTaskService, TrainScriptService, TrainYoloService, ApiService, ModelTransService, trainService, transService , InstanceDatasetService, ResearchCatalogService, OriginalDatasetService } from "../../api/api";
+import { FileService, EngineProjectService, EngineTaskService, TrainLabelService, TrainTaskService, TrainScriptService, TrainYoloService, ApiService, ModelTransService, trainService, transService , InstanceDatasetService, ResearchCatalogService, OriginalDatasetService, ResultQueryService } from "../../api/api";
 import { ElMessage, dayjs, ElMessageBox, ElMain, genFileId } from "element-plus";
 import { Aim, ArrowDown, CircleCheck, Close, CopyDocument, DataLine, Document, Edit, Switch, Top, View } from '@element-plus/icons-vue';
 import { nextTick, onBeforeUnmount, onMounted, watchEffect } from "@vue/runtime-core";
@@ -2448,6 +2476,7 @@ import authimg from '../../components/authimg.vue'
 import AceEdit from '@/components/AceEdit/index.vue'
 import TrainingMetricsDialog from '@/components/training/TrainingMetricsDialog.vue'
 import { showRemark } from "../../utils/str";
+import { canMaintain } from '@/config/permissions'
 import { add } from 'lodash';
 const encode_src = ref(false);
 ApiService.getSysInfo().then(res => {
@@ -2843,6 +2872,11 @@ const addForm = reactive({
   mmdet_cfg: default_mmdet_header,
 })
 const addVisible = ref(false)
+const createModeVisible = ref(false)
+const createMode = ref('train')
+const historyImportFile = ref(null)
+const historyImporting = ref(false)
+const canImportHistory = computed(() => canMaintain(useUserStore().user))
 const activeTab = ref('data-tab')
 const is_create = ref(false)   // 创建/编辑
 const is_add = ref(false) // 追加模式
@@ -2946,6 +2980,45 @@ const fetchConfigTemplates = () => {
   }).catch(() => {
     // Runner 重启前沿用页面内的保守默认值，缺失模板仍保持禁用。
   })
+}
+
+const openCreateMode = () => {
+  createMode.value = 'train'
+  historyImportFile.value = null
+  createModeVisible.value = true
+}
+
+const resetCreateMode = () => {
+  createMode.value = 'train'
+  historyImportFile.value = null
+}
+
+const continueCreatingTask = () => {
+  createModeVisible.value = false
+  showAddModal()
+}
+
+const importHistoryResult = async () => {
+  const file = historyImportFile.value?.raw
+  if (!file || historyImporting.value) return
+  if (!file.name.toLowerCase().endsWith('.zip') || file.size > 500 * 1024 * 1024) {
+    ElMessage.warning('请选择不超过 500 MB 的 ZIP 文件')
+    return
+  }
+  historyImporting.value = true
+  try {
+    const form = new FormData()
+    form.append('file', file)
+    const response = await ResultQueryService.importResultPackage(form)
+    if (response.code !== 0) throw new Error(response.msg || '导入失败')
+    createModeVisible.value = false
+    ElMessage.success('历史结果已导入')
+    await router.push('/resultQuery')
+  } catch (error) {
+    ElMessage.error(error?.msg || error?.message || '导入失败')
+  } finally {
+    historyImporting.value = false
+  }
 }
 
 /**新建模式 */
@@ -6063,6 +6136,11 @@ const labelsHandleClose = (val) => {
 </script>
 
 <style scoped>
+.create-mode-options { display: flex; width: 100%; }
+.create-mode-options :deep(.el-radio-button) { flex: 1; }
+.create-mode-options :deep(.el-radio-button__inner) { width: 100%; }
+.history-import-content { display: grid; gap: 16px; margin-top: 20px; }
+.history-import-content :deep(.el-upload__tip) { line-height: 1.5; }
 .content-div {
   padding: 10px;
   position: relative;
