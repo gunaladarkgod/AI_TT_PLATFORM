@@ -23,7 +23,7 @@
       <div>
 
         <el-space>
-          <el-button type="primary" @click="openCreateMode" size="small"><el-text size="small"
+          <el-button type="primary" @click="showAddModal" size="small"><el-text size="small"
               class="text-white">创建训练任务</el-text>
           </el-button>
         </el-space>
@@ -270,14 +270,10 @@
   </div>
 
 
-  <el-dialog v-model="createModeVisible" title="创建训练任务" width="min(560px, 92vw)"
+  <el-dialog v-model="historyImportVisible" title="导入历史训练" width="min(560px, 92vw)"
     :close-on-click-modal="!historyImporting" :close-on-press-escape="!historyImporting"
-    :show-close="!historyImporting" @closed="resetCreateMode">
-    <el-radio-group v-model="createMode" class="create-mode-options">
-      <el-radio-button value="train">开始训练</el-radio-button>
-      <el-radio-button v-if="canImportHistory" value="history">导入历史结果</el-radio-button>
-    </el-radio-group>
-    <div v-if="createMode === 'history'" class="history-import-content">
+    :show-close="!historyImporting" @closed="resetHistoryImport">
+    <div class="history-import-content">
       <el-upload action="#" :auto-upload="false" :limit="1"
         :file-list="historyImportFile ? [historyImportFile] : []" :disabled="historyImporting"
         accept=".zip,application/zip" :on-change="file => historyImportFile = file"
@@ -291,9 +287,8 @@
       <el-alert type="info" :closable="false" title="导入后会作为历史结果显示在结果查询中，并标记为“导入”。" />
     </div>
     <template #footer>
-      <el-button :disabled="historyImporting" @click="createModeVisible = false">取消</el-button>
-      <el-button v-if="createMode === 'train'" type="primary" @click="continueCreatingTask">继续配置</el-button>
-      <el-button v-else type="primary" :disabled="!historyImportFile" :loading="historyImporting"
+      <el-button :disabled="historyImporting" @click="historyImportVisible = false">取消</el-button>
+      <el-button type="primary" :disabled="!historyImportFile" :loading="historyImporting"
         @click="importHistoryResult">导入结果</el-button>
     </template>
   </el-dialog>
@@ -303,6 +298,13 @@
     :close-on-press-escape="false"
     :title="is_create ? (is_add ? '创建任务(追加模式)' : '创建任务') : '编辑任务_#' + cur_task_id" draggable
     :close-on-click-modal="false">
+    <template #header>
+      <div class="task-dialog-header">
+        <span>{{ is_create ? (is_add ? '创建任务(追加模式)' : '创建任务') : '编辑任务_#' + cur_task_id }}</span>
+        <el-button v-if="is_create && canImportHistory" plain size="small" :disabled="historyImporting"
+          @click="openHistoryImport">导入历史训练</el-button>
+      </div>
+    </template>
     <el-form size="small" label-width="130" label-position="left">
       <div v-if="is_create" class="task-overview task-create-overview">
         <div class="task-overview-row task-overview-primary">
@@ -2872,8 +2874,7 @@ const addForm = reactive({
   mmdet_cfg: default_mmdet_header,
 })
 const addVisible = ref(false)
-const createModeVisible = ref(false)
-const createMode = ref('train')
+const historyImportVisible = ref(false)
 const historyImportFile = ref(null)
 const historyImporting = ref(false)
 const canImportHistory = computed(() => canMaintain(useUserStore().user))
@@ -2982,20 +2983,13 @@ const fetchConfigTemplates = () => {
   })
 }
 
-const openCreateMode = () => {
-  createMode.value = 'train'
+const openHistoryImport = () => {
   historyImportFile.value = null
-  createModeVisible.value = true
+  historyImportVisible.value = true
 }
 
-const resetCreateMode = () => {
-  createMode.value = 'train'
+const resetHistoryImport = () => {
   historyImportFile.value = null
-}
-
-const continueCreatingTask = () => {
-  createModeVisible.value = false
-  showAddModal()
 }
 
 const importHistoryResult = async () => {
@@ -3011,7 +3005,7 @@ const importHistoryResult = async () => {
     form.append('file', file)
     const response = await ResultQueryService.importResultPackage(form)
     if (response.code !== 0) throw new Error(response.msg || '导入失败')
-    createModeVisible.value = false
+    historyImportVisible.value = false
     ElMessage.success('历史结果已导入')
     await router.push('/resultQuery')
   } catch (error) {
@@ -6136,9 +6130,7 @@ const labelsHandleClose = (val) => {
 </script>
 
 <style scoped>
-.create-mode-options { display: flex; width: 100%; }
-.create-mode-options :deep(.el-radio-button) { flex: 1; }
-.create-mode-options :deep(.el-radio-button__inner) { width: 100%; }
+.task-dialog-header { display: flex; align-items: center; gap: 14px; }
 .history-import-content { display: grid; gap: 16px; margin-top: 20px; }
 .history-import-content :deep(.el-upload__tip) { line-height: 1.5; }
 .content-div {
