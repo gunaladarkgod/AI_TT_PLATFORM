@@ -238,6 +238,22 @@ public class TrainResultController {
                 "full", trainResultPackageService.exportInfo(directory, true)));
     }
 
+    @PostMapping("meta/import-label/hide")
+    public AjaxResult hideImportLabel(@RequestParam Integer id) {
+        if (!List.of(CodeMap.USER_TYPE_SYS, CodeMap.USER_TYPE_ADMIN, CodeMap.USER_TYPE_IMPROVEMENT)
+                .contains(SessionUtil.getCurRoleId())) {
+            return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        }
+        TrainResult result = trainResultService.getById(id);
+        if (result == null) return AjaxResult.error("结果记录不存在");
+        if (!SessionUtil.hasAdminOrSelf(result.getUserName())) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        try {
+            return AjaxResult.success(trainResultArtifactService.hideImportLabel(result));
+        } catch (IllegalStateException e) {
+            return AjaxResult.error(e.getMessage());
+        }
+    }
+
     @PostMapping("meta/update")
     public AjaxResult updateResultMetadata(@RequestBody Map<String, Object> body) {
         Object rawId = body == null ? null : body.get("id");

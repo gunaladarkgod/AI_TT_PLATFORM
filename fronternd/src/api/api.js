@@ -758,6 +758,10 @@ export class ResultQueryService {
         return request('/trainResult/meta/update', payload, 'post', 'application/json;charset=UTF-8', 'json');
     }
 
+    static async hideImportLabel(id) {
+        return request('/trainResult/meta/import-label/hide', { id }, 'post');
+    }
+
     static async readResultConfig(id) {
         return request('/trainResult/config/read', { id, includeText: true }, 'post');
     }

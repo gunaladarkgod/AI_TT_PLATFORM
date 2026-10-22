@@ -19,6 +19,7 @@
         <el-button v-permission size="small" type="primary" class="result-manage-button" @click="toggleManageMode">
           {{ manageMode ? '完成管理' : '管理' }}
         </el-button>
+        <el-button v-permission size="small" plain @click="openImportDialog">导入 ZIP</el-button>
         <el-button v-permission
           v-if="manageMode"
           size="small"
@@ -56,7 +57,8 @@
           <template #default="{ row }">
             <div class="result-name-cell">
               <span :title="row.resultName || row.taskName">{{ row.resultName || row.taskName }}</span>
-              <el-tag v-if="row.externalImported" size="small" type="info" effect="plain">导入</el-tag>
+              <el-tag v-if="row.externalImported && !row.importLabelHidden" size="small" type="info" effect="plain"
+                class="import-source-tag" @click.stop="handleImportLabelClick(row)">导入</el-tag>
             </div>
           </template>
         </el-table-column>
@@ -184,6 +186,28 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="importVisible" width="min(560px, 92vw)" title="导入历史训练结果"
+      :close-on-click-modal="!importing" :close-on-press-escape="!importing"
+      :show-close="!importing" @closed="resetImportDialog">
+      <div class="result-import-dialog">
+        <el-upload action="#" :auto-upload="false" :limit="1"
+          :file-list="importFile ? [importFile] : []" :disabled="importing"
+          accept=".zip,application/zip" :on-change="file => importFile = file"
+          :on-remove="() => importFile = null"
+          :on-exceed="() => ElMessage.warning('一次只能导入一个结果包')">
+          <el-button plain type="primary">选择 ZIP 文件</el-button>
+          <template #tip>
+            <div class="el-upload__tip">支持 Ultralytics results.csv 或 MMDetection vis_data/scalars.json；单个 ZIP 不超过 500 MB。</div>
+          </template>
+        </el-upload>
+        <el-alert type="info" :closable="false" title="导入结果将加入当前结果列表，可查看训练看板并导出结果包。" />
+      </div>
+      <template #footer>
+        <el-button :disabled="importing" @click="importVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!importFile" :loading="importing" @click="importResultPackage">导入结果</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="textVisible" width="min(960px, 90vw)" top="6vh" :title="textTitle" draggable>
       <pre class="result-text-viewer">{{ textContent }}</pre>
       <template #footer>
@@ -268,7 +292,8 @@ import PermissionNotice from '@/components/PermissionNotice.vue'
 import InferenceResult from '@/components/InferenceResult.vue'
 import TrainingMetricsDialog from '@/components/training/TrainingMetricsDialog.vue'
 import ExperimentComparisonDialog from '@/components/training/ExperimentComparisonDialog.vue'
-import { useLoginStore } from '@/stores/index'
+import { useLoginStore, useUserStore } from '@/stores/index'
+import { canMaintain } from '@/config/permissions'
     import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
     import { ElMessage, ElMessageBox } from 'element-plus';
     import { Aim, ArrowDown, DataLine, Document, Download, FolderOpened, View } from '@element-plus/icons-vue';
@@ -312,6 +337,11 @@ import { useLoginStore } from '@/stores/index'
     const metricsTarget = ref(null);
     const comparisonVisible = ref(false);
     const comparisonIds = ref([]);
+    const importVisible = ref(false);
+    const importFile = ref(null);
+    const importing = ref(false);
+    let importLabelClicks = { id: null, count: 0, lastClick: 0 };
+    const hidingImportLabels = new Set();
     const detailVisible = ref(false);
     const detailLoading = ref(false);
     const detailSaving = ref(false);
@@ -425,13 +455,71 @@ import { useLoginStore } from '@/stores/index'
           size: 100000,
         });
         if (res.code === 0) {
-            tableData.value = res.data.records || [];
+            tableData.value = (res.data.records || []).map(row => ({
+              ...row,
+              importLabelHidden: row.importLabelHidden || hiddenImportLabelIds.has(row.id),
+            }));
         } else {
           ElMessage.warning(res.msg);
         }
       } finally {
         if (!silent) loading.value = false;
         refreshing.value = false;
+      }
+    };
+
+    // Keep a completed dismissal visible to polling requests that started before it was saved.
+    const hiddenImportLabelIds = new Set();
+    const handleImportLabelClick = async (row) => {
+      if (!row?.externalImported || !row.id || row.importLabelHidden
+          || !canMaintain(useUserStore().user) || hidingImportLabels.has(row.id)) return;
+      const now = Date.now();
+      const consecutive = importLabelClicks.id === row.id && now - importLabelClicks.lastClick <= 1500;
+      importLabelClicks = { id: row.id, count: consecutive ? importLabelClicks.count + 1 : 1, lastClick: now };
+      if (importLabelClicks.count < 5) return;
+      importLabelClicks = { id: null, count: 0, lastClick: 0 };
+      hidingImportLabels.add(row.id);
+      try {
+        const response = await ResultQueryService.hideImportLabel(row.id);
+        if (response.code !== 0 || !response.data?.result?.importLabelHidden) {
+          throw new Error(response.msg || '隐藏导入标签失败');
+        }
+        hiddenImportLabelIds.add(row.id);
+        tableData.value.forEach(item => {
+          if (item.id === row.id) item.importLabelHidden = true;
+        });
+      } catch (error) {
+        ElMessage.error(error?.msg || error?.message || '隐藏导入标签失败，请重试');
+      } finally {
+        hidingImportLabels.delete(row.id);
+      }
+    };
+
+    const openImportDialog = () => {
+      importFile.value = null;
+      importVisible.value = true;
+    };
+    const resetImportDialog = () => { importFile.value = null; };
+    const importResultPackage = async () => {
+      const file = importFile.value?.raw;
+      if (!file || importing.value) return;
+      if (!file.name.toLowerCase().endsWith('.zip') || file.size > 500 * 1024 * 1024) {
+        ElMessage.warning('请选择不超过 500 MB 的 ZIP 文件');
+        return;
+      }
+      importing.value = true;
+      try {
+        const form = new FormData();
+        form.append('file', file);
+        const response = await ResultQueryService.importResultPackage(form);
+        if (response.code !== 0) throw new Error(response.msg || '导入失败');
+        importVisible.value = false;
+        ElMessage.success('历史结果已导入');
+        await loadResults();
+      } catch (error) {
+        ElMessage.error(error?.msg || error?.message || '导入失败');
+      } finally {
+        importing.value = false;
       }
     };
 
@@ -987,6 +1075,14 @@ loadResults();
     margin-left: 8px;
     }
 
+    .result-import-dialog {
+      display: grid;
+      gap: 16px;
+    }
+    .result-import-dialog :deep(.el-upload__tip) {
+      line-height: 1.5;
+    }
+
     .result-export-dialog { min-height: 250px; display: flex; flex-direction: column; gap: 14px; }
     .result-export-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: #303133; }
     .result-export-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: 100%; }
@@ -1005,6 +1101,7 @@ loadResults();
     .result-name-cell { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; }
     .result-name-cell span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .result-name-cell .el-tag { flex: 0 0 auto; }
+    .import-source-tag { cursor: pointer; user-select: none; }
 
     .result-manage-button {
     margin-left: 8px;

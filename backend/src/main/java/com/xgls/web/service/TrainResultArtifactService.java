@@ -103,6 +103,7 @@ public class TrainResultArtifactService {
         result.setTags(readTags(meta.get("tags")));
         result.setConfigPath(meta.getStr("configPath"));
         result.setExternalImported(meta.getBool("externalImported", false));
+        result.setImportLabelHidden(meta.getBool("importLabelHidden", false));
     }
 
     /** 登记已校验并复制到产物根目录的外部训练结果。 */
@@ -120,6 +121,7 @@ public class TrainResultArtifactService {
         meta.set("remark", "由 ZIP 导入的训练结果");
         meta.set("tags", new ArrayList<String>());
         meta.set("externalImported", true);
+        meta.set("importLabelHidden", false);
         meta.set("createdAt", LocalDateTime.now().toString());
         meta.set("resultDir", root.relativize(directory).toString().replace("\\", "/"));
         Path config = directory.resolve("ultralytics".equals(engine) ? "args.yaml" : "config.py");
@@ -179,6 +181,18 @@ public class TrainResultArtifactService {
         } catch (Exception ignored) {
         }
         return null;
+    }
+
+    /** 仅保存来源标签的展示状态，保留结果来源和其他元数据。 */
+    public Map<String, Object> hideImportLabel(TrainResult result) {
+        JSONObject meta = readMeta(result);
+        if (!meta.getBool("externalImported", false)) {
+            throw new IllegalStateException("该结果不是导入结果");
+        }
+        meta.set("importLabelHidden", true);
+        meta.set("updatedAt", LocalDateTime.now().toString());
+        writeMeta(meta);
+        return detail(result);
     }
 
     public Map<String, Object> updateMetadata(TrainResult result, String resultName, String remark, Collection<?> tags) {
