@@ -270,41 +270,11 @@
   </div>
 
 
-  <el-dialog v-model="historyImportVisible" title="导入历史训练" width="min(560px, 92vw)"
-    :close-on-click-modal="!historyImporting" :close-on-press-escape="!historyImporting"
-    :show-close="!historyImporting" @closed="resetHistoryImport">
-    <div class="history-import-content">
-      <el-upload action="#" :auto-upload="false" :limit="1"
-        :file-list="historyImportFile ? [historyImportFile] : []" :disabled="historyImporting"
-        accept=".zip,application/zip" :on-change="file => historyImportFile = file"
-        :on-remove="() => historyImportFile = null"
-        :on-exceed="() => ElMessage.warning('一次只能导入一个结果包')">
-        <el-button plain type="primary">选择 ZIP 文件</el-button>
-        <template #tip>
-          <div class="el-upload__tip">支持 Ultralytics results.csv 或 MMDetection vis_data/scalars.json；单个 ZIP 不超过 500 MB。</div>
-        </template>
-      </el-upload>
-      <el-alert type="info" :closable="false" title="导入后会作为历史结果显示在结果查询中，并标记为“导入”。" />
-    </div>
-    <template #footer>
-      <el-button :disabled="historyImporting" @click="historyImportVisible = false">取消</el-button>
-      <el-button type="primary" :disabled="!historyImportFile" :loading="historyImporting"
-        @click="importHistoryResult">导入结果</el-button>
-    </template>
-  </el-dialog>
-
   <!-- 创建训练任务 -->
   <el-dialog v-model="addVisible" width="94vw" class="train-task-edit-dialog" align-center
     :close-on-press-escape="false"
     :title="is_create ? (is_add ? '创建任务(追加模式)' : '创建任务') : '编辑任务_#' + cur_task_id" draggable
     :close-on-click-modal="false">
-    <template #header>
-      <div class="task-dialog-header">
-        <span>{{ is_create ? (is_add ? '创建任务(追加模式)' : '创建任务') : '编辑任务_#' + cur_task_id }}</span>
-        <el-button v-if="is_create && canImportHistory" plain size="small" :disabled="historyImporting"
-          @click="openHistoryImport">导入历史训练</el-button>
-      </div>
-    </template>
     <el-form size="small" label-width="130" label-position="left">
       <div v-if="is_create" class="task-overview task-create-overview">
         <div class="task-overview-row task-overview-primary">
@@ -2478,7 +2448,6 @@ import authimg from '../../components/authimg.vue'
 import AceEdit from '@/components/AceEdit/index.vue'
 import TrainingMetricsDialog from '@/components/training/TrainingMetricsDialog.vue'
 import { showRemark } from "../../utils/str";
-import { canMaintain } from '@/config/permissions'
 import { add } from 'lodash';
 const encode_src = ref(false);
 ApiService.getSysInfo().then(res => {
@@ -2874,10 +2843,6 @@ const addForm = reactive({
   mmdet_cfg: default_mmdet_header,
 })
 const addVisible = ref(false)
-const historyImportVisible = ref(false)
-const historyImportFile = ref(null)
-const historyImporting = ref(false)
-const canImportHistory = computed(() => canMaintain(useUserStore().user))
 const activeTab = ref('data-tab')
 const is_create = ref(false)   // 创建/编辑
 const is_add = ref(false) // 追加模式
@@ -2981,38 +2946,6 @@ const fetchConfigTemplates = () => {
   }).catch(() => {
     // Runner 重启前沿用页面内的保守默认值，缺失模板仍保持禁用。
   })
-}
-
-const openHistoryImport = () => {
-  historyImportFile.value = null
-  historyImportVisible.value = true
-}
-
-const resetHistoryImport = () => {
-  historyImportFile.value = null
-}
-
-const importHistoryResult = async () => {
-  const file = historyImportFile.value?.raw
-  if (!file || historyImporting.value) return
-  if (!file.name.toLowerCase().endsWith('.zip') || file.size > 500 * 1024 * 1024) {
-    ElMessage.warning('请选择不超过 500 MB 的 ZIP 文件')
-    return
-  }
-  historyImporting.value = true
-  try {
-    const form = new FormData()
-    form.append('file', file)
-    const response = await ResultQueryService.importResultPackage(form)
-    if (response.code !== 0) throw new Error(response.msg || '导入失败')
-    historyImportVisible.value = false
-    ElMessage.success('历史结果已导入')
-    await router.push('/resultQuery')
-  } catch (error) {
-    ElMessage.error(error?.msg || error?.message || '导入失败')
-  } finally {
-    historyImporting.value = false
-  }
 }
 
 /**新建模式 */
@@ -4737,6 +4670,8 @@ const handleUltraBaselineChange = async () => {
   ultralyticsForm.improvementIds = []
   ultralyticsForm.parameters = {}
   lastValidUltraImprovementIds.value = []
+  const baseline = ultralyticsBaselines.value.find(item => item.id === ultralyticsForm.baselineId)
+  if (baseline?.model) ultralyticsForm.model = baseline.model
   await loadUltraImprovements()
   await resolveUltraStack({ preserveCurrent: false })
 }
@@ -6130,9 +6065,6 @@ const labelsHandleClose = (val) => {
 </script>
 
 <style scoped>
-.task-dialog-header { display: flex; align-items: center; gap: 14px; }
-.history-import-content { display: grid; gap: 16px; margin-top: 20px; }
-.history-import-content :deep(.el-upload__tip) { line-height: 1.5; }
 .content-div {
   padding: 10px;
   position: relative;
