@@ -14,5 +14,9 @@ public class InstanceDatasetTrainingReadinessDto {
     private String name;
     private String fatherName;
     private boolean qualified;
+    private String exportFormat;
+    private boolean cocoAvailable;
+    private boolean yoloAvailable;
+    private String dataYaml;
     private List<String> reasons = new ArrayList<>();
 }

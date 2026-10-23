@@ -373,6 +373,22 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         startLegacyTrain(task);
     }
 
+    @Autowired
+    private InstanceDatasetService instanceDatasetService;
+
+    private void validateDatasetForTraining(TrainTask task, String engine, JSONObject options) {
+        if (!"mmdet".equals(engine) && !"ultralytics".equals(engine)) return;
+        TrainExt ext = trainExtMapper.selectById(task.getId());
+        if (ext == null || StrUtil.isBlank(ext.getParams())) throw new IllegalArgumentException("训练任务缺少数据集配置");
+        String name = JSONUtil.parseObj(ext.getParams()).getStr("dataset");
+        var row = instanceDatasetService.listInstanceDatasetTrainingReadiness().stream()
+                .filter(item -> java.util.Objects.equals(name, item.getName())).findFirst().orElse(null);
+        if (row == null || !row.isQualified() || ("mmdet".equals(engine) ? !row.isCocoAvailable() : !row.isYoloAvailable())) {
+            throw new IllegalArgumentException("实例数据集格式不匹配或训练文件缺失，请重新选择数据集");
+        }
+        if ("ultralytics".equals(engine)) options.set("ultralytics_data", row.getDataYaml());
+    }
+
     private void startEngineTrain(TrainTask task, String engineId, JSONObject options) {
         Integer id = task.getId();
         TrainingEngineAdapter adapter = engineAdapters.require(engineId);
@@ -382,6 +398,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         boolean ok = false;
         String remarkTail = "runner:unknown";
         try {
+            validateDatasetForTraining(task, engineId, options);
             RunnerTrainResponse runnerResp = adapter.start(task.getName(), options);
             ok = runnerResp.isOk();
             remarkTail = applyRunnerResult(task, runnerResp, "startTrain");

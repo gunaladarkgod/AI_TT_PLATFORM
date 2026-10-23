@@ -98,6 +98,7 @@ public class InstanceDatasetServiceImpl extends ServiceImpl<InstanceDatasetMappe
         List<InstanceDataset> visible = new ArrayList<>();
         for (InstanceDataset dataset : all) {
             if (canonicalDatasetRoot(dataset).isPresent()) {
+                com.xgls.web.utils.DatasetFormatUtil.inspect(dataset, canonicalDatasetRoot(dataset).get());
                 visible.add(dataset);
             } else {
                 log.debug("跳过未落在当前工作区 data/instance_dataset 下的实例数据集: id={}, father={}, name={}, trainImagePath={}",
@@ -116,6 +117,10 @@ public class InstanceDatasetServiceImpl extends ServiceImpl<InstanceDatasetMappe
             row.setId(info.getId());
             row.setName(info.getName());
             row.setFatherName(info.getFatherName());
+            row.setExportFormat(info.getExportFormat());
+            row.setCocoAvailable(info.isCocoAvailable());
+            row.setYoloAvailable(info.isYoloAvailable());
+            row.setDataYaml(info.getDataYaml());
             List<String> reasons = new ArrayList<>();
             if (info.getName() == null || info.getName().isBlank()) {
                 reasons.add("实例数据集名称为空，无法作为训练集标识");

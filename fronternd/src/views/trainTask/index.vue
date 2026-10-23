@@ -1309,7 +1309,9 @@
               <div style="padding-left: 20px;border: 1px solid #e4e7ed; border-radius: 4px; padding: 16px; ">
                 <el-form-item label="实例数据集" required>
                   <el-select v-model="mmdetParameter.selected_dataset" class="width-200" :disabled="isSee" placeholder="仅显示磁盘可用数据集">
-                    <el-option v-for="item in exampleList" :key="item" :value="item" :label="item"></el-option>
+                    <el-option v-for="item in mmdetDatasetRows" :key="item.id" :value="item.name" :label="item.name" :disabled="!item.qualified" :title="item.reasons.join('；')">
+                      {{ item.name }} <el-tag size="small" :color="datasetFormatColor(item)" style="color:white">{{ datasetFormatLabel(item) }}</el-tag>
+                    </el-option>
                   </el-select>
                   <div v-if="!exampleList.length && !isSee" class="el-form-item__tip" style="color: #909399; font-size: 12px; line-height: 1.4; margin-top: 4px;">
                     无可用项时请确认预处理已落盘；后端配置的实例数据集根目录（如 INSTANCE_DATA_ROOT / sys.instancecfg.instancedata-root）下需存在 images/train、annotations/train 等目录，且训练集内至少有一张图与一个 DOTA txt。
@@ -1413,22 +1415,19 @@
                   </div>
                 </el-form-item>
                 <el-form-item label="实例数据集" required>
-                  <el-select v-model="ultralyticsForm.dataset" :disabled="isSee || instanceReadinessLoading"
+                  <el-select v-model="ultralyticsForm.dataset" @change="syncUltraDatasetYaml" :disabled="isSee || instanceReadinessLoading"
                     filterable placeholder="选择已完成训测划分的实例数据集">
-                    <el-option v-for="item in instanceReadinessList.filter(row => row.qualified)" :key="item.id"
-                      :label="item.name" :value="item.name" />
+                    <el-option v-for="item in ultraDatasetRows" :key="item.id"
+                      :label="item.name" :value="item.name" :disabled="!item.qualified" :title="item.reasons.join('；')">
+                      {{ item.name }} <el-tag size="small" :color="datasetFormatColor(item)" style="color:white">{{ datasetFormatLabel(item) }}</el-tag>
+                    </el-option>
                   </el-select>
                 </el-form-item>
                 <el-form-item label="YOLO data.yaml" required>
-                  <el-input v-model="ultralyticsForm.dataYaml" :disabled="isSee"
-                    placeholder="例如：data/instance_dataset/任务数据集/实例数据集/data.yaml">
-                    <template #append>
-                      <el-button :disabled="isSee" @click="openUltraYamlBrowser">选择文件夹</el-button>
-                    </template>
-                  </el-input>
+                  <el-input v-model="ultralyticsForm.dataYaml" readonly placeholder="选择实例数据集后自动填入" />
                 </el-form-item>
                 <div class="el-form-item__tip">
-                  当前版本需填写预处理导出的 YOLO data.yaml。若尚未导出 YOLO 格式，请先完成实例数据集预处理。
+                  YOLO data.yaml 随所选实例数据集自动确定。
                 </div>
               </div>
             </el-col>
@@ -1836,7 +1835,7 @@
                 <div class="mmdet-instance-dataset-block">
                   <el-table
                     v-loading="instanceReadinessLoading"
-                    :data="instanceReadinessList"
+                    :data="mmdetDatasetRows" :row-style="({ row }) => row.qualified ? {} : { color: '#a8abb2', background: '#f5f7fa' }"
                     size="small"
                     class="mmdet-instance-readiness-table"
                     max-height="280"
@@ -1852,7 +1851,9 @@
                         />
                       </template>
                     </el-table-column>
-                    <el-table-column prop="name" label="名称" min-width="96" show-overflow-tooltip />
+                    <el-table-column prop="name" label="名称" min-width="180">
+                      <template #default="{ row }"><span :style="{ color: row.qualified ? '' : '#a8abb2' }">{{ row.name }}</span> <el-tag size="small" :color="datasetFormatColor(row)" style="color:white">{{ datasetFormatLabel(row) }}</el-tag></template>
+                    </el-table-column>
                     <el-table-column prop="fatherName" label="父任务" min-width="88" show-overflow-tooltip>
                       <template #default="{ row }">
                         <span>{{ row.fatherName || '—' }}</span>
@@ -2431,6 +2432,7 @@
 </template>
 
 <script setup>
+import { datasetFormatLabel, datasetFormatColor, datasetsForEngine } from '@/utils/datasetFormat'
 import { VueDraggable } from 'vue-draggable-plus'
 import { computed, reactive, ref, toRaw, watch } from "@vue/reactivity";
 import { useRouter } from "vue-router";
@@ -2478,7 +2480,9 @@ const weightFileList = ref([])
 // 实例数据集训前检查（全量列表；合格行可选，不合格展示原因与「去处理」）
 const instanceReadinessList = ref([])
 const instanceReadinessLoading = ref(false)
-const qualifiedMmdetDatasetCount = computed(() => instanceReadinessList.value.filter((r) => r.qualified).length)
+const mmdetDatasetRows = computed(() => datasetsForEngine(instanceReadinessList.value, 'mmdet'))
+const ultraDatasetRows = computed(() => datasetsForEngine(instanceReadinessList.value, 'ultralytics'))
+const qualifiedMmdetDatasetCount = computed(() => mmdetDatasetRows.value.filter((r) => r.qualified).length)
 // 网络模板以 engines/mmdet_run/myfiles/template 中是否存在实际文件为准。
 const templateCatalog = ref([
   { name: 'Faster R-CNN', group: 'CNN', available: true },
@@ -4901,21 +4905,26 @@ function goInstanceDatasetFix(row) {
   router.push({ path: '/datasetManageUnified', query: { scroll } })
 }
 
+const syncUltraDatasetYaml = () => {
+  const row = ultraDatasetRows.value.find(item => item.name === ultralyticsForm.dataset)
+  if (!row?.qualified) { ultralyticsForm.dataset = ''; ultralyticsForm.dataYaml = ''; return }
+  ultralyticsForm.dataYaml = row.dataYaml || ''
+}
+
 const fetchMmdetInstanceDatasets = () => {
   instanceReadinessLoading.value = true
   InstanceDatasetService.listTrainingReadiness()
     .then((res) => {
       if (res.code === 0) {
         instanceReadinessList.value = res.data || []
-        const names = instanceReadinessList.value.filter((r) => r.qualified).map((r) => r.name)
+        syncUltraDatasetYaml()
+        const names = mmdetDatasetRows.value.filter((r) => r.qualified).map((r) => r.name)
         const cur = mmdetParameter.selected_dataset
         if (cur && names.includes(cur)) {
           // keep
-        } else if (names.length) {
-          mmdetParameter.selected_dataset = names[0]
         } else {
           mmdetParameter.selected_dataset = null
-          if (!isSee.value) {
+          if (!isSee.value && !names.length) {
             ElMessage.warning('当前没有可参与训练的实例数据集，请完成预处理、训测划分或检查数据目录')
           }
         }
@@ -5011,6 +5020,8 @@ const handleTypeChange = () => {
 }
 
 const handleTrainingEngineChange = () => {
+  const previousDataset = trainingEngine.value === 'ultralytics' ? mmdetParameter.selected_dataset : ultralyticsForm.dataset
+  if (trainingEngine.value === 'mmdet' && previousDataset) mmdetParameter.selected_dataset = previousDataset
   if (trainingEngine.value === 'mmdet') {
     const mmdetAlg = algList.value.find(item => item.name === 'mmdet' || item.cmd === 'mmdet')
     addForm.type = mmdetAlg ? String(mmdetAlg.id) : '1'
@@ -5020,6 +5031,7 @@ const handleTrainingEngineChange = () => {
     addForm.type = 'ultralytics'
     addForm.temp = null
     resetUltralyticsForm()
+    ultralyticsForm.dataset = previousDataset || ''
     fetchMmdetInstanceDatasets()
     loadResearchDirections()
   } else if (trainingEngine.value === 'custom') {
@@ -5262,7 +5274,7 @@ const saveMMdetRecord = () =>{
     ElMessage.warning('请选择实例数据集')
     return;
   }
-  const selReadiness = instanceReadinessList.value.find((r) => r.name === mmdetParameter.selected_dataset)
+  const selReadiness = mmdetDatasetRows.value.find((r) => r.name === mmdetParameter.selected_dataset)
   if (!selReadiness || !selReadiness.qualified) {
     ElMessage.warning('请选择在列表中标记为「可选」的实例数据集，或先到数据集管理完成预处理与训测划分')
     return
