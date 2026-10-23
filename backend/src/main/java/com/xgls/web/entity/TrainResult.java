@@ -77,6 +77,10 @@ public class TrainResult implements Serializable {
     @TableField(exist = false)
     private Boolean externalImported;
 
+    /** 来源标签的展示状态，与真实导入来源独立，保存于结果元数据。 */
+    @TableField(exist = false)
+    private Boolean importLabelHidden;
+
     /** 仅用于结果查询实时展示，不对应数据库字段。 */
     @TableField(exist = false)
     private Boolean training;

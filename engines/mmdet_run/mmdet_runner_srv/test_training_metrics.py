@@ -60,6 +60,19 @@ class TrainingMetricsTest(unittest.TestCase):
             self.assertEqual({series["label"] for series in performance}, {"单次迭代耗时", "数据加载耗时"})
             self.assertEqual(by_group["resource"]["points"][-1]["value"], 3874.0)
 
+    def test_mmdet_keeps_class_ap_series(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work_dir = Path(directory)
+            scalars = work_dir / "20261009_120000" / "vis_data" / "scalars.json"
+            scalars.parent.mkdir(parents=True)
+            scalars.write_text(
+                '{"step": 1, "coco/bbox_mAP": 0.42, "coco/bbox_AP_cat": 0.51}\n',
+                encoding="utf-8",
+            )
+            metrics = read_training_metrics(work_dir, "mmdet")
+            labels = {series["label"] for series in metrics["series"]}
+            self.assertIn("coco/bbox_AP_cat", labels)
+
     def test_missing_metrics_has_empty_state(self):
         with tempfile.TemporaryDirectory() as directory:
             metrics = read_training_metrics(Path(directory), "custom")

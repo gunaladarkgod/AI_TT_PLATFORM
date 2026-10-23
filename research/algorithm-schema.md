@@ -48,6 +48,7 @@ parameters: []
 | `data_format` | 当前支持 `coco`、`yolo`、`custom` |
 | `entry` | 相对算法包根目录的训练配置或训练脚本 |
 | `source_root` | 可选的算法自定义模块目录，相对算法包根目录 |
+| `model` | 可选的默认预训练模型标识；Ultralytics 基线切换时用于预填模型字段 |
 
 `paper` 基线另行使用 `upstream.yaml` 固定上游仓库地址和完整 Git commit；普通训练人员不能通过前端填写或修改该信息。
 

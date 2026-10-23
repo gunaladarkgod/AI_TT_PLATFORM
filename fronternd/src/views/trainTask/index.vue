@@ -2437,7 +2437,7 @@ import { VueDraggable } from 'vue-draggable-plus'
 import { computed, reactive, ref, toRaw, watch } from "@vue/reactivity";
 import { useRouter } from "vue-router";
 import { useUserStore } from "../../stores/index";
-import { FileService, EngineProjectService, EngineTaskService, TrainLabelService, TrainTaskService, TrainScriptService, TrainYoloService, ApiService, ModelTransService, trainService, transService , InstanceDatasetService, ResearchCatalogService, OriginalDatasetService } from "../../api/api";
+import { FileService, EngineProjectService, EngineTaskService, TrainLabelService, TrainTaskService, TrainScriptService, TrainYoloService, ApiService, ModelTransService, trainService, transService , InstanceDatasetService, ResearchCatalogService, OriginalDatasetService, ResultQueryService } from "../../api/api";
 import { ElMessage, dayjs, ElMessageBox, ElMain, genFileId } from "element-plus";
 import { Aim, ArrowDown, CircleCheck, Close, CopyDocument, DataLine, Document, Edit, Switch, Top, View } from '@element-plus/icons-vue';
 import { nextTick, onBeforeUnmount, onMounted, watchEffect } from "@vue/runtime-core";
@@ -4674,6 +4674,8 @@ const handleUltraBaselineChange = async () => {
   ultralyticsForm.improvementIds = []
   ultralyticsForm.parameters = {}
   lastValidUltraImprovementIds.value = []
+  const baseline = ultralyticsBaselines.value.find(item => item.id === ultralyticsForm.baselineId)
+  if (baseline?.model) ultralyticsForm.model = baseline.model
   await loadUltraImprovements()
   await resolveUltraStack({ preserveCurrent: false })
 }

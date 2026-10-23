@@ -1,0 +1,133 @@
+schema_version: 1
+id: knowledge-distillation/ultralytics-yolov5s-v1
+kind: baseline
+name: 官方 Ultralytics YOLOv5s 蒸馏方向检测对照基线 v1
+direction: knowledge-distillation
+engine: ultralytics
+engine_version: 8.4.115
+status: draft
+data_format: yolo
+entry: ultralytics/train
+source_root: .
+description: 知识蒸馏研究方向下的目标检测效果对照组；当前不执行教师-学生蒸馏。
+model: yolov5su.pt
+parameters:
+  - key: epochs
+    label: 训练轮次
+    description: 最大训练 epoch 数。
+    type: integer
+    default: 100
+    min: 1
+    max: 1000
+    step: 1
+    config_path: train.epochs
+  - key: imgsz
+    label: 输入尺寸
+    description: 训练时将图片缩放到的正方形边长。
+    type: integer
+    default: 640
+    min: 320
+    max: 2048
+    step: 32
+    config_path: train.imgsz
+  - key: batch
+    label: 批大小
+    description: 每次迭代使用的图片数量。
+    type: integer
+    default: 8
+    min: 1
+    max: 256
+    step: 1
+    config_path: train.batch
+  - key: device
+    label: 训练设备
+    description: GPU 编号，例如 0；使用 cpu 可强制 CPU 训练。
+    type: string
+    default: "0"
+    config_path: train.device
+  - key: workers
+    label: 数据加载进程数
+    description: DataLoader 的工作进程数。
+    type: integer
+    default: 8
+    min: 0
+    max: 64
+    step: 1
+    config_path: train.workers
+  - key: patience
+    label: 早停耐心值
+    description: 验证指标未改善时允许继续训练的 epoch 数。
+    type: integer
+    default: 100
+    min: 0
+    max: 500
+    step: 1
+    config_path: train.patience
+  - key: optimizer
+    label: 优化器
+    description: 自动选择或指定训练优化器。
+    type: select
+    default: auto
+    options:
+      - { value: auto, label: 自动 }
+      - { value: SGD, label: SGD }
+      - { value: Adam, label: Adam }
+      - { value: AdamW, label: AdamW }
+    config_path: train.optimizer
+  - key: lr0
+    label: 初始学习率
+    description: 优化器的初始学习率。
+    type: number
+    default: 0.01
+    min: 0.000001
+    max: 0.1
+    step: 0.001
+    config_path: train.lr0
+  - key: lrf
+    label: 最终学习率比例
+    description: 最后一轮学习率与初始学习率的比例。
+    type: number
+    default: 0.01
+    min: 0.0001
+    max: 1.0
+    step: 0.01
+    config_path: train.lrf
+  - key: weight_decay
+    label: 权重衰减
+    description: 优化器的权重衰减系数。
+    type: number
+    default: 0.0005
+    min: 0.0
+    max: 0.1
+    step: 0.0001
+    config_path: train.weight_decay
+  - key: warmup_epochs
+    label: 预热轮次
+    description: 学习率预热持续的 epoch 数。
+    type: number
+    default: 3.0
+    min: 0.0
+    max: 10.0
+    step: 0.5
+    config_path: train.warmup_epochs
+  - key: seed
+    label: 随机种子
+    description: 控制训练过程中的随机数种子，便于复现实验。
+    type: integer
+    default: 0
+    min: 0
+    max: 100000
+    step: 1
+    config_path: train.seed
+  - key: cos_lr
+    label: 余弦学习率
+    description: 使用余弦退火调度学习率。
+    type: boolean
+    default: false
+    config_path: train.cos_lr
+  - key: amp
+    label: 自动混合精度
+    description: 在支持的设备上使用自动混合精度训练。
+    type: boolean
+    default: true
+    config_path: train.amp

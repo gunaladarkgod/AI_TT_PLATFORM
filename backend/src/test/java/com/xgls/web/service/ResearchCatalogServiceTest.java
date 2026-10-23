@@ -22,9 +22,23 @@ class ResearchCatalogServiceTest {
         assertTrue(directions.stream().anyMatch(item -> "knowledge-distillation".equals(item.get("id"))));
 
         List<Map<String, Object>> baselines = service.listBaselines("small-object");
-        assertEquals(1, baselines.size());
-        assertTrue(Boolean.TRUE.equals(baselines.get(0).get("valid")));
-        assertEquals("small-object/mmdet-faster-rcnn-r50-v1", baselines.get(0).get("id"));
+        assertEquals(3, baselines.stream().filter(item -> "ultralytics".equals(item.get("engine"))).count());
+        Map<String, Map<String, Object>> ultralyticsBaselines = baselines.stream()
+                .filter(item -> "ultralytics".equals(item.get("engine")))
+                .collect(java.util.stream.Collectors.toMap(item -> String.valueOf(item.get("id")), item -> item));
+        assertEquals("yolov5su.pt", ultralyticsBaselines.get("small-object/ultralytics-yolov5s-v1").get("model"));
+        assertEquals("yolov5mu.pt", ultralyticsBaselines.get("small-object/ultralytics-yolov5m-v1").get("model"));
+        assertEquals("yolo11n.pt", ultralyticsBaselines.get("small-object/ultralytics-yolo11n-v1").get("model"));
+        for (Map<String, Object> baseline : baselines) {
+            if ("ultralytics".equals(baseline.get("engine"))) {
+                assertTrue(Boolean.TRUE.equals(baseline.get("valid")));
+                assertEquals(14, ((List<?>) baseline.get("parameters")).size());
+            }
+        }
+        Map<String, Object> mmdetBaseline = baselines.stream()
+                .filter(item -> "mmdet".equals(item.get("engine"))).findFirst().orElseThrow();
+        assertTrue(Boolean.TRUE.equals(mmdetBaseline.get("valid")));
+        assertEquals("small-object/mmdet-faster-rcnn-r50-v1", mmdetBaseline.get("id"));
 
         List<Map<String, Object>> improvements = service.listImprovements("small-object/mmdet-faster-rcnn-r50-v1");
         assertEquals(1, improvements.size());
@@ -35,5 +49,20 @@ class ResearchCatalogServiceTest {
         assertNotNull(detail);
         assertEquals("improvement", detail.get("kind"));
         assertFalse(((List<?>) detail.get("parameters")).isEmpty());
+
+        Map<String, Map<String, Object>> distillationUltralyticsBaselines = service.listBaselines("knowledge-distillation").stream()
+                .filter(item -> "ultralytics".equals(item.get("engine")))
+                .collect(java.util.stream.Collectors.toMap(item -> String.valueOf(item.get("id")), item -> item));
+        assertEquals(3, distillationUltralyticsBaselines.size());
+        assertEquals("yolov5su.pt", distillationUltralyticsBaselines
+                .get("knowledge-distillation/ultralytics-yolov5s-v1").get("model"));
+        assertEquals("yolov5mu.pt", distillationUltralyticsBaselines
+                .get("knowledge-distillation/ultralytics-yolov5m-v1").get("model"));
+        assertEquals("yolo11n.pt", distillationUltralyticsBaselines
+                .get("knowledge-distillation/ultralytics-yolo11n-v1").get("model"));
+        for (Map<String, Object> baseline : distillationUltralyticsBaselines.values()) {
+            assertTrue(Boolean.TRUE.equals(baseline.get("valid")));
+            assertEquals(14, ((List<?>) baseline.get("parameters")).size());
+        }
     }
 }
