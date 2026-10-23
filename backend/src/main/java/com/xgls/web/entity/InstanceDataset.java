@@ -123,4 +123,13 @@ public class InstanceDataset implements Serializable {
 
     @TableField("param_schema")
     private String paramSchema;
+
+    @TableField(exist = false)
+    private String exportFormat;
+    @TableField(exist = false)
+    private boolean cocoAvailable;
+    @TableField(exist = false)
+    private boolean yoloAvailable;
+    @TableField(exist = false)
+    private String dataYaml;
 }
