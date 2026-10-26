@@ -117,7 +117,7 @@ git config --global user.email "你的邮箱"
 
 不需要全部研究代码时，可使用 Git 的部分克隆（`--filter=blob:none`）与稀疏检出（`--sparse`）。仍然是同一个仓库和普通分支，不需要额外下载工具或拆分仓库。下面是 Windows PowerShell 示例；先确认已安装较新版本 Git，并具有该私有仓库的读取权限。
 
-**状态说明：**以下目录按本说明编写时的 `develop` 整理，尚未完成按需检出后的平台启动或真实训练验证。Runner 解耦分支尚未合并时，Runner 仍在 `engines/mmdet_run/mmdet_runner_srv`；如果目标分支已将其迁到根目录 `runner/`，请使用该分支的实际路径，不能照搬旧路径。不同分支的目录和依赖可能不同，以目标分支代码为准。
+**状态说明：**以下目录按已合入 Runner 解耦的 `develop` 整理，尚未完成按需检出后的平台启动或真实训练验证。旧版本 Runner 位于 `engines/mmdet_run/mmdet_runner_srv`；不同分支的目录和依赖可能不同，以目标分支代码为准。
 
 #### 示例：Ultralytics + 小目标 YOLO11n + 一个增强方案
 
@@ -133,7 +133,7 @@ git sparse-checkout set --cone `
   backend `
   fronternd `
   docs `
-  engines/mmdet_run/mmdet_runner_srv `
+  runner `
   engines/yolo_run/ultralytics_runner `
   research/small-object/ultralytics-yolo11n-v1/improvements/small-object-augmentation-v1
 
@@ -141,11 +141,11 @@ git sparse-checkout list
 git status
 ```
 
-使用 HTTPS 时可把克隆地址替换成 `https://github.com/gunaladarkgod/AI_TT_PLATFORM.git`，并按 GitHub 提示完成认证。上述示例包含前后端、文档、旧位置的统一 Runner、Ultralytics 适配文件以及一个实际存在的改进包；根目录文件和所选目录的各级父目录中的直接文件也会被检出，因此方向与基线的 `direction.yaml`、`algorithm.yaml` 随之出现，其他兄弟改进目录不会因此全部检出。当前基线与改进包标记为 `draft`，选择它们并不代表训练已验证。
+使用 HTTPS 时可把克隆地址替换成 `https://github.com/gunaladarkgod/AI_TT_PLATFORM.git`，并按 GitHub 提示完成认证。上述示例包含前后端、文档、统一 Runner、Ultralytics 适配文件以及一个实际存在的改进包；根目录文件和所选目录的各级父目录中的直接文件也会被检出，因此方向与基线的 `direction.yaml`、`algorithm.yaml` 随之出现，其他兄弟改进目录不会因此全部检出。当前基线与改进包标记为 `draft`，选择它们并不代表训练已验证。
 
-该命令不包含完整 MMDetection 源码和模板，**不适用于 MMDetection 训练**。只使用 Ultralytics 时，当前旧版 Runner 的启动环境仍要求 FastAPI、Uvicorn 和 MMEngine；任务自己的 Python 还需单独安装基线要求的 Ultralytics 版本。即使下载了代码，MySQL、前后端依赖、Python 环境、YOLO 数据集和权重仍需自行准备，详情见根目录 README 与平台使用说明。
+该命令不包含完整 MMDetection 源码和模板，**不适用于 MMDetection 训练**。Runner 基础依赖见 `runner/requirements.txt`；任务自己的 Python 还需单独安装基线要求的 Ultralytics 版本。即使下载了代码，MySQL、前后端依赖、Python 环境、YOLO 数据集和权重仍需自行准备，详情见根目录 README 与平台使用说明。
 
-如果目标分支已经合入 Runner 解耦，首次 `set` 中将 `engines/mmdet_run/mmdet_runner_srv` 换为 `runner`。该版本的 Runner 基础依赖与 MMDetection 配置依赖分开；不能认为旧版也有此能力。若要使用 Linux 图形启动器，还需把 `launcher/linux` 加入 `set`；macOS 启动器按目标分支的实际目录和分发包单独准备。
+如果目标分支尚未合入 Runner 解耦，首次 `set` 中须将 `runner` 换为 `engines/mmdet_run/mmdet_runner_srv`，其启动环境还需要 MMEngine。若要使用 Linux 图形启动器，还需把 `launcher/linux` 加入 `set`；macOS 启动器按目标分支的实际目录和分发包单独准备。
 
 #### 后续添加基线、方案或源码
 
