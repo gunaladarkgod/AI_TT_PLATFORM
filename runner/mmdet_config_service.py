@@ -41,7 +41,13 @@ def _config_class():
             "yapf.yapflib": yapflib,
             "yapf.yapflib.yapf_api": yapf_api,
         })
-    from mmengine.config import Config
+    try:
+        from mmengine.config import Config
+    except ImportError as exc:
+        raise RuntimeError(
+            "MMDetection 配置功能需要在 Runner Python 环境安装 mmengine；"
+            "请安装 runner/requirements-mmdet.txt。Ultralytics 训练不需要此依赖。"
+        ) from exc
     return Config
 
 

@@ -20,7 +20,7 @@ macOS 分发包可从仓库分支下载 `launcher/macos/dist/启动AI训练平�
 - MySQL 8.0：默认连接 `127.0.0.1:3306`，数据库名 `ai_zm_master`，账号 `root`，密码 `123456`。
 - Node.js 18 或更高版本。
 - 可选：Redis 6+。未安装 Redis 时可使用内存降级模式。
-- 训练功能还需要已安装 MMDetection 依赖的 Python 环境。
+- 每个训练任务需要对应引擎的 Python 环境；Runner 使用独立的基础环境。使用 MMDetection 配置功能时，Runner 环境还需安装 `runner/requirements-mmdet.txt`。
 
 首次启动如果 `fronternd/node_modules` 不存在，启动器会自动安装前端依赖；安装过程显示在启动日志中。
 
@@ -61,20 +61,21 @@ npm run dev
 后端默认会尝试自动启动 Runner；也可以在“模型训练”页面点击 Runner 区域的“启动”。若需手动启动，在项目根目录执行：
 
 ```powershell
-cd engines\mmdet_run\mmdet_runner_srv
+cd runner
 $env:RUNNER_PYTHON = "C:\\你的环境\\python.exe"
 .\start_runner.cmd
 ```
 
-Runner 启动成功后监听 `http://127.0.0.1:8009/health`。目录名保留为 `mmdet_run` 以兼容历史配置，但 Runner 统一调度 MMDet、官方 Ultralytics 和外部自定义命令。`start_runner.cmd` 会优先使用 `RUNNER_PYTHON`，其次尝试项目内环境、`.venv`、`%USERPROFILE%\.conda\envs\openmmlab` 与系统 Python。
+Runner 启动成功后监听 `http://127.0.0.1:8009/health`。`runner/` 统一调度 MMDet、官方 Ultralytics 和外部自定义命令；基础依赖见 `runner/requirements.txt`。MMDet 模板读取与配置生成还需在 Runner Python 中安装 `runner/requirements-mmdet.txt`，不影响其他引擎。`start_runner.cmd` 优先使用 `RUNNER_PYTHON`，其次尝试新目录环境、旧目录环境、`openmmlab` 与系统 Python；各训练任务仍使用创建时指定的 Python。
 
 ## 项目根目录说明
 
 ```text
 backend/       # Spring Boot 后端、数据库迁移与业务接口
 fronternd/     # Vue 3 前端
+runner/        # 统一训练调度、日志和配置服务
 engines/       # 可扩展的训练引擎目录
-  mmdet_run/   # MMDetection、Runner、模板与任务生成配置
+  mmdet_run/   # MMDetection、模板与任务生成配置
   yolo_run/    # 官方 Ultralytics 依赖版本与说明（由统一 Runner 调度）
 data/          # 中间实例数据集、最终实例数据集和预处理脚本
 artifacts/     # result_metadata 保存结果索引；mmdet_runs、yolo_runs、custom 分别保存各引擎训练日志与权重，研究任务位于对应引擎目录下

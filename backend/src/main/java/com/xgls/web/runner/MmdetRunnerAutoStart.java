@@ -135,12 +135,12 @@ public class MmdetRunnerAutoStart implements ApplicationListener<ApplicationRead
             addSiblingWithName(candidates, configured, "start_runner.cmd");
             addSiblingWithName(candidates, configured, "start_runner.bat");
             addSiblingWithName(candidates, configured, "start_runner.ps1");
-            candidates.add(Path.of("engines", "mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
-            candidates.add(Path.of("..", "engines", "mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
+            candidates.add(Path.of("runner", "start_runner.cmd").toAbsolutePath().normalize());
+            candidates.add(Path.of("..", "runner", "start_runner.cmd").toAbsolutePath().normalize());
         } else {
             addSiblingWithName(candidates, configured, "start_runner.sh");
-            candidates.add(Path.of("engines", "mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
-            candidates.add(Path.of("..", "engines", "mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
+            candidates.add(Path.of("runner", "start_runner.sh").toAbsolutePath().normalize());
+            candidates.add(Path.of("..", "runner", "start_runner.sh").toAbsolutePath().normalize());
         }
         return candidates;
     }

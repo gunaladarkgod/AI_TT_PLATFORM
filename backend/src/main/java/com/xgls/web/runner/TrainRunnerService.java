@@ -37,17 +37,16 @@ import java.util.concurrent.atomic.AtomicReference;
 public class TrainRunnerService {
 
     private static final String RUNNER_IMPORT_CHECK =
-            "import fastapi,uvicorn,mmengine; from mmengine.config import Config; "
-                    + "print('fastapi='+fastapi.__version__); print('uvicorn='+uvicorn.__version__); "
-                    + "print('mmengine='+mmengine.__version__)";
+            "import fastapi,uvicorn; "
+                    + "print('fastapi='+fastapi.__version__); print('uvicorn='+uvicorn.__version__)";
 
     @Value("${sys.runner.train-url:http://127.0.0.1:8009/api/runner/train}")
     private String runnerTrainUrl;
 
-    @Value("${sys.runner.launch-script:engines/mmdet_run/mmdet_runner_srv/start_runner.sh}")
+    @Value("${sys.runner.launch-script:runner/start_runner.sh}")
     private String runnerLaunchScript;
 
-    @Value("${sys.runner.auto-start-log:engines/mmdet_run/logs/runner-autostart.log}")
+    @Value("${sys.runner.auto-start-log:logs/runner/runner-autostart.log}")
     private String runnerAutoStartLog;
 
     private final AtomicReference<Process> manualRunnerProcessRef = new AtomicReference<>();
@@ -120,9 +119,17 @@ public class TrainRunnerService {
     private Path resolveRunnerPython(Path script) {
         Path dir = script.getParent();
         boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+        String explicitPython = System.getenv("RUNNER_PYTHON");
+        if (StrUtil.isNotBlank(explicitPython)) return Path.of(explicitPython).toAbsolutePath().normalize();
         Path conda = dir.resolve(windows ? ".conda_runner/python.exe" : ".conda_runner/bin/python");
         if (Files.isRegularFile(conda)) return conda.toAbsolutePath().normalize();
         Path venv = dir.resolve(windows ? ".venv/Scripts/python.exe" : ".venv/bin/python");
+        if (Files.isRegularFile(venv)) return venv.toAbsolutePath().normalize();
+        Path legacy = WorkspacePathUtil.workspaceRoot().resolve("engines/mmdet_run/mmdet_runner_srv");
+        Path legacyConda = legacy.resolve(windows ? ".conda_runner/python.exe" : ".conda_runner/bin/python");
+        if (Files.isRegularFile(legacyConda)) return legacyConda.toAbsolutePath().normalize();
+        Path legacyVenv = legacy.resolve(windows ? ".venv/Scripts/python.exe" : ".venv/bin/python");
+        if (Files.isRegularFile(legacyVenv)) return legacyVenv.toAbsolutePath().normalize();
         return venv.toAbsolutePath().normalize();
     }
 
@@ -889,12 +896,12 @@ public class TrainRunnerService {
             addSiblingWithName(candidates, configured, "start_runner.cmd");
             addSiblingWithName(candidates, configured, "start_runner.bat");
             addSiblingWithName(candidates, configured, "start_runner.ps1");
-            candidates.add(Path.of("engines", "mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
-            candidates.add(Path.of("..", "engines", "mmdet_run", "mmdet_runner_srv", "start_runner.cmd").toAbsolutePath().normalize());
+            candidates.add(Path.of("runner", "start_runner.cmd").toAbsolutePath().normalize());
+            candidates.add(Path.of("..", "runner", "start_runner.cmd").toAbsolutePath().normalize());
         } else {
             addSiblingWithName(candidates, configured, "start_runner.sh");
-            candidates.add(Path.of("engines", "mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
-            candidates.add(Path.of("..", "engines", "mmdet_run", "mmdet_runner_srv", "start_runner.sh").toAbsolutePath().normalize());
+            candidates.add(Path.of("runner", "start_runner.sh").toAbsolutePath().normalize());
+            candidates.add(Path.of("..", "runner", "start_runner.sh").toAbsolutePath().normalize());
         }
         return candidates;
     }

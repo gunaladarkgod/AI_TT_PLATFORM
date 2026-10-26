@@ -30,9 +30,9 @@ _ACTIVE_PROCESSES_LOCK = threading.Lock()
 
 _RUNNER_DIR = Path(__file__).resolve().parent
 _WORKSPACE_OVERRIDE = os.getenv("APP_WORKSPACE_ROOT", "").strip()
-_REPO_ROOT_DIR = (Path(_WORKSPACE_OVERRIDE) if _WORKSPACE_OVERRIDE else _RUNNER_DIR.parent.parent.parent).expanduser().resolve()
+_REPO_ROOT_DIR = (Path(_WORKSPACE_OVERRIDE) if _WORKSPACE_OVERRIDE else _RUNNER_DIR.parent).expanduser().resolve()
 _ENGINE_ROOT_DIR = _REPO_ROOT_DIR / "engines" / "mmdet_run"
-_ACTIVE_PID_DIR = Path(os.getenv("MMDET_ACTIVE_PID_DIR", str(_ENGINE_ROOT_DIR / "logs" / "active_pids")))
+_ACTIVE_PID_DIR = Path(os.getenv("MMDET_ACTIVE_PID_DIR", str(_REPO_ROOT_DIR / "logs" / "runner" / "active_pids")))
 
 # 新任务可为每个任务显式指定训练解释器；历史任务没有保存该字段时，
 # 使用启动 Runner 的 MMDet Python 作为兼容回退，避免发布后只留下空目录。

@@ -155,7 +155,7 @@ private final class LauncherViewController: NSViewController {
         let logs = root.appendingPathComponent("logs/launcher", isDirectory: true)
         services["backend"] = ServiceDefinition(key: "backend", title: "后端 Spring Boot", port: 8081, healthURL: URL(string: "http://127.0.0.1:8081/"), command: "mvn -Dmaven.test.skip=true -f pom.xml spring-boot:run", workingDirectory: root.appendingPathComponent("backend"), logFile: logs.appendingPathComponent("backend.log"))
         services["frontend"] = ServiceDefinition(key: "frontend", title: "前端 Vite", port: 5173, healthURL: URL(string: "http://127.0.0.1:5173/dist/"), command: "npm run dev -- --host 127.0.0.1 --port 5173 --strictPort", workingDirectory: root.appendingPathComponent("fronternd"), logFile: logs.appendingPathComponent("frontend.log"))
-        services["runner"] = ServiceDefinition(key: "runner", title: "Python Runner", port: 8009, healthURL: URL(string: "http://127.0.0.1:8009/health"), command: "bash start_runner.sh", workingDirectory: root.appendingPathComponent("engines/mmdet_run/mmdet_runner_srv"), logFile: logs.appendingPathComponent("runner.log"))
+        services["runner"] = ServiceDefinition(key: "runner", title: "Python Runner", port: 8009, healthURL: URL(string: "http://127.0.0.1:8009/health"), command: "bash start_runner.sh", workingDirectory: root.appendingPathComponent("runner"), logFile: logs.appendingPathComponent("runner.log"))
     }
 
     private func buildView() {
@@ -249,7 +249,7 @@ private final class LauncherViewController: NSViewController {
         let root = url.standardizedFileURL
         return FileManager.default.fileExists(atPath: root.appendingPathComponent("backend/pom.xml").path)
             && FileManager.default.fileExists(atPath: root.appendingPathComponent("fronternd/package.json").path)
-            && FileManager.default.fileExists(atPath: root.appendingPathComponent("engines/mmdet_run/mmdet_runner_srv/start_runner.sh").path)
+            && FileManager.default.fileExists(atPath: root.appendingPathComponent("runner/start_runner.sh").path)
     }
 
     private func environment() -> [String: String] {

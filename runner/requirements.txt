@@ -1,0 +1,4 @@
+# 统一 Runner 的基础依赖；MMDetection 配置支持见 requirements-mmdet.txt。
+fastapi>=0.100.0
+uvicorn>=0.22.0
+typing_extensions>=4.8.0

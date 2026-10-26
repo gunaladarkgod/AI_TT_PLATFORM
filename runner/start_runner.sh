@@ -16,7 +16,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
-WORKSPACE_ROOT="${APP_WORKSPACE_ROOT:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
+WORKSPACE_ROOT="${APP_WORKSPACE_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 export APP_WORKSPACE_ROOT="$WORKSPACE_ROOT"
 
 # 禁止 Runner 混入用户级 site-packages，保证依赖来自独立环境。
@@ -32,6 +32,10 @@ if [[ -z "$PY" ]]; then
     PY="$CONDA_RUNNER_PY"
   elif [[ -x "$VENV_PY" ]]; then
     PY="$VENV_PY"
+  elif [[ -x "$WORKSPACE_ROOT/engines/mmdet_run/mmdet_runner_srv/.conda_runner/bin/python" ]]; then
+    PY="$WORKSPACE_ROOT/engines/mmdet_run/mmdet_runner_srv/.conda_runner/bin/python"
+  elif [[ -x "$WORKSPACE_ROOT/engines/mmdet_run/mmdet_runner_srv/.venv/bin/python" ]]; then
+    PY="$WORKSPACE_ROOT/engines/mmdet_run/mmdet_runner_srv/.venv/bin/python"
   elif [[ -x /usr/bin/python3.10 ]]; then
     PY=/usr/bin/python3.10
   elif command -v python3.10 >/dev/null 2>&1; then
@@ -51,7 +55,7 @@ export MMDET_REPO_ROOT="${MMDET_REPO_ROOT:-$WORKSPACE_ROOT/engines/mmdet_run/mmd
 export MMDET_UPLOAD_ROOT="${MMDET_UPLOAD_ROOT:-$WORKSPACE_ROOT/engines/mmdet_run/myfiles}"
 export MMDET_WORK_ROOT="${MMDET_WORK_ROOT:-$WORKSPACE_ROOT/artifacts/mmdet_runs}"
 
-if ! "$PY" -c "import fastapi, uvicorn; from mmengine.config import Config" >/dev/null 2>&1; then
+if ! "$PY" -c "import fastapi, uvicorn" >/dev/null 2>&1; then
   if [[ "${RUNNER_AUTO_INSTALL:-1}" != "1" ]]; then
     echo "[start_runner] Runner 依赖缺失，且 RUNNER_AUTO_INSTALL 已关闭" >&2
     exit 1

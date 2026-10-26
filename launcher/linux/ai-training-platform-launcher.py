@@ -152,7 +152,7 @@ class Launcher(tk.Tk):
 
     def _create_services(self) -> list[Service]:
         backend_dir = ROOT / "backend"
-        runner_dir = ROOT / "engines" / "mmdet_run" / "mmdet_runner_srv"
+        runner_dir = ROOT / "runner"
         backend_cmd = self._backend_command()
         return [
             Service("mysql", "MySQL", None, ROOT, "mysql.log", lambda: port_open(3306), 3306),

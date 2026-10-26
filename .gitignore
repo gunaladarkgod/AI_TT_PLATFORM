@@ -42,6 +42,7 @@ __pycache__/
 venv/
 env/
 engines/mmdet_run/mmdet_runner_srv/.conda_runner/
+runner/.conda_runner/
 
 # 本机生成的数据、训练产物与任务配置
 /data/
