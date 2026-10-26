@@ -113,6 +113,63 @@ git config --global user.name "你的姓名"
 git config --global user.email "你的邮箱"
 ```
 
+### 3.1 按需下载平台、基线和改进包
+
+不需要全部研究代码时，可使用 Git 的部分克隆（`--filter=blob:none`）与稀疏检出（`--sparse`）。仍然是同一个仓库和普通分支，不需要额外下载工具或拆分仓库。下面是 Windows PowerShell 示例；先确认已安装较新版本 Git，并具有该私有仓库的读取权限。
+
+**状态说明：**以下目录按本说明编写时的 `develop` 整理，尚未完成按需检出后的平台启动或真实训练验证。Runner 解耦分支尚未合并时，Runner 仍在 `engines/mmdet_run/mmdet_runner_srv`；如果目标分支已将其迁到根目录 `runner/`，请使用该分支的实际路径，不能照搬旧路径。不同分支的目录和依赖可能不同，以目标分支代码为准。
+
+#### 示例：Ultralytics + 小目标 YOLO11n + 一个增强方案
+
+在准备存放项目的目录执行，`AI_TT_PLATFORM_selective` 必须是不存在的新目录，避免影响已有工作区：
+
+```powershell
+git clone --filter=blob:none --sparse --branch develop `
+  git@github.com:gunaladarkgod/AI_TT_PLATFORM.git `
+  AI_TT_PLATFORM_selective
+cd AI_TT_PLATFORM_selective
+
+git sparse-checkout set --cone `
+  backend `
+  fronternd `
+  docs `
+  engines/mmdet_run/mmdet_runner_srv `
+  engines/yolo_run/ultralytics_runner `
+  research/small-object/ultralytics-yolo11n-v1/improvements/small-object-augmentation-v1
+
+git sparse-checkout list
+git status
+```
+
+使用 HTTPS 时可把克隆地址替换成 `https://github.com/gunaladarkgod/AI_TT_PLATFORM.git`，并按 GitHub 提示完成认证。上述示例包含前后端、文档、旧位置的统一 Runner、Ultralytics 适配文件以及一个实际存在的改进包；根目录文件和所选目录的各级父目录中的直接文件也会被检出，因此方向与基线的 `direction.yaml`、`algorithm.yaml` 随之出现，其他兄弟改进目录不会因此全部检出。当前基线与改进包标记为 `draft`，选择它们并不代表训练已验证。
+
+该命令不包含完整 MMDetection 源码和模板，**不适用于 MMDetection 训练**。只使用 Ultralytics 时，当前旧版 Runner 的启动环境仍要求 FastAPI、Uvicorn 和 MMEngine；任务自己的 Python 还需单独安装基线要求的 Ultralytics 版本。即使下载了代码，MySQL、前后端依赖、Python 环境、YOLO 数据集和权重仍需自行准备，详情见根目录 README 与平台使用说明。
+
+如果目标分支已经合入 Runner 解耦，首次 `set` 中将 `engines/mmdet_run/mmdet_runner_srv` 换为 `runner`。该版本的 Runner 基础依赖与 MMDetection 配置依赖分开；不能认为旧版也有此能力。若要使用 Linux 图形启动器，还需把 `launcher/linux` 加入 `set`；macOS 启动器按目标分支的实际目录和分发包单独准备。
+
+#### 后续添加基线、方案或源码
+
+先查看仓库实际存在的路径，再使用 `add` 扩大范围；以下第二个例子是当前仓库真实存在的另一个基线：
+
+```powershell
+git ls-tree -d --name-only HEAD research/small-object/
+git sparse-checkout add research/small-object/ultralytics-yolov5s-v1
+git sparse-checkout list
+```
+
+`add` 会保留原来的选择。新改进包加入后，以其实际路径执行 `git sparse-checkout add research/<方向>/<基线>/improvements/<改进包>`；若基线还需要 `src/` 等子目录，要把它们也加入，并根据清单检查依赖和冲突。改进包不会自动下载其依赖项。选择整个基线目录会同时检出该目录下所有改进包；如只想选个别方案，应像前面的示例一样分别选择其子目录，同时列出所需基线源码目录。当前 YOLO11n 基线清单位于父目录的直接文件中，会自动检出。
+
+可在 GitHub 对应分支的 `research/` 下查看方案，也可用 `git ls-tree -r --name-only HEAD research/` 查看当前提交的路径。平台目前只扫描本地文件，未下载的基线或改进包不会显示，不是代码被删除。
+
+#### 更新与注意事项
+
+- 部分克隆会保留所需提交和目录元数据；按需访问其他文件、切换分支或更新时可能继续联网下载。节省的空间取决于仓库历史及选择范围，尚未实测。
+- 不要在有未处理修改时缩小检出范围、切换分支或恢复完整检出。先查看 `git status`，妥善保存改动和未跟踪文件；`set` 会替换整个选择列表，增加内容应使用 `add`。
+- 检出范围是下载便利功能，不是权限控制：有仓库读取权限的人仍可检出其他目录。GitHub 权限和 PR 审查规则不变。
+- 如果将来需要完整工作区，确认本地修改和未跟踪文件已安全保存后，可执行 `git sparse-checkout disable`；这会检出其余文件并可能下载大量数据。
+- 如果克隆失败，先检查仓库权限、SSH 或 HTTPS 认证及网络；若服务器不支持过滤，Git 可能退化为下载更多内容。下载中断后先检查状态，不要直接删除包含个人工作的目录。
+- 团队的正常开发流程仍是先同步 `develop`，再创建功能分支；稀疏检出不替代代码审查、合并冲突处理或训练验证。
+
 ## 4. 开发前同步 develop
 
 ```powershell
