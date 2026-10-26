@@ -10,7 +10,7 @@ First launch
    If Gatekeeper blocks this unsigned development build, Control-click the app,
    choose Open, then confirm Open in the dialog.
 2. When prompted, select the AI_TT_PLATFORM project root containing backend,
-   fronternd, and engines/mmdet_run/mmdet_runner_srv.
+   fronternd, and runner.
 3. The launcher remembers the selected project folder for future launches.
 
 The launcher starts the local services from the selected project folder. Keep

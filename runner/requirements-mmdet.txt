@@ -1,0 +1,2 @@
+# 可选：MMDetection 模板读取和配置生成需要安装在 Runner Python 环境中。
+mmengine==0.10.5

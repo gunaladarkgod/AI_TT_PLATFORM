@@ -112,8 +112,8 @@ sys:
     auto-start: ${RUNNER_AUTO_START:true}
     # 停止后端时是否同时结束本进程拉起的 Runner（默认 false，避免 IDE 点 Stop 后 8009 被关掉）
     auto-stop-on-shutdown: ${RUNNER_AUTO_STOP_ON_SHUTDOWN:false}
-    launch-script: "${RUNNER_LAUNCH_SCRIPT:engines/mmdet_run/mmdet_runner_srv/start_runner.sh}"
-    auto-start-log: "${RUNNER_AUTO_START_LOG:engines/mmdet_run/logs/runner-autostart.log}"
+    launch-script: "${RUNNER_LAUNCH_SCRIPT:runner/start_runner.sh}"
+    auto-start-log: "${RUNNER_AUTO_START_LOG:logs/runner/runner-autostart.log}"
 
 
 

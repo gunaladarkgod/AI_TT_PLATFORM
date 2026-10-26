@@ -16,7 +16,7 @@ pushd "%SCRIPT_DIR%" >nul
 if defined APP_WORKSPACE_ROOT (
   set "REPO_ROOT=%APP_WORKSPACE_ROOT%"
 ) else (
-  for %%I in ("%SCRIPT_DIR%\..\..\..") do set "REPO_ROOT=%%~fI"
+  for %%I in ("%SCRIPT_DIR%\..") do set "REPO_ROOT=%%~fI"
 )
 
 rem Avoid mixing user-site packages with the runner environment.
@@ -31,6 +31,13 @@ if not defined PY (
 )
 if not defined PY (
   if exist "%SCRIPT_DIR%\.venv\Scripts\python.exe" set "PY=%SCRIPT_DIR%\.venv\Scripts\python.exe"
+)
+rem Reuse existing Runner environments without moving or modifying them.
+if not defined PY (
+  if exist "%REPO_ROOT%\engines\mmdet_run\mmdet_runner_srv\.conda_runner\python.exe" set "PY=%REPO_ROOT%\engines\mmdet_run\mmdet_runner_srv\.conda_runner\python.exe"
+)
+if not defined PY (
+  if exist "%REPO_ROOT%\engines\mmdet_run\mmdet_runner_srv\.venv\Scripts\python.exe" set "PY=%REPO_ROOT%\engines\mmdet_run\mmdet_runner_srv\.venv\Scripts\python.exe"
 )
 if not defined PY (
   if exist "%USERPROFILE%\.conda\envs\openmmlab\python.exe" set "PY=%USERPROFILE%\.conda\envs\openmmlab\python.exe"
@@ -54,7 +61,7 @@ if not defined PY (
 
 echo [start_runner.cmd] using Python: %PY% (PYTHONNOUSERSITE=%PYTHONNOUSERSITE%)
 
-"%PY%" -c "import fastapi, uvicorn; from mmengine.config import Config" >nul 2>&1
+"%PY%" -c "import fastapi, uvicorn" >nul 2>&1
 if errorlevel 1 (
   if "%RUNNER_AUTO_INSTALL%"=="0" (
     echo [start_runner.cmd] Runner dependencies are missing and RUNNER_AUTO_INSTALL is disabled. 1>&2
@@ -75,7 +82,6 @@ if not defined MMDET_UPLOAD_ROOT set "MMDET_UPLOAD_ROOT=%REPO_ROOT%\engines\mmde
 if not defined MMDET_WORK_ROOT set "MMDET_WORK_ROOT=%REPO_ROOT%\artifacts\mmdet_runs"
 if not defined MMDET_PY_EXE set "MMDET_PY_EXE=%PY%"
 
-if not exist "%MMDET_UPLOAD_ROOT%" mkdir "%MMDET_UPLOAD_ROOT%"
 if not exist "%MMDET_WORK_ROOT%" mkdir "%MMDET_WORK_ROOT%"
 
 if "%RUNNER_PIP_INSTALL%"=="1" (

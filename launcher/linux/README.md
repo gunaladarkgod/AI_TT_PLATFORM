@@ -27,9 +27,11 @@ MySQL（端口 `3306`）只做状态检查，不由启动器停止。每个由�
 # 安装创建虚拟环境和启动图形界面所需的系统组件
 sudo apt install -y python3-venv python3-tk
 # 创建 Runner 专用环境，避免向系统 Python 安装包
-python3 -m venv engines/mmdet_run/mmdet_runner_srv/.venv
+python3 -m venv runner/.venv
 # 在该环境中安装 Runner 的 requirements.txt
-engines/mmdet_run/mmdet_runner_srv/.venv/bin/python -m pip install -r engines/mmdet_run/mmdet_runner_srv/requirements.txt
+runner/.venv/bin/python -m pip install -r runner/requirements.txt
+# 仅使用 MMDetection 模板配置功能时，还需要：
+runner/.venv/bin/python -m pip install -r runner/requirements-mmdet.txt
 ```
 
 `start_runner.sh` 会自动使用这个 `.venv`；如果已设置 `RUNNER_PYTHON` 或存在 `.conda_runner`，则会优先使用对应解释器。可在 `logs/launcher/runner.log` 的 `using Python` 行确认实际路径，并把 requirements 安装到该解释器中。
