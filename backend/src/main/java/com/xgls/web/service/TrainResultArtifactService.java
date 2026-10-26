@@ -51,6 +51,8 @@ public class TrainResultArtifactService {
         meta.set("resultId", result.getId());
         meta.set("taskId", result.getTaskId());
         meta.set("taskName", result.getTaskName());
+        String engine = runnerPayload == null ? null : runnerPayload.getStr("engine");
+        meta.set("engine", StrUtil.blankToDefault(engine, "mmdet"));
         meta.set("resultName", StrUtil.blankToDefault(meta.getStr("resultName"), result.getTaskName()));
         meta.set("remark", StrUtil.blankToDefault(meta.getStr("remark"), ""));
         if (!(meta.get("tags") instanceof JSONArray)) meta.set("tags", new ArrayList<String>());
@@ -62,7 +64,16 @@ public class TrainResultArtifactService {
             writeMeta(meta);
             return;
         }
-        meta.set("resultDir", workDir.toString());
+        meta.set("resultDir", artifactsRoot().relativize(workDir).toString().replace("\\", "/"));
+        meta.set("weights", normalizeWeights(runnerPayload == null ? null : runnerPayload.getJSONArray("weights")));
+        meta.set("weightStatus", runnerPayload == null ? "unknown" :
+                StrUtil.blankToDefault(runnerPayload.getStr("weight_status"), "missing"));
+
+        if (!"mmdet".equalsIgnoreCase(meta.getStr("engine"))) {
+            meta.set("configStatus", "当前引擎不使用 MMDet config.py 配置快照");
+            writeMeta(meta);
+            return;
+        }
 
         Path configSource = TrainConfigPathUtil.findExistingConfig(
                 WorkspacePathUtil.workspaceRoot().resolve("engines").resolve("mmdet_run").resolve("myfiles"), task.getName());
@@ -75,7 +86,7 @@ public class TrainResultArtifactService {
             Path target = workDir.resolve("config.py").normalize();
             if (!target.startsWith(workDir)) throw new IOException("配置副本路径越界");
             Files.copy(configSource, target, StandardCopyOption.REPLACE_EXISTING);
-            meta.set("configPath", target.toString());
+            meta.set("configPath", artifactsRoot().relativize(target).toString().replace("\\", "/"));
             meta.set("configStatus", "copied");
         } catch (IOException e) {
             meta.set("configStatus", "复制配置快照失败：" + e.getMessage());
@@ -91,6 +102,56 @@ public class TrainResultArtifactService {
         result.setRemark(meta.getStr("remark", ""));
         result.setTags(readTags(meta.get("tags")));
         result.setConfigPath(meta.getStr("configPath"));
+        result.setExternalImported(meta.getBool("externalImported", false));
+        result.setImportLabelHidden(meta.getBool("importLabelHidden", false));
+    }
+
+    /** 登记已校验并复制到产物根目录的外部训练结果。 */
+    public void createImportedSnapshot(TrainResult result, String engine, String displayName, Path workDir) {
+        Path root = artifactsRoot();
+        Path directory = workDir.toAbsolutePath().normalize();
+        if (!directory.startsWith(root) || !Files.isDirectory(directory)) {
+            throw new IllegalStateException("导入结果目录不在产物根目录内");
+        }
+        JSONObject meta = new JSONObject();
+        meta.set("resultId", result.getId());
+        meta.set("taskName", result.getTaskName());
+        meta.set("engine", engine);
+        meta.set("resultName", displayName);
+        meta.set("remark", "由 ZIP 导入的训练结果");
+        meta.set("tags", new ArrayList<String>());
+        meta.set("externalImported", true);
+        meta.set("importLabelHidden", false);
+        meta.set("createdAt", LocalDateTime.now().toString());
+        meta.set("resultDir", root.relativize(directory).toString().replace("\\", "/"));
+        Path config = directory.resolve("ultralytics".equals(engine) ? "args.yaml" : "config.py");
+        if (Files.isRegularFile(config)) {
+            meta.set("configPath", root.relativize(config).toString().replace("\\", "/"));
+            meta.set("configStatus", "原训练配置快照（仅供查看）");
+        } else {
+            meta.set("configStatus", "结果包未包含配置快照");
+        }
+        writeMeta(meta);
+    }
+
+    private List<Map<String, String>> normalizeWeights(JSONArray rawWeights) {
+        List<Map<String, String>> weights = new ArrayList<>();
+        if (rawWeights == null) return weights;
+        for (Object item : rawWeights) {
+            if (!(item instanceof JSONObject weight)) continue;
+            String relative = StrUtil.trim(weight.getStr("path"));
+            if (StrUtil.isBlank(relative)) continue;
+            try {
+                Path path = artifactsRoot().resolve(relative).normalize();
+                if (!path.startsWith(artifactsRoot()) || !Files.isRegularFile(path)) continue;
+                Map<String, String> entry = new LinkedHashMap<>();
+                entry.put("role", StrUtil.blankToDefault(weight.getStr("role"), "checkpoint"));
+                entry.put("path", artifactsRoot().relativize(path).toString().replace("\\", "/"));
+                weights.add(entry);
+            } catch (Exception ignored) {
+            }
+        }
+        return weights;
     }
 
     public Map<String, Object> detail(TrainResult result) {
@@ -101,7 +162,37 @@ public class TrainResultArtifactService {
         out.put("resultDir", meta.getStr("resultDir"));
         out.put("configPath", meta.getStr("configPath"));
         out.put("configStatus", meta.getStr("configStatus"));
+        out.put("engine", meta.getStr("engine"));
+        out.put("weights", meta.getJSONArray("weights"));
+        out.put("weightStatus", meta.getStr("weightStatus"));
         return out;
+    }
+
+    public String resultDirectory(Integer resultId) {
+        if (resultId == null) return null;
+        JSONObject meta = readMeta(resultId);
+        String stored = StrUtil.trim(meta.getStr("resultDir"));
+        if (StrUtil.isBlank(stored)) return null;
+        try {
+            Path relative = Path.of(stored);
+            Path resolved = (relative.isAbsolute() ? relative : artifactsRoot().resolve(relative))
+                    .toAbsolutePath().normalize();
+            if (resolved.startsWith(artifactsRoot()) && Files.isDirectory(resolved)) return resolved.toString();
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    /** 仅保存来源标签的展示状态，保留结果来源和其他元数据。 */
+    public Map<String, Object> hideImportLabel(TrainResult result) {
+        JSONObject meta = readMeta(result);
+        if (!meta.getBool("externalImported", false)) {
+            throw new IllegalStateException("该结果不是导入结果");
+        }
+        meta.set("importLabelHidden", true);
+        meta.set("updatedAt", LocalDateTime.now().toString());
+        writeMeta(meta);
+        return detail(result);
     }
 
     public Map<String, Object> updateMetadata(TrainResult result, String resultName, String remark, Collection<?> tags) {
@@ -125,7 +216,9 @@ public class TrainResultArtifactService {
             throw new IOException(StrUtil.blankToDefault(meta.getStr("configStatus"),
                     "该结果没有配置快照。旧结果需要重新训练后才会自动生成快照。"));
         }
-        Path path = Path.of(stored).toAbsolutePath().normalize();
+        Path storedPath = Path.of(stored);
+        Path path = (storedPath.isAbsolute() ? storedPath : artifactsRoot().resolve(storedPath))
+                .toAbsolutePath().normalize();
         if (!path.startsWith(artifactsRoot()) || !Files.isRegularFile(path)) {
             throw new IOException("结果配置快照不存在：" + path);
         }
@@ -148,12 +241,16 @@ public class TrainResultArtifactService {
     }
 
     private JSONObject readMeta(TrainResult result) {
-        Path file = metadataFile(result == null ? null : result.getId());
+        return readMeta(result == null ? null : result.getId());
+    }
+
+    private JSONObject readMeta(Integer resultId) {
+        Path file = metadataFile(resultId);
         if (file != null && Files.isRegularFile(file)) {
             try {
                 return JSONUtil.parseObj(Files.readString(file, StandardCharsets.UTF_8));
             } catch (Exception e) {
-                log.warn("read result metadata failed, resultId={}, detail={}", result.getId(), e.getMessage());
+                log.warn("read result metadata failed, resultId={}, detail={}", resultId, e.getMessage());
             }
         }
         return new JSONObject();

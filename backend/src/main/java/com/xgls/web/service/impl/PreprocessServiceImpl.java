@@ -12,6 +12,7 @@ import com.xgls.web.service.PreprocessService;
 import com.xgls.web.service.TaskDataset1Service;
 import com.xgls.web.utils.InstanceDatasetPathUtil;
 import com.xgls.web.utils.InstanceDatasetTrainTestRandomSplitUtil;
+import com.xgls.web.utils.DatasetAnnotationExportUtil;
 import com.xgls.web.utils.WorkspacePathUtil;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,8 +56,10 @@ public class PreprocessServiceImpl implements PreprocessService {
             Map<String, Object> enhanceParams,
             Integer augmentScriptId,
             Map<String, Object> augmentParams,
-            Double trainRatio) throws Exception {
+            Double trainRatio,
+            String exportFormat) throws Exception {
 
+        String selectedFormat = DatasetAnnotationExportUtil.normalizeFormat(exportFormat);
         double effectiveTrainRatio = trainRatio == null ? 0.8D : trainRatio;
         if (effectiveTrainRatio < 0.01D || effectiveTrainRatio > 0.99D) {
             throw new IllegalArgumentException("训练集占比须在 0.01～0.99 之间");
@@ -193,11 +196,15 @@ public class PreprocessServiceImpl implements PreprocessService {
                 }
                 result.setConfigList(objectMapper.writeValueAsString(configList));
 
+                DatasetAnnotationExportUtil.export(datasetOut, classNames(result.getClassList()), selectedFormat);
+                if (!"coco".equals(selectedFormat)) writeUltralyticsDataYaml(datasetOut, result);
+
                 Map<String, Object> allParams = new HashMap<>();
                 allParams.put("enhance", enhanceParams);
                 allParams.put("augment", augmentParams);
                 allParams.put("trainRatio", effectiveTrainRatio);
                 allParams.put("splitBeforePreprocess", true);
+                allParams.put("exportFormat", selectedFormat);
                 allParams.put("sourceTrainImages", sourceSplit.trainImages());
                 allParams.put("sourceTestImages", sourceSplit.testImages());
                 result.setParamSchema(objectMapper.writeValueAsString(allParams));
@@ -335,6 +342,49 @@ public class PreprocessServiceImpl implements PreprocessService {
         if (images < 1) {
             throw new IllegalStateException(side + "没有可用图片");
         }
+    }
+
+    /** Write a portable Ultralytics dataset description beside the processed dataset. */
+    private void writeUltralyticsDataYaml(Path datasetOut, InstanceDataset dataset) throws IOException {
+        List<String> classNames = classNames(dataset.getClassList());
+        if (classNames.isEmpty()) {
+            throw new IllegalStateException("预处理结果没有可用于生成 data.yaml 的类别");
+        }
+        StringBuilder yaml = new StringBuilder();
+        yaml.append("path: .\n");
+        yaml.append("train: images/train\n");
+        yaml.append("val: images/test\n");
+        yaml.append("names:\n");
+        for (int i = 0; i < classNames.size(); i++) {
+            yaml.append("  ").append(i).append(": ").append(yamlScalar(classNames.get(i))).append('\n');
+        }
+        Files.writeString(datasetOut.resolve("data.yaml"), yaml.toString(), StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+    }
+
+    private List<String> classNames(String rawClassList) {
+        if (StrUtil.isBlank(rawClassList)) return Collections.emptyList();
+        try {
+            Object parsed = JSONUtil.parse(rawClassList);
+            if (parsed instanceof JSONObject object) {
+                return new ArrayList<>(object.keySet());
+            }
+            if (parsed instanceof JSONArray array) {
+                List<String> names = new ArrayList<>();
+                for (Object value : array) {
+                    String name = StrUtil.trimToEmpty(String.valueOf(value));
+                    if (StrUtil.isNotBlank(name)) names.add(name);
+                }
+                return names;
+            }
+        } catch (Exception ignored) {
+        }
+        return Collections.emptyList();
+    }
+
+    private String yamlScalar(String value) {
+        String escaped = StrUtil.nullToEmpty(value).replace("'", "''");
+        return "'" + escaped + "'";
     }
 
     private void materializeStoredMidCoco(String imagePath, String annotationPath) throws IOException {

@@ -559,6 +559,39 @@ public class TrainRunnerService {
         }
     }
 
+    /** Read structured metrics for one run; resultDir is supplied only by server-side result metadata. */
+    public JSONObject getTrainingMetrics(String runId, String engine, JSONObject runnerOptions,
+                                         String resultDir, LocalDateTime startedAt) {
+        try {
+            StringBuilder query = new StringBuilder("runId=")
+                    .append(URLEncoder.encode(runId, StandardCharsets.UTF_8))
+                    .append("&engine=").append(URLEncoder.encode(engine, StandardCharsets.UTF_8));
+            String workRoot = configuredWorkRoot(runnerOptions);
+            if (StrUtil.isNotBlank(workRoot)) {
+                query.append("&workRoot=").append(URLEncoder.encode(workRoot, StandardCharsets.UTF_8));
+            }
+            if (StrUtil.isNotBlank(resultDir)) {
+                query.append("&resultDir=").append(URLEncoder.encode(resultDir, StandardCharsets.UTF_8));
+            }
+            if (startedAt != null) {
+                query.append("&startedAt=").append(URLEncoder.encode(startedAt.toString(), StandardCharsets.UTF_8));
+            }
+            URI uri = URI.create(runnerUri("/api/runner/metrics") + "?" + query);
+            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3))
+                    .version(HttpClient.Version.HTTP_1_1).build();
+            HttpRequest request = HttpRequest.newBuilder(uri).version(HttpClient.Version.HTTP_1_1)
+                    .timeout(Duration.ofSeconds(15)).GET().build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            JSONObject body = JSONUtil.parseObj(response.body());
+            if (response.statusCode() < 200 || response.statusCode() >= 300 || !body.getBool("ok", false)) {
+                throw new IllegalStateException(body.getStr("error", body.getStr("message", "读取指标失败")));
+            }
+            return body;
+        } catch (Exception e) {
+            throw new IllegalStateException(runnerRequestFailureMessage("读取训练指标失败", e), e);
+        }
+    }
+
     /** 删除某条训练结果对应的 Runner 本地产物目录。 */
     public boolean deleteResultFiles(String runId, LocalDateTime finishedAt) {
         return deleteResultFiles(runId, finishedAt, null);
@@ -566,6 +599,10 @@ public class TrainRunnerService {
 
     /** 按任务保存的输出根目录删除训练产物，支持 MMDet 与自定义任务分别存放。 */
     public boolean deleteResultFiles(String runId, LocalDateTime finishedAt, JSONObject runnerOptions) {
+        return deleteResultFiles(runId, finishedAt, runnerOptions, null);
+    }
+
+    public boolean deleteResultFiles(String runId, LocalDateTime finishedAt, JSONObject runnerOptions, String resultDir) {
         try {
             URI train = URI.create(runnerTrainUrl);
             int port = train.getPort();
@@ -579,6 +616,9 @@ public class TrainRunnerService {
             String workRoot = configuredWorkRoot(runnerOptions);
             if (StrUtil.isNotBlank(workRoot)) {
                 query += "&workRoot=" + URLEncoder.encode(workRoot, StandardCharsets.UTF_8);
+            }
+            if (StrUtil.isNotBlank(resultDir)) {
+                query += "&resultDir=" + URLEncoder.encode(resultDir, StandardCharsets.UTF_8);
             }
             String endpoint = new URI(train.getScheme(), null, train.getHost(), port,
                     "/api/runner/result/delete", null, null).toString();
@@ -606,6 +646,10 @@ public class TrainRunnerService {
     /** 请求 Runner 停止指定训练进程及其子进程。 */
     /** 打开某次训练结果的实际产物目录，目录定位与删除逻辑共用同一组 runId/完成时间规则。 */
     public JSONObject openResultDirectory(String runId, LocalDateTime finishedAt, JSONObject runnerOptions) {
+        return openResultDirectory(runId, finishedAt, runnerOptions, null);
+    }
+
+    public JSONObject openResultDirectory(String runId, LocalDateTime finishedAt, JSONObject runnerOptions, String resultDir) {
         try {
             URI train = URI.create(runnerTrainUrl);
             int port = train.getPort();
@@ -619,6 +663,9 @@ public class TrainRunnerService {
             String workRoot = configuredWorkRoot(runnerOptions);
             if (StrUtil.isNotBlank(workRoot)) {
                 query += "&workRoot=" + URLEncoder.encode(workRoot, StandardCharsets.UTF_8);
+            }
+            if (StrUtil.isNotBlank(resultDir)) {
+                query += "&resultDir=" + URLEncoder.encode(resultDir, StandardCharsets.UTF_8);
             }
             String endpoint = new URI(train.getScheme(), null, train.getHost(), port,
                     "/api/runner/result/open", null, null).toString();
@@ -638,6 +685,60 @@ public class TrainRunnerService {
         } catch (Exception e) {
             throw new IllegalStateException(runnerRequestFailureMessage("打开训练结果目录失败", e), e);
         }
+    }
+
+    /** 使用某次完成训练的精确产物目录执行单张图片推理。 */
+    public JSONObject inferResult(String runId, LocalDateTime finishedAt, JSONObject runnerOptions, JSONObject payload) {
+        try {
+            URI train = URI.create(runnerTrainUrl);
+            int port = train.getPort();
+            if (port < 0) port = "https".equalsIgnoreCase(train.getScheme()) ? 443 : 80;
+            String query = "runId=" + URLEncoder.encode(runId, StandardCharsets.UTF_8);
+            if (finishedAt != null) {
+                query += "&finishedAt=" + URLEncoder.encode(finishedAt.toString(), StandardCharsets.UTF_8);
+            }
+            String workRoot = configuredWorkRoot(runnerOptions);
+            if (StrUtil.isNotBlank(workRoot)) {
+                query += "&workRoot=" + URLEncoder.encode(workRoot, StandardCharsets.UTF_8);
+            }
+            String endpoint = new URI(train.getScheme(), null, train.getHost(), port,
+                    "/api/runner/result/infer", null, null).toString();
+            String json = payload == null ? "{}" : payload.toString();
+            // Runner 使用 HTTP/1.1；带图片的大请求不能尝试 h2c 协议升级。
+            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
+                    .version(HttpClient.Version.HTTP_1_1).build();
+            HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint + "?" + query))
+                    .version(HttpClient.Version.HTTP_1_1)
+                    .timeout(Duration.ofMinutes(4))
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(json.getBytes(StandardCharsets.UTF_8)))
+                    .build();
+            HttpResponse<String> response = client.send(
+                    request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            JSONObject body = parseInferenceResponse(response);
+            if (response.statusCode() < 200 || response.statusCode() >= 300 || !body.getBool("ok", false)) {
+                throw new IllegalStateException(body.getStr("error", body.getStr("message", "模型推理失败")));
+            }
+            return body;
+        } catch (Exception e) {
+            throw new IllegalStateException(runnerRequestFailureMessage("模型推理失败", e), e);
+        }
+    }
+
+    private JSONObject parseInferenceResponse(HttpResponse<String> response) {
+        String text = StrUtil.trimToEmpty(response.body());
+        try {
+            if (text.startsWith("{")) {
+                return JSONUtil.parseObj(text);
+            }
+        } catch (RuntimeException ignored) {
+            // 保留 HTTP 状态和有限响应摘要，避免 JSON 异常覆盖 Runner 的真实错误。
+        }
+        String detail = text.isEmpty() ? "空响应" : text.replaceAll("\\s+", " ");
+        if (detail.length() > 500) detail = detail.substring(0, 500) + "…";
+        throw new IllegalStateException("Runner 返回无效 JSON 对象（HTTP "
+                + response.statusCode() + "）：" + detail);
     }
 
     /**

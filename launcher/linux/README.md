@@ -1,0 +1,39 @@
+# Linux 启动器
+
+Linux 版本使用 Python 标准库 Tkinter，不新增第三方 GUI 依赖。点击“启动全部”后，启动器管理：
+
+- Spring Boot 后端（端口 `8081`）
+- Python Runner（端口 `8009`）
+
+前端不再运行常驻 Vite 进程。启动器首次使用或检测到前端源码更新时，会执行一次 `npm run build`，把网页生成到 `fronternd/dist/`；后端直接提供这些静态文件。点击“打开平台”会在浏览器中打开 `http://127.0.0.1:8081/`。
+
+MySQL（端口 `3306`）只做状态检查，不由启动器停止。每个由启动器创建的服务使用独立进程组，点击“停止全部”时会停止这些服务及同进程组的子进程；启动过程中也可点击它取消等待并清理已创建的服务。Runner 创建的训练任务可能位于独立进程组，停止服务前应先在平台中停止训练任务。日志写入项目的 `logs/launcher/`，主界面通过“打开启动日志”查看 `launcher.log`。
+
+## 安装桌面入口
+
+在文件管理器中进入本目录，双击 `install_desktop.sh` 并选择执行；也可以只在首次安装时运行一次：
+
+```bash
+./install_desktop.sh
+```
+
+之后从系统应用菜单打开“AI 训练平台启动器”，点击“启动全部”，再点击“打开平台”即可，日常启动和停止都不需要终端。运行环境需要 JDK 17、Maven（若 `backend/target/` 已有可执行 JAR 则不需要）、Node.js、npm、已安装的前端依赖、Python 3.8+、Tkinter 和 `xdg-open`；Runner 的 Python 依赖由仓库现有 `start_runner.sh` 按项目配置处理。首次准备这些开发依赖和数据库仍需按项目部署文档完成。
+
+### 首次安装 Runner requirements（Ubuntu/Debian）
+
+在项目根目录执行一次：
+
+```bash
+# 安装创建虚拟环境和启动图形界面所需的系统组件
+sudo apt install -y python3-venv python3-tk
+# 创建 Runner 专用环境，避免向系统 Python 安装包
+python3 -m venv engines/mmdet_run/mmdet_runner_srv/.venv
+# 在该环境中安装 Runner 的 requirements.txt
+engines/mmdet_run/mmdet_runner_srv/.venv/bin/python -m pip install -r engines/mmdet_run/mmdet_runner_srv/requirements.txt
+```
+
+`start_runner.sh` 会自动使用这个 `.venv`；如果已设置 `RUNNER_PYTHON` 或存在 `.conda_runner`，则会优先使用对应解释器。可在 `logs/launcher/runner.log` 的 `using Python` 行确认实际路径，并把 requirements 安装到该解释器中。
+
+桌面环境的 `PATH` 往往比交互式 Shell 少。启动器会自动查找常见的 `~/.nvm` Node 和 `~/.sdkman` JDK/Maven 路径；若仍提示找不到命令，请把工具安装到系统可执行路径，或从应用菜单启动后查看 `logs/launcher/launcher.log` 的诊断。
+
+已占用服务端口且在运行的外部进程会显示“已有服务响应”，启动器不会重复创建或停止它。关闭窗口时会先停止本窗口创建的服务。MySQL 独立运行，状态反映 3306 端口，不受“停止全部”影响。

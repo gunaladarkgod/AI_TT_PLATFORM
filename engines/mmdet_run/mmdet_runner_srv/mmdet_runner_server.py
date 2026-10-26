@@ -11,6 +11,8 @@ import shutil
 import subprocess
 import threading
 import time
+import base64
+import mimetypes
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,6 +21,7 @@ from fastapi import Body, FastAPI, Query
 from fastapi.responses import JSONResponse
 
 from mmdet_config_service import generate_config, list_templates, read_config, template_defaults
+from training_metrics import read_training_metrics
 
 app = FastAPI(title="Platform Training Runner (sync)")
 
@@ -59,6 +62,12 @@ FIXED_PYTHON_PATH = ""
 FIXED_EXEC_DIR = str(_ENGINE_ROOT_DIR / "mmdetection-3.0.0")
 FIXED_COMMAND_LINE = "tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}"
 FIXED_WORK_ROOT = str(_REPO_ROOT_DIR / "artifacts" / "custom")
+ENGINE_WORK_ROOTS = {
+    "mmdet": _REPO_ROOT_DIR / "artifacts" / "mmdet_runs",
+    "ultralytics": _REPO_ROOT_DIR / "artifacts" / "yolo_runs",
+    "custom": _REPO_ROOT_DIR / "artifacts" / "custom",
+}
+WEIGHT_SUFFIXES = {".pth", ".pt", ".ckpt", ".onnx"}
 
 # 追加的可选参数（保持你之前成功用过的设置）
 EXTRA_ARGS = ["--cfg-options", "default_scope=mmdet"]
@@ -125,7 +134,7 @@ _CATALOG_SEGMENT = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 def resolve_research_work_root(payload: Dict[str, Any], fallback_root: Path) -> Path:
-    """Put catalogued research runs under artifacts/research/<direction>/<baseline>.
+    """Put catalogued research runs below their engine's artifact root.
 
     Historical and ordinary platform tasks have no research identifiers and retain their
     existing output root.  The identifiers are deliberately restricted to catalog-style
@@ -139,7 +148,30 @@ def resolve_research_work_root(payload: Dict[str, Any], fallback_root: Path) -> 
         raise ValueError("research_direction and research_baseline must be provided together")
     if not _CATALOG_SEGMENT.fullmatch(direction) or not _CATALOG_SEGMENT.fullmatch(baseline):
         raise ValueError("research_direction and research_baseline must use lowercase catalog slugs")
-    return (_REPO_ROOT_DIR / "artifacts" / "research" / direction / baseline).resolve()
+    return (fallback_root / "research" / direction / baseline).resolve()
+
+
+def resolve_engine_work_root(engine: str) -> Path:
+    normalized = str(engine or "mmdet").strip().lower()
+    return ENGINE_WORK_ROOTS.get(normalized, ENGINE_WORK_ROOTS["custom"])
+
+
+def collect_weight_artifacts(work_dir: Path) -> List[Dict[str, str]]:
+    """Return model files produced inside this run, preferring conventional best/last names."""
+    candidates = sorted(
+        (path for path in work_dir.rglob("*") if path.is_file() and path.suffix.lower() in WEIGHT_SUFFIXES),
+        key=lambda path: (path.name.lower() not in ("best.pt", "best.pth"),
+                          path.name.lower() not in ("last.pt", "last.pth"), str(path).lower()),
+    )
+    weights = []
+    for path in candidates:
+        try:
+            relative = path.resolve().relative_to((_REPO_ROOT_DIR / "artifacts").resolve())
+        except ValueError:
+            continue
+        role = "best" if path.name.lower().startswith("best") else "last" if path.name.lower().startswith("last") else "checkpoint"
+        weights.append({"role": role, "path": relative.as_posix()})
+    return weights
 
 
 def resolve_work_root(root_override: Optional[str], mode_override: Optional[str] = None) -> Path:
@@ -171,12 +203,18 @@ def find_latest_train_log(run_id: str, work_root: Optional[str] = None) -> Optio
 
 
 def find_result_work_dir(
-    run_id: str, finished_at: Optional[str], work_root: Optional[str] = None
+    run_id: str, finished_at: Optional[str], work_root: Optional[str] = None,
+    result_dir: Optional[str] = None,
 ) -> Optional[Path]:
     """在 Runner 输出根目录内定位与结果完成时间最接近的单个训练目录。"""
     if not run_id or run_id in (".", "..") or any(c in run_id for c in ("/", "\\")):
         raise ValueError("invalid runId")
     root = resolve_work_root(work_root)
+    if result_dir:
+        exact = Path(resolve_project_path(result_dir)).resolve()
+        if exact == root or root not in exact.parents:
+            raise ValueError("resultDir must be inside workRoot")
+        return exact if exact.is_dir() else None
     if not root.is_dir():
         return None
     prefix = f"{run_id}_from_pyserver_sync_"
@@ -320,6 +358,59 @@ def build_ultralytics_execution(payload: Dict[str, Any], work_dir: Path) -> Tupl
     if not worker.is_file():
         raise FileNotFoundError(f"Ultralytics worker not found: {worker}")
     return [str(python_path), "-u", str(worker), "--spec", str(spec_path)], str(work_dir), str(worker)
+
+
+def safe_upload_name(name: str) -> str:
+    """Preserve only a harmless image filename inside the result directory."""
+    candidate = Path(str(name or "image")).name
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", Path(candidate).stem).strip("._") or "image"
+    suffix = Path(candidate).suffix.lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".bmp", ".gif"}:
+        suffix = ".png"
+    return stem[:80] + suffix
+
+
+def find_inference_checkpoint(work_dir: Path, engine: str) -> Optional[Path]:
+    if engine == "ultralytics":
+        preferred = work_dir / "weights" / "best.pt"
+        if preferred.is_file():
+            return preferred
+        candidates = list(work_dir.rglob("*.pt"))
+    else:
+        candidates = list(work_dir.rglob("*.pth"))
+    candidates = [path for path in candidates if path.is_file()]
+    if not candidates:
+        return None
+    best = [path for path in candidates if path.name.lower().startswith("best")]
+    return max(best or candidates, key=lambda path: path.stat().st_mtime)
+
+
+def inference_engine(payload: Dict[str, Any]) -> str:
+    engine = str(payload.get("engine") or "mmdet").strip().lower()
+    if engine in {"mmdet", "ultralytics"}:
+        return engine
+    if engine in {"custom", "paper"}:
+        raise ValueError("该训练结果未提供统一推理入口，暂不能执行模型推理")
+    raise ValueError(f"unsupported inference engine: {engine}")
+
+
+def read_inference_result(output_dir: Path) -> Dict[str, Any]:
+    result_file = output_dir / "result.json"
+    if not result_file.is_file():
+        raise RuntimeError("inference worker did not write result.json")
+    result = json.loads(result_file.read_text(encoding="utf-8"))
+    image_path = Path(str(result.get("output_path") or "")).resolve()
+    if output_dir not in image_path.parents or not image_path.is_file():
+        raise RuntimeError("inference output image is missing or outside the result directory")
+    image_bytes = image_path.read_bytes()
+    if len(image_bytes) > 15 * 1024 * 1024:
+        raise RuntimeError("inference output image is too large to return")
+    return {
+        "output_path": str(image_path),
+        "image_base64": base64.b64encode(image_bytes).decode("ascii"),
+        "image_mime": mimetypes.guess_type(image_path.name)[0] or "image/png",
+        "detections": (result.get("detections") or [])[:200],
+    }
 
 
 @app.post("/api/runner/engines/ultralytics/check")
@@ -650,9 +741,9 @@ def start_train(
 
     # 每次发布都先创建独立运行目录和日志。这样即使参数校验未通过，
     # artifacts 下也会保留可追踪的失败原因，而不会产生空目录。
-    configured_root = str(payload.get("runner_work_root") or "").strip()
-    if not configured_root:
-        configured_root = str(payload.get("fixed_work_root") or FIXED_WORK_ROOT) if mode == "fixed" else DEFAULT_WORK_ROOT
+    # Keep each engine's outputs in its own managed directory. Research runs are
+    # nested under this root by resolve_research_work_root.
+    configured_root = str(resolve_engine_work_root(engine))
     try:
         base_work_root = resolve_work_root(configured_root, mode)
         work_root = resolve_research_work_root(payload, base_work_root)
@@ -810,10 +901,18 @@ def start_train(
 
     # 8) 落盘 coco_metrics.txt
     results_file = write_coco_txt(work_dir, parsed)
+    weights = collect_weight_artifacts(work_dir)
+    _append_log(log_path, f"[server] weight_artifact_count={len(weights)}")
+    artifacts_saved = bool(weights)
+    if exit_code == 0 and not artifacts_saved:
+        _append_log(log_path, "[server] error=no model weight artifact was produced")
 
     # 9) 返回 JSON（训练进程失败时使用 HTTP 200 + ok:false，避免误判成 Runner HTTP 异常；详见 train.log）
     resp = {
-        **api_response(exit_code == 0, 0 if exit_code == 0 else 500, "training finished" if exit_code == 0 else "training failed"),
+        **api_response(exit_code == 0 and artifacts_saved,
+                       0 if exit_code == 0 and artifacts_saved else 500,
+                       "training finished" if exit_code == 0 and artifacts_saved else
+                       "training finished without model weights" if exit_code == 0 else "training failed"),
         "exit_code": exit_code,
         "pid": proc.pid if proc is not None else None,
         "cfg_path": str(cfg_path),
@@ -823,6 +922,9 @@ def start_train(
         "cmd": cmd_str,
         "repo_root": process_cwd,
         "runner_mode": mode,
+        "engine": engine,
+        "weights": weights,
+        "weight_status": "saved" if artifacts_saved else "missing",
         "executed_script": executed_script,
         "results_file": str(results_file),
         "results_txt": parsed,
@@ -898,14 +1000,73 @@ def latest_train_log(
     )
 
 
+@app.get("/api/runner/metrics")
+def training_metrics(
+    runId: str = Query(...),
+    engine: str = Query(...),
+    workRoot: Optional[str] = Query(None),
+    resultDir: Optional[str] = Query(None),
+    startedAt: Optional[str] = Query(None),
+):
+    engine = engine.strip().lower()
+    if engine not in ENGINE_WORK_ROOTS:
+        return JSONResponse(content=api_response(False, 400, "unsupported engine"), status_code=400)
+    try:
+        root = resolve_work_root(workRoot)
+        engine_root = ENGINE_WORK_ROOTS[engine].resolve()
+        if root != engine_root and engine_root not in root.parents:
+            raise ValueError("workRoot does not match engine")
+        if not runId or runId in (".", "..") or any(char in runId for char in ("/", "\\")):
+            raise ValueError("invalid runId")
+        prefix = f"{runId}_from_pyserver_sync_"
+        if resultDir:
+            work_dir = find_result_work_dir(runId, None, str(root), resultDir)
+            if work_dir is not None and not work_dir.name.startswith(prefix):
+                raise ValueError("resultDir does not match runId")
+        else:
+            started = datetime.fromisoformat(startedAt) if startedAt else None
+            if started is not None and started.tzinfo is not None:
+                raise ValueError("startedAt must be local time without a timezone")
+            candidates = []
+            if root.is_dir():
+                for child in root.iterdir():
+                    if not child.is_dir() or not child.name.startswith(prefix):
+                        continue
+                    child = child.resolve()
+                    if child.parent != root:
+                        continue
+                    if started is not None:
+                        try:
+                            created = datetime.strptime(child.name[len(prefix):], "%Y%m%d_%H%M%S_%f")
+                        except ValueError:
+                            continue
+                        if created < started:
+                            continue
+                    candidates.append(child)
+            work_dir = max(candidates, key=lambda path: path.name, default=None)
+    except ValueError as exc:
+        return JSONResponse(content=api_response(False, 400, "invalid metrics request", error=str(exc)), status_code=400)
+    if work_dir is None:
+        return api_response(True, 0, "等待本次训练写入指标", engine=engine, axis="epoch",
+                            current_step=None, series=[], updated_at=None)
+    try:
+        metrics = read_training_metrics(work_dir, engine)
+    except OSError:
+        return api_response(True, 0, "指标文件暂不可读", engine=engine, axis="epoch",
+                            current_step=None, series=[], updated_at=None)
+    message = metrics.pop("message") or "ok"
+    return api_response(True, 0, message, **metrics)
+
+
 @app.post("/api/runner/result/delete")
 def delete_result_files(
     runId: str = Query(..., description="训练任务名称/runId"),
     finishedAt: Optional[str] = Query(None, description="结果完成时间，用于匹配对应训练目录"),
     workRoot: Optional[str] = Query(None, description="任务输出根目录；用于定位自定义任务产物"),
+    resultDir: Optional[str] = Query(None, description="元数据保存的精确结果目录"),
 ):
     try:
-        work_dir = find_result_work_dir(runId, finishedAt, workRoot)
+        work_dir = find_result_work_dir(runId, finishedAt, workRoot, resultDir)
     except ValueError as e:
         return JSONResponse(
             content=api_response(False, 400, "invalid delete request", error=str(e)),
@@ -942,9 +1103,10 @@ def open_result_directory(
     runId: str = Query(..., description="训练任务名称/runId"),
     finishedAt: Optional[str] = Query(None, description="结果完成时间，用于匹配对应训练目录"),
     workRoot: Optional[str] = Query(None, description="任务输出根目录；用于定位自定义任务产物"),
+    resultDir: Optional[str] = Query(None, description="元数据保存的精确结果目录"),
 ):
     try:
-        work_dir = find_result_work_dir(runId, finishedAt, workRoot)
+        work_dir = find_result_work_dir(runId, finishedAt, workRoot, resultDir)
     except ValueError as e:
         return JSONResponse(
             content=api_response(False, 400, "invalid open request", error=str(e)),
@@ -958,6 +1120,79 @@ def open_result_directory(
     # Runner 仅负责定位目录；实际打开由 Java 后端调用系统文件浏览器，
     # 避免 Windows 后台 Python 进程触发 WinError 5。
     return api_response(True, 0, "resolved", work_dir=str(work_dir))
+
+
+@app.post("/api/runner/result/infer")
+def infer_result(
+    runId: str = Query(..., description="训练任务名称/runId"),
+    finishedAt: Optional[str] = Query(None, description="用于定位单次训练结果"),
+    workRoot: Optional[str] = Query(None, description="任务输出根目录"),
+    payload: Optional[Dict[str, Any]] = Body(None),
+):
+    """Run one uploaded image through the exact checkpoint of a completed result."""
+    payload = payload or {}
+    try:
+        work_dir = find_result_work_dir(runId, finishedAt, workRoot)
+        if work_dir is None:
+            raise FileNotFoundError("result files not found")
+        engine = inference_engine(payload)
+        encoded = str(payload.get("image_base64") or "")
+        if not encoded:
+            raise ValueError("missing inference image")
+        image_bytes = base64.b64decode(encoded, validate=True)
+        if not image_bytes or len(image_bytes) > 10 * 1024 * 1024:
+            raise ValueError("inference image must be between 1 byte and 10 MB")
+        checkpoint = find_inference_checkpoint(work_dir, engine)
+        if checkpoint is None:
+            raise FileNotFoundError("no trained checkpoint found for this result")
+        inference_dir = work_dir / "inference" / ts_for_path()
+        input_dir = inference_dir / "input"
+        output_dir = inference_dir / "output"
+        ensure_dir(input_dir)
+        input_path = input_dir / safe_upload_name(payload.get("image_name"))
+        input_path.write_bytes(image_bytes)
+        if engine == "mmdet":
+            config_path = work_dir / "config.py"
+            if not config_path.is_file():
+                raise FileNotFoundError("result config snapshot not found; this historical result cannot be inferred safely")
+            python_path = Path(str(payload.get("training_python_path") or DEFAULT_TRAINING_PYTHON)).expanduser()
+            worker = _RUNNER_DIR / "mmdet_infer_worker.py"
+            command = [str(python_path), "-u", str(worker), "--config", str(config_path),
+                       "--checkpoint", str(checkpoint), "--input", str(input_path),
+                       "--output-dir", str(output_dir)]
+        else:
+            python_path = Path(str(payload.get("training_python_path") or "")).expanduser()
+            worker = _RUNNER_DIR / "ultralytics_infer_worker.py"
+            command = [str(python_path), "-u", str(worker), "--checkpoint", str(checkpoint),
+                       "--input", str(input_path), "--output-dir", str(output_dir)]
+        if not python_path.is_file():
+            raise FileNotFoundError(f"inference Python not found: {python_path}")
+        if not worker.is_file():
+            raise FileNotFoundError(f"inference worker not found: {worker}")
+        log_path = inference_dir / "inference.log"
+        with log_path.open("w", encoding="utf-8") as log_file:
+            completed = subprocess.run(
+                command,
+                cwd=REPO_ROOT if engine == "mmdet" else str(work_dir),
+                env=make_env(engine),
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                timeout=180,
+                check=False,
+            )
+        if completed.returncode != 0:
+            detail = log_path.read_text(encoding="utf-8", errors="replace")[-4000:]
+            raise RuntimeError("inference failed: " + detail)
+        response = read_inference_result(output_dir)
+        response.update({"run_id": runId, "engine": engine, "checkpoint": str(checkpoint),
+                         "inference_dir": str(inference_dir), "log_path": str(log_path)})
+        return api_response(True, 0, "inference finished", **response)
+    except subprocess.TimeoutExpired:
+        return JSONResponse(content=api_response(False, 408, "inference timed out"), status_code=408)
+    except (ValueError, FileNotFoundError, RuntimeError) as e:
+        return JSONResponse(content=api_response(False, 400, "inference failed", error=str(e)), status_code=400)
+    except Exception as e:
+        return JSONResponse(content=api_response(False, 500, "inference failed", error=f"{type(e).__name__}: {e}"), status_code=500)
 
 
 # 健康检查

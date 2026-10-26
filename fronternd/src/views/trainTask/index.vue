@@ -161,6 +161,11 @@
                       <el-icon><View /></el-icon>
                       查看日志
                     </el-dropdown-item>
+                    <el-dropdown-item v-if="row.started_date && (isSys || curUser == row.username)"
+                      @click="openTrainingMetrics(row)">
+                      <el-icon><DataLine /></el-icon>
+                      训练看板
+                    </el-dropdown-item>
                     <el-dropdown-item v-if="isSys || curUser == row.username" :disabled="configLoadingId === row.id"
                       @click="viewTaskConfig(row)">
                       <el-icon><Document /></el-icon>
@@ -259,6 +264,8 @@
         </div>
       </el-popover>
     </div>
+
+    <TrainingMetricsDialog v-model="metricsVisible" :target="metricsTarget" />
 
   </div>
 
@@ -1302,7 +1309,9 @@
               <div style="padding-left: 20px;border: 1px solid #e4e7ed; border-radius: 4px; padding: 16px; ">
                 <el-form-item label="实例数据集" required>
                   <el-select v-model="mmdetParameter.selected_dataset" class="width-200" :disabled="isSee" placeholder="仅显示磁盘可用数据集">
-                    <el-option v-for="item in exampleList" :key="item" :value="item" :label="item"></el-option>
+                    <el-option v-for="item in mmdetDatasetRows" :key="item.id" :value="item.name" :label="item.name" :disabled="!item.qualified" :title="item.reasons.join('；')">
+                      {{ item.name }} <el-tag size="small" :color="datasetFormatColor(item)" style="color:white">{{ datasetFormatLabel(item) }}</el-tag>
+                    </el-option>
                   </el-select>
                   <div v-if="!exampleList.length && !isSee" class="el-form-item__tip" style="color: #909399; font-size: 12px; line-height: 1.4; margin-top: 4px;">
                     无可用项时请确认预处理已落盘；后端配置的实例数据集根目录（如 INSTANCE_DATA_ROOT / sys.instancecfg.instancedata-root）下需存在 images/train、annotations/train 等目录，且训练集内至少有一张图与一个 DOTA txt。
@@ -1406,18 +1415,19 @@
                   </div>
                 </el-form-item>
                 <el-form-item label="实例数据集" required>
-                  <el-select v-model="ultralyticsForm.dataset" :disabled="isSee || instanceReadinessLoading"
+                  <el-select v-model="ultralyticsForm.dataset" @change="syncUltraDatasetYaml" :disabled="isSee || instanceReadinessLoading"
                     filterable placeholder="选择已完成训测划分的实例数据集">
-                    <el-option v-for="item in instanceReadinessList.filter(row => row.qualified)" :key="item.id"
-                      :label="item.name" :value="item.name" />
+                    <el-option v-for="item in ultraDatasetRows" :key="item.id"
+                      :label="item.name" :value="item.name" :disabled="!item.qualified" :title="item.reasons.join('；')">
+                      {{ item.name }} <el-tag size="small" :color="datasetFormatColor(item)" style="color:white">{{ datasetFormatLabel(item) }}</el-tag>
+                    </el-option>
                   </el-select>
                 </el-form-item>
                 <el-form-item label="YOLO data.yaml" required>
-                  <el-input v-model="ultralyticsForm.dataYaml" :disabled="isSee"
-                    placeholder="例如：data/instance_dataset/任务数据集/实例数据集/data.yaml" />
+                  <el-input v-model="ultralyticsForm.dataYaml" readonly placeholder="选择实例数据集后自动填入" />
                 </el-form-item>
                 <div class="el-form-item__tip">
-                  当前版本需填写预处理导出的 YOLO data.yaml。若尚未导出 YOLO 格式，请先完成实例数据集预处理。
+                  YOLO data.yaml 随所选实例数据集自动确定。
                 </div>
               </div>
             </el-col>
@@ -1825,7 +1835,7 @@
                 <div class="mmdet-instance-dataset-block">
                   <el-table
                     v-loading="instanceReadinessLoading"
-                    :data="instanceReadinessList"
+                    :data="mmdetDatasetRows" :row-style="({ row }) => row.qualified ? {} : { color: '#a8abb2', background: '#f5f7fa' }"
                     size="small"
                     class="mmdet-instance-readiness-table"
                     max-height="280"
@@ -1841,7 +1851,9 @@
                         />
                       </template>
                     </el-table-column>
-                    <el-table-column prop="name" label="名称" min-width="96" show-overflow-tooltip />
+                    <el-table-column prop="name" label="名称" min-width="180">
+                      <template #default="{ row }"><span :style="{ color: row.qualified ? '' : '#a8abb2' }">{{ row.name }}</span> <el-tag size="small" :color="datasetFormatColor(row)" style="color:white">{{ datasetFormatLabel(row) }}</el-tag></template>
+                    </el-table-column>
                     <el-table-column prop="fatherName" label="父任务" min-width="88" show-overflow-tooltip>
                       <template #default="{ row }">
                         <span>{{ row.fatherName || '—' }}</span>
@@ -1944,6 +1956,35 @@
         <el-button @click="handleSave" :disabled="addForm.status == 3 || loading_saveRecord"
           v-loading="loading_saveRecord" v-if="!isSee" type="primary">确定</el-button>
       </span>
+    </template>
+  </el-dialog>
+  <el-dialog v-model="ultraYamlBrowserVisible" title="选择 YOLO data.yaml 所在文件夹" width="720px"
+    :close-on-click-modal="false">
+    <el-alert type="info" show-icon :closable="false"
+      title="请选择训练服务器上的实例数据集目录；目录中存在 data.yaml 或 data.yml 时即可选择。" />
+    <div class="ultra-yaml-browser-current">
+      <span>当前目录：</span><el-text type="primary">{{ ultraYamlBrowser.base || '根目录' }}</el-text>
+    </div>
+    <div class="ultra-yaml-browser-actions">
+      <el-button size="small" :disabled="!ultraYamlBrowser.parent"
+        @click="loadUltraYamlBrowser(ultraYamlBrowser.parent)">上一级</el-button>
+      <el-button size="small" @click="loadUltraYamlBrowser('')">根目录</el-button>
+      <el-button size="small" type="success" :disabled="!ultraYamlBrowser.files.length"
+        @click="selectUltraYamlInCurrentDir">选择当前目录 YAML</el-button>
+    </div>
+    <el-table v-loading="ultraYamlBrowserLoading" :data="ultraYamlBrowserRows" height="360" size="small" border>
+      <el-table-column prop="kind" label="类型" width="90" />
+      <el-table-column prop="name" label="名称" min-width="260" show-overflow-tooltip />
+      <el-table-column prop="path" label="路径" min-width="300" show-overflow-tooltip />
+      <el-table-column label="操作" width="120" fixed="right">
+        <template #default="{ row }">
+          <el-button v-if="row.kind === '目录'" link type="primary" @click="loadUltraYamlBrowser(row.path)">打开</el-button>
+          <el-button v-else link type="success" @click="selectUltraYaml(row.path)">选择</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <template #footer>
+      <el-button @click="ultraYamlBrowserVisible = false">取消</el-button>
     </template>
   </el-dialog>
   <el-dialog top="1vh" v-model="dataVisible" width="70%" title="查看" draggable :close-on-click-modal="false"
@@ -2391,13 +2432,14 @@
 </template>
 
 <script setup>
+import { datasetFormatLabel, datasetFormatColor, datasetsForEngine } from '@/utils/datasetFormat'
 import { VueDraggable } from 'vue-draggable-plus'
 import { computed, reactive, ref, toRaw, watch } from "@vue/reactivity";
 import { useRouter } from "vue-router";
 import { useUserStore } from "../../stores/index";
-import { FileService, EngineProjectService, EngineTaskService, TrainLabelService, TrainTaskService, TrainScriptService, TrainYoloService, ApiService, ModelTransService, trainService, transService , InstanceDatasetService, ResearchCatalogService } from "../../api/api";
+import { FileService, EngineProjectService, EngineTaskService, TrainLabelService, TrainTaskService, TrainScriptService, TrainYoloService, ApiService, ModelTransService, trainService, transService , InstanceDatasetService, ResearchCatalogService, OriginalDatasetService, ResultQueryService } from "../../api/api";
 import { ElMessage, dayjs, ElMessageBox, ElMain, genFileId } from "element-plus";
-import { Aim, ArrowDown, CircleCheck, Close, CopyDocument, Document, Edit, Switch, Top, View } from '@element-plus/icons-vue';
+import { Aim, ArrowDown, CircleCheck, Close, CopyDocument, DataLine, Document, Edit, Switch, Top, View } from '@element-plus/icons-vue';
 import { nextTick, onBeforeUnmount, onMounted, watchEffect } from "@vue/runtime-core";
 import { basePath_TASK, basePath_YOLO, basePath_TRAIN, basePath_WS_TASK, nginx_tensorboard, apiRequest } from "../../api/axios";
 import fileview from "../../components/fileview.vue";
@@ -2406,6 +2448,7 @@ import { taskStatusMap, taskStatusList, perspectiveMap } from '../../utils/selfm
 import { uuid } from 'vue-uuid'
 import authimg from '../../components/authimg.vue'
 import AceEdit from '@/components/AceEdit/index.vue'
+import TrainingMetricsDialog from '@/components/training/TrainingMetricsDialog.vue'
 import { showRemark } from "../../utils/str";
 import { add } from 'lodash';
 const encode_src = ref(false);
@@ -2437,7 +2480,9 @@ const weightFileList = ref([])
 // 实例数据集训前检查（全量列表；合格行可选，不合格展示原因与「去处理」）
 const instanceReadinessList = ref([])
 const instanceReadinessLoading = ref(false)
-const qualifiedMmdetDatasetCount = computed(() => instanceReadinessList.value.filter((r) => r.qualified).length)
+const mmdetDatasetRows = computed(() => datasetsForEngine(instanceReadinessList.value, 'mmdet'))
+const ultraDatasetRows = computed(() => datasetsForEngine(instanceReadinessList.value, 'ultralytics'))
+const qualifiedMmdetDatasetCount = computed(() => mmdetDatasetRows.value.filter((r) => r.qualified).length)
 // 网络模板以 engines/mmdet_run/myfiles/template 中是否存在实际文件为准。
 const templateCatalog = ref([
   { name: 'Faster R-CNN', group: 'CNN', available: true },
@@ -3909,6 +3954,12 @@ const txtVisible = ref(false);
 const cur_text = ref('')
 const txtTitle = ref('查看')
 const latestLogLoadingId = ref(null)
+const metricsVisible = ref(false)
+const metricsTarget = ref(null)
+const openTrainingMetrics = row => {
+  metricsTarget.value = { type: 'task', id: row.id, name: row.name, running: row.status === 3 }
+  metricsVisible.value = true
+}
 const configLoadingId = ref(null)
 const textViewerRef = ref(null)
 const textViewerMode = ref('file')
@@ -4450,6 +4501,63 @@ const ultralyticsForm = reactive({
   model: 'yolo11n.pt',
   parameters: {},
 })
+const joinServerPath = (base, name) => {
+  const b = String(base || '').replace(/\\/g, '/')
+  const n = String(name || '').replace(/\\/g, '/')
+  if (!b) return n
+  if (/^[A-Za-z]:\/?$/.test(b)) return `${b.replace(/\/?$/, '/')}${n}`
+  return `${b.replace(/\/+$/, '')}/${n}`
+}
+const ultraYamlBrowserVisible = ref(false)
+const ultraYamlBrowserLoading = ref(false)
+const ultraYamlBrowser = reactive({ base: '', parent: null, dirs: [], files: [] })
+const ultraYamlBrowserRows = computed(() => [
+  ...ultraYamlBrowser.dirs.map(name => ({ kind: '目录', name, path: joinServerPath(ultraYamlBrowser.base, name) })),
+  ...ultraYamlBrowser.files.map(name => ({ kind: '文件', name, path: joinServerPath(ultraYamlBrowser.base, name) })),
+])
+
+const loadUltraYamlBrowser = async (base = '') => {
+  ultraYamlBrowserLoading.value = true
+  try {
+    const res = await OriginalDatasetService.browseExternalYaml(base)
+    if (res?.code !== 0) {
+      ElMessage.error(res?.msg || '读取目录失败')
+      return
+    }
+    const data = res.data || {}
+    ultraYamlBrowser.base = data.base || ''
+    ultraYamlBrowser.parent = data.parent || null
+    ultraYamlBrowser.dirs = Array.isArray(data.dirs) ? data.dirs : []
+    ultraYamlBrowser.files = Array.isArray(data.files) ? data.files : []
+  } catch (e) {
+    ElMessage.error(`读取目录失败：${e?.message || e}`)
+  } finally {
+    ultraYamlBrowserLoading.value = false
+  }
+}
+
+const openUltraYamlBrowser = async () => {
+  const current = String(ultralyticsForm.dataYaml || '').trim().replace(/\\/g, '/')
+  const slash = current.lastIndexOf('/')
+  ultraYamlBrowserVisible.value = true
+  const currentDir = slash > 0 && (current.startsWith('/') || /^[A-Za-z]:\//.test(current))
+    ? current.slice(0, slash) : ''
+  await loadUltraYamlBrowser(currentDir)
+}
+
+const selectUltraYaml = (path) => {
+  ultralyticsForm.dataYaml = path
+  ultraYamlBrowserVisible.value = false
+  ElMessage.success(`已选择：${path}`)
+}
+
+const selectUltraYamlInCurrentDir = () => {
+  if (ultraYamlBrowser.files.length !== 1) {
+    ElMessage.warning('当前目录需要且只能包含一个 data.yaml 或 data.yml')
+    return
+  }
+  selectUltraYaml(joinServerPath(ultraYamlBrowser.base, ultraYamlBrowser.files[0]))
+}
 const isUltralyticsSelected = computed(() => trainingEngine.value === 'ultralytics')
 const selectedUltraBaseline = computed(() => ultralyticsBaselines.value.find(item => item.id === ultralyticsForm.baselineId) || null)
 const selectedUltraParameters = computed(() => Array.isArray(ultralyticsStack.parameters)
@@ -4566,6 +4674,8 @@ const handleUltraBaselineChange = async () => {
   ultralyticsForm.improvementIds = []
   ultralyticsForm.parameters = {}
   lastValidUltraImprovementIds.value = []
+  const baseline = ultralyticsBaselines.value.find(item => item.id === ultralyticsForm.baselineId)
+  if (baseline?.model) ultralyticsForm.model = baseline.model
   await loadUltraImprovements()
   await resolveUltraStack({ preserveCurrent: false })
 }
@@ -4797,21 +4907,26 @@ function goInstanceDatasetFix(row) {
   router.push({ path: '/datasetManageUnified', query: { scroll } })
 }
 
+const syncUltraDatasetYaml = () => {
+  const row = ultraDatasetRows.value.find(item => item.name === ultralyticsForm.dataset)
+  if (!row?.qualified) { ultralyticsForm.dataset = ''; ultralyticsForm.dataYaml = ''; return }
+  ultralyticsForm.dataYaml = row.dataYaml || ''
+}
+
 const fetchMmdetInstanceDatasets = () => {
   instanceReadinessLoading.value = true
   InstanceDatasetService.listTrainingReadiness()
     .then((res) => {
       if (res.code === 0) {
         instanceReadinessList.value = res.data || []
-        const names = instanceReadinessList.value.filter((r) => r.qualified).map((r) => r.name)
+        syncUltraDatasetYaml()
+        const names = mmdetDatasetRows.value.filter((r) => r.qualified).map((r) => r.name)
         const cur = mmdetParameter.selected_dataset
         if (cur && names.includes(cur)) {
           // keep
-        } else if (names.length) {
-          mmdetParameter.selected_dataset = names[0]
         } else {
           mmdetParameter.selected_dataset = null
-          if (!isSee.value) {
+          if (!isSee.value && !names.length) {
             ElMessage.warning('当前没有可参与训练的实例数据集，请完成预处理、训测划分或检查数据目录')
           }
         }
@@ -4907,6 +5022,8 @@ const handleTypeChange = () => {
 }
 
 const handleTrainingEngineChange = () => {
+  const previousDataset = trainingEngine.value === 'ultralytics' ? mmdetParameter.selected_dataset : ultralyticsForm.dataset
+  if (trainingEngine.value === 'mmdet' && previousDataset) mmdetParameter.selected_dataset = previousDataset
   if (trainingEngine.value === 'mmdet') {
     const mmdetAlg = algList.value.find(item => item.name === 'mmdet' || item.cmd === 'mmdet')
     addForm.type = mmdetAlg ? String(mmdetAlg.id) : '1'
@@ -4916,6 +5033,7 @@ const handleTrainingEngineChange = () => {
     addForm.type = 'ultralytics'
     addForm.temp = null
     resetUltralyticsForm()
+    ultralyticsForm.dataset = previousDataset || ''
     fetchMmdetInstanceDatasets()
     loadResearchDirections()
   } else if (trainingEngine.value === 'custom') {
@@ -5158,7 +5276,7 @@ const saveMMdetRecord = () =>{
     ElMessage.warning('请选择实例数据集')
     return;
   }
-  const selReadiness = instanceReadinessList.value.find((r) => r.name === mmdetParameter.selected_dataset)
+  const selReadiness = mmdetDatasetRows.value.find((r) => r.name === mmdetParameter.selected_dataset)
   if (!selReadiness || !selReadiness.qualified) {
     ElMessage.warning('请选择在列表中标记为「可选」的实例数据集，或先到数据集管理完成预处理与训测划分')
     return

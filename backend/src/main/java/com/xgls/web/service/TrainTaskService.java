@@ -179,8 +179,9 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
             }
         }
         if (StrUtil.isBlank(txt)) {
-            log.warn("[train_result] results text empty, skip persist. taskId={}, runId={}", task.getId(), task.getName());
-            return; // 没有任何可解析文本就不落库
+            log.info("[train_result] results text empty; saving artifact record without metrics. taskId={}, runId={}",
+                    task.getId(), task.getName());
+            txt = "";
         }
 
         // 提取数字：匹配 key 后面的第一个数字
@@ -372,6 +373,22 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         startLegacyTrain(task);
     }
 
+    @Autowired
+    private InstanceDatasetService instanceDatasetService;
+
+    private void validateDatasetForTraining(TrainTask task, String engine, JSONObject options) {
+        if (!"mmdet".equals(engine) && !"ultralytics".equals(engine)) return;
+        TrainExt ext = trainExtMapper.selectById(task.getId());
+        if (ext == null || StrUtil.isBlank(ext.getParams())) throw new IllegalArgumentException("训练任务缺少数据集配置");
+        String name = JSONUtil.parseObj(ext.getParams()).getStr("dataset");
+        var row = instanceDatasetService.listInstanceDatasetTrainingReadiness().stream()
+                .filter(item -> java.util.Objects.equals(name, item.getName())).findFirst().orElse(null);
+        if (row == null || !row.isQualified() || ("mmdet".equals(engine) ? !row.isCocoAvailable() : !row.isYoloAvailable())) {
+            throw new IllegalArgumentException("实例数据集格式不匹配或训练文件缺失，请重新选择数据集");
+        }
+        if ("ultralytics".equals(engine)) options.set("ultralytics_data", row.getDataYaml());
+    }
+
     private void startEngineTrain(TrainTask task, String engineId, JSONObject options) {
         Integer id = task.getId();
         TrainingEngineAdapter adapter = engineAdapters.require(engineId);
@@ -381,6 +398,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         boolean ok = false;
         String remarkTail = "runner:unknown";
         try {
+            validateDatasetForTraining(task, engineId, options);
             RunnerTrainResponse runnerResp = adapter.start(task.getName(), options);
             ok = runnerResp.isOk();
             remarkTail = applyRunnerResult(task, runnerResp, "startTrain");
@@ -396,6 +414,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
     private String resolveEngineId(TrainTask task, JSONObject options) {
         String explicit = StrUtil.trim(options.getStr("engine"));
         if (StrUtil.isNotBlank(explicit)) return explicit.toLowerCase();
+        if (task == null) return null;
         if ("custom".equalsIgnoreCase(task.getType()) || "自定义".equals(task.getType())) return "custom";
         if ("mmdet".equalsIgnoreCase(task.getType()) || "1".equals(task.getType())) return "mmdet";
         if ("ultralytics".equalsIgnoreCase(task.getType()) || "yolo".equalsIgnoreCase(task.getType())) return "ultralytics";
@@ -405,9 +424,15 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
 
     public JSONObject runnerOptionsForTask(Integer taskId) {
         JSONObject out = new JSONObject();
+        TrainTask task = getById(taskId);
         TrainExt ext = trainExtMapper.selectById(taskId);
         if (ext == null || StrUtil.isBlank(ext.getParams())) {
             out.set("runner_mode", "original");
+            String engine = resolveEngineId(task, out);
+            if (StrUtil.isNotBlank(engine)) {
+                out.set("engine", engine);
+                out.set("runner_work_root", defaultArtifactRoot(engine));
+            }
             return out;
         }
         try {
@@ -415,6 +440,10 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
             String mode = StrUtil.blankToDefault(params.getStr("runner_mode"), "original");
             out.set("runner_mode", mode);
             copyIfPresent(params, out, "engine");
+            if (StrUtil.isBlank(out.getStr("engine"))) {
+                String engine = resolveEngineId(task, out);
+                if (StrUtil.isNotBlank(engine)) out.set("engine", engine);
+            }
             copyIfPresent(params, out, "data_format");
             copyIfPresent(params, out, "research_direction");
             copyIfPresent(params, out, "research_baseline");
@@ -422,6 +451,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
             copyIfPresent(params, out, "ultralytics_model");
             copyIfPresent(params, out, "ultralytics_data");
             copyIfPresent(params, out, "runner_work_root");
+            copyIfPresent(params, out, "fixed_work_root");
             Object ultralyticsParameters = params.get("ultralytics_parameters");
             if (ultralyticsParameters != null) {
                 out.set("ultralytics_parameters", ultralyticsParameters);
@@ -438,18 +468,41 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
             String baseline = StrUtil.trim(params.getStr("research_baseline"));
             if (StrUtil.isBlank(out.getStr("runner_work_root"))
                     && isCatalogSlug(direction) && isCatalogSlug(baseline)) {
-                out.set("runner_work_root", "artifacts/research/" + direction + "/" + baseline);
+                out.set("runner_work_root", defaultArtifactRoot(out.getStr("engine"))
+                        + "/research/" + direction + "/" + baseline);
+            }
+            if (StrUtil.isBlank(out.getStr("runner_work_root"))
+                    && !"fixed".equalsIgnoreCase(mode)) {
+                out.set("runner_work_root", defaultArtifactRoot(out.getStr("engine")));
+            }
+            if ("fixed".equalsIgnoreCase(mode)) {
+                out.set("runner_work_root", "artifacts/custom");
+                out.set("engine", "custom");
             }
             if ("fixed".equalsIgnoreCase(mode)) {
                 copyIfPresent(params, out, "fixed_python_path");
                 copyIfPresent(params, out, "fixed_exec_dir");
                 copyIfPresent(params, out, "fixed_command_line");
                 copyIfPresent(params, out, "fixed_work_root");
+                out.set("fixed_work_root", "artifacts/custom");
+            }
+            if (!"fixed".equalsIgnoreCase(mode)) {
+                String artifactRoot = defaultArtifactRoot(out.getStr("engine"));
+                if (isCatalogSlug(direction) && isCatalogSlug(baseline)) {
+                    artifactRoot += "/research/" + direction + "/" + baseline;
+                }
+                out.set("runner_work_root", artifactRoot);
             }
         } catch (Exception e) {
             out.set("runner_mode", "original");
         }
         return out;
+    }
+
+    private String defaultArtifactRoot(String engine) {
+        if ("ultralytics".equalsIgnoreCase(engine)) return "artifacts/yolo_runs";
+        if ("custom".equalsIgnoreCase(engine)) return "artifacts/custom";
+        return "artifacts/mmdet_runs";
     }
 
     private boolean isFixedRunnerTask(TrainTask task) {

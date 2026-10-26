@@ -11,15 +11,25 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.nio.file.Path;
+import java.io.ByteArrayInputStream;
+import java.util.Base64;
+import java.nio.file.Files;
+import jakarta.servlet.http.HttpServletResponse;
+
+import javax.imageio.ImageIO;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.xgls.web.base.CodeMap;
 import com.xgls.web.vo.query.TrainTaskQuery;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.http.MediaType;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.xgls.web.base.AjaxResult;
@@ -30,6 +40,7 @@ import com.xgls.web.service.TrainResultService;
 import com.xgls.web.service.TrainExtService;
 import com.xgls.web.service.TrainTaskService;
 import com.xgls.web.service.TrainResultArtifactService;
+import com.xgls.web.service.TrainResultPackageService;
 import com.xgls.web.runner.TrainRunnerService;
 import com.xgls.web.utils.SessionUtil;
 import com.xgls.web.utils.SystemDirectoryOpener;
@@ -60,6 +71,9 @@ public class TrainResultController {
     @Autowired
     private TrainResultArtifactService trainResultArtifactService;
 
+    @Autowired
+    private TrainResultPackageService trainResultPackageService;
+
     @PostMapping("all")
     public AjaxResult queryAll(TrainTaskQuery query) {
         LambdaQueryWrapper<TrainResult> wrapper = new LambdaQueryWrapper<>();
@@ -84,7 +98,7 @@ public class TrainResultController {
         }
         List<TrainResult> finishedRecords = trainResultService.list(wrapper);
         for (TrainResult result : finishedRecords) {
-            result.setModelType(resolveResultModelType(result.getTaskId(), null));
+            if (result.getTaskId() != null) result.setModelType(resolveResultModelType(result.getTaskId(), null));
             trainResultArtifactService.mergeMetadata(result);
         }
         records.addAll(finishedRecords);
@@ -153,7 +167,9 @@ public class TrainResultController {
     private String resolveResultModelType(Integer taskId, String taskType) {
         if (taskId != null) {
             JSONObject options = trainTaskService.runnerOptionsForTask(taskId);
-            if ("fixed".equalsIgnoreCase(options.getStr("runner_mode"))) return "自定义";
+            String engine = options.getStr("engine");
+            if ("ultralytics".equalsIgnoreCase(engine)) return "Ultralytics";
+            if ("custom".equalsIgnoreCase(engine) || "fixed".equalsIgnoreCase(options.getStr("runner_mode"))) return "自定义";
         }
         if ("custom".equalsIgnoreCase(taskType) || "自定义".equals(taskType)) return "自定义";
         return "mmdet";
@@ -165,8 +181,77 @@ public class TrainResultController {
         TrainResult result = trainResultService.getById(id);
         if (result == null) return AjaxResult.error("结果记录不存在");
         if (!SessionUtil.hasAdminOrSelf(result.getUserName())) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
-        result.setModelType(resolveResultModelType(result.getTaskId(), null));
+        if (result.getTaskId() != null) result.setModelType(resolveResultModelType(result.getTaskId(), null));
         return AjaxResult.success(trainResultArtifactService.detail(result));
+    }
+
+    @PostMapping(value = "package/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public AjaxResult importResultPackage(@RequestParam("file") MultipartFile file) {
+        if (SessionUtil.getCurUser() == null) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        if (!List.of(CodeMap.USER_TYPE_SYS, CodeMap.USER_TYPE_ADMIN, CodeMap.USER_TYPE_IMPROVEMENT)
+                .contains(SessionUtil.getCurRoleId())) {
+            return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        }
+        try {
+            return AjaxResult.success(trainResultPackageService.importPackage(file,
+                    SessionUtil.getCurUser().getUsername()));
+        } catch (IOException | IllegalArgumentException | IllegalStateException e) {
+            return AjaxResult.error("导入结果包失败：" + e.getMessage());
+        }
+    }
+
+    @GetMapping("package/export")
+    public void exportResultPackage(@RequestParam Integer id,
+                                    @RequestParam(defaultValue = "full") String mode,
+                                    HttpServletResponse response) throws IOException {
+        TrainResult result = id == null ? null : trainResultService.getById(id);
+        if (result == null) { response.sendError(404, "结果记录不存在"); return; }
+        if (!SessionUtil.hasAdminOrSelf(result.getUserName())) { response.sendError(403); return; }
+        if (!"full".equalsIgnoreCase(mode) && !"dashboard".equalsIgnoreCase(mode)) {
+            response.sendError(400, "导出范围无效");
+            return;
+        }
+        String stored = trainResultArtifactService.resultDirectory(id);
+        if (StrUtil.isBlank(stored) || !Files.isDirectory(Path.of(stored))) {
+            response.sendError(404, "结果产物目录不存在");
+            return;
+        }
+        response.setContentType("application/zip");
+        response.setHeader("Content-Disposition", "attachment; filename=training-result-" + id + ".zip");
+        response.setHeader("Cache-Control", "no-store");
+        trainResultPackageService.exportPackage(Path.of(stored), response.getOutputStream(),
+                "full".equalsIgnoreCase(mode));
+    }
+
+    @GetMapping("package/export-info")
+    public AjaxResult exportResultPackageInfo(@RequestParam Integer id) throws IOException {
+        TrainResult result = id == null ? null : trainResultService.getById(id);
+        if (result == null) return AjaxResult.error("结果记录不存在");
+        if (!SessionUtil.hasAdminOrSelf(result.getUserName())) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        String stored = trainResultArtifactService.resultDirectory(id);
+        if (StrUtil.isBlank(stored) || !Files.isDirectory(Path.of(stored))) {
+            return AjaxResult.error("结果产物目录不存在");
+        }
+        Path directory = Path.of(stored);
+        return AjaxResult.success(Map.of(
+                "dashboard", trainResultPackageService.exportInfo(directory, false),
+                "full", trainResultPackageService.exportInfo(directory, true)));
+    }
+
+    @PostMapping("meta/import-label/hide")
+    public AjaxResult hideImportLabel(@RequestParam Integer id) {
+        if (!List.of(CodeMap.USER_TYPE_SYS, CodeMap.USER_TYPE_ADMIN, CodeMap.USER_TYPE_IMPROVEMENT)
+                .contains(SessionUtil.getCurRoleId())) {
+            return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        }
+        TrainResult result = trainResultService.getById(id);
+        if (result == null) return AjaxResult.error("结果记录不存在");
+        if (!SessionUtil.hasAdminOrSelf(result.getUserName())) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        try {
+            return AjaxResult.success(trainResultArtifactService.hideImportLabel(result));
+        } catch (IllegalStateException e) {
+            return AjaxResult.error(e.getMessage());
+        }
     }
 
     @PostMapping("meta/update")
@@ -215,13 +300,47 @@ public class TrainResultController {
         }
         try {
             JSONObject opened = trainRunnerService.openResultDirectory(
-                    result.getTaskName(), result.getTime(), runnerOptionsForResult(result));
+                    result.getTaskName(), result.getTime(), runnerOptionsForResult(result),
+                    trainResultArtifactService.resultDirectory(result.getId()));
             Path openedPath = SystemDirectoryOpener.openDirectory(Path.of(opened.getStr("work_dir")));
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("id", result.getId());
             data.put("path", openedPath.toString());
             return AjaxResult.success(data);
         } catch (IllegalStateException | IOException e) {
+            return AjaxResult.error(e.getMessage());
+        }
+    }
+
+    /** 上传一张本地图片，使用该条完成训练的权重和配置进行推理。 */
+    @PostMapping(value = "infer", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public AjaxResult inferResult(@RequestParam Integer id, @RequestParam("file") MultipartFile file) {
+        if (id == null || file == null || file.isEmpty()) return AjaxResult.error("请选择一张推理图片");
+        TrainResult result = trainResultService.getById(id);
+        if (result == null) return AjaxResult.error("结果记录不存在");
+        if (!SessionUtil.hasAdminOrSelf(result.getUserName())) return AjaxResult.error(ErrorCode.PERMISSION_DENIED);
+        trainResultArtifactService.mergeMetadata(result);
+        if (Boolean.TRUE.equals(result.getExternalImported())) {
+            return AjaxResult.error("外部导入结果仅支持查看和导出，不能直接执行模型推理");
+        }
+        if (file.getSize() > 10L * 1024 * 1024) return AjaxResult.error("推理图片不能超过 10 MB");
+        try {
+            byte[] bytes = file.getBytes();
+            if (ImageIO.read(new ByteArrayInputStream(bytes)) == null) {
+                return AjaxResult.error("请选择 JPG、PNG、BMP 或 GIF 格式的有效图片");
+            }
+            JSONObject options = runnerOptionsForResult(result);
+            TrainTask task = result.getTaskId() == null ? null : trainTaskService.getById(result.getTaskId());
+            JSONObject payload = new JSONObject();
+            payload.set("engine", resolveInferenceEngine(options, task));
+            payload.set("training_python_path", options == null ? null : options.getStr("training_python_path"));
+            payload.set("image_name", file.getOriginalFilename());
+            payload.set("image_base64", Base64.getEncoder().encodeToString(bytes));
+            return AjaxResult.success(trainRunnerService.inferResult(
+                    result.getTaskName(), result.getTime(), options, payload));
+        } catch (IOException e) {
+            return AjaxResult.error("读取推理图片失败：" + e.getMessage());
+        } catch (IllegalStateException e) {
             return AjaxResult.error(e.getMessage());
         }
     }
@@ -242,7 +361,8 @@ public class TrainResultController {
         final boolean fileDeleted;
         try {
             fileDeleted = trainRunnerService.deleteResultFiles(
-                    result.getTaskName(), result.getTime(), runnerOptionsForResult(result));
+                    result.getTaskName(), result.getTime(), runnerOptionsForResult(result),
+                    trainResultArtifactService.resultDirectory(result.getId()));
         } catch (IllegalStateException e) {
             return AjaxResult.error(e.getMessage());
         }
@@ -289,7 +409,8 @@ public class TrainResultController {
             }
             try {
                 boolean fileDeleted = trainRunnerService.deleteResultFiles(
-                        result.getTaskName(), result.getTime(), runnerOptionsForResult(result));
+                        result.getTaskName(), result.getTime(), runnerOptionsForResult(result),
+                        trainResultArtifactService.resultDirectory(result.getId()));
                 if (!trainResultService.removeById(id)) {
                     errors.add("结果“" + result.getTaskName() + "”记录删除失败");
                     continue;
@@ -312,7 +433,23 @@ public class TrainResultController {
     }
 
     private JSONObject runnerOptionsForResult(TrainResult result) {
-        if (result == null || result.getTaskId() == null) return null;
+        if (result == null) return null;
+        if (result.getTaskId() == null) {
+            String directory = trainResultArtifactService.resultDirectory(result.getId());
+            JSONObject options = new JSONObject();
+            if (StrUtil.isNotBlank(directory)) options.set("runner_work_root", Path.of(directory).getParent().toString());
+            return options;
+        }
         return trainTaskService.runnerOptionsForTask(result.getTaskId());
+    }
+
+    private String resolveInferenceEngine(JSONObject options, TrainTask task) {
+        String explicit = options == null ? null : StrUtil.trim(options.getStr("engine"));
+        if (StrUtil.isNotBlank(explicit)) return explicit.toLowerCase();
+        String type = task == null ? null : StrUtil.trim(task.getType());
+        if ("ultralytics".equalsIgnoreCase(type) || "yolo".equalsIgnoreCase(type)) return "ultralytics";
+        if ("custom".equalsIgnoreCase(type) || "自定义".equals(type)
+                || (options != null && "fixed".equalsIgnoreCase(options.getStr("runner_mode")))) return "custom";
+        return "mmdet";
     }
 }

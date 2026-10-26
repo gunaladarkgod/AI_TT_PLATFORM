@@ -587,6 +587,49 @@ public class OriginalDatasetService extends ServiceImpl<OriginalDatasetMapper, O
         }
     }
 
+    public AjaxResult browseExternalYamlFiles(String base) {
+        boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+        Path root = windows ? resolveBrowseRoot() : Paths.get("/").normalize();
+        if (windows && StrUtil.isBlank(base)) {
+            List<String> roots = new ArrayList<>();
+            for (Path p : FileSystems.getDefault().getRootDirectories()) roots.add(p.toString().replace("\\", "/"));
+            roots.sort(String::compareToIgnoreCase);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("base", "");
+            data.put("parent", null);
+            data.put("dirs", roots);
+            data.put("files", Collections.emptyList());
+            return AjaxResult.success(data);
+        }
+        Path cur = StrUtil.isBlank(base) ? root : Paths.get(base).normalize();
+        if (!windows && (!cur.isAbsolute() || !cur.startsWith(root))) return AjaxResult.error("非法路径：超出可浏览范围");
+        if (!Files.isDirectory(cur)) return AjaxResult.error("目录不存在");
+        try {
+            List<String> dirs = new ArrayList<>();
+            List<String> files = new ArrayList<>();
+            try (DirectoryStream<Path> ds = Files.newDirectoryStream(cur)) {
+                for (Path p : ds) {
+                    if (Files.isDirectory(p)) dirs.add(p.getFileName().toString());
+                    else if (Files.isRegularFile(p) && (p.getFileName().toString().equalsIgnoreCase("data.yaml")
+                            || p.getFileName().toString().equalsIgnoreCase("data.yml"))) {
+                        files.add(p.getFileName().toString());
+                    }
+                }
+            }
+            dirs.sort(String::compareToIgnoreCase);
+            files.sort(String::compareToIgnoreCase);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("base", cur.toString().replace("\\", "/"));
+            Path parent = cur.getParent();
+            data.put("parent", parent != null && (windows || parent.startsWith(root)) ? parent.toString().replace("\\", "/") : null);
+            data.put("dirs", dirs);
+            data.put("files", files);
+            return AjaxResult.success(data);
+        } catch (Exception e) {
+            return AjaxResult.error("读取目录失败: " + e.getMessage());
+        }
+    }
+
     public AjaxResult randomSampleImages(Long datasetId,
                                          boolean isExternal,
                                          String externalPath,

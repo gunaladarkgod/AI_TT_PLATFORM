@@ -767,7 +767,12 @@ public class TrainTaskController {
             return AjaxResult.error("训练 Python 不存在：" + trainingPythonPath);
         }
         if (StrUtil.isBlank(datasetName)) return AjaxResult.error("请选择实例数据集");
-        if (StrUtil.isBlank(dataYamlRaw)) return AjaxResult.error("请填写 YOLO data.yaml 路径");
+        var selectedDataset = instanceDatasetService.listInstanceDatasetTrainingReadiness().stream()
+                .filter(item -> datasetName.equals(item.getName())).findFirst().orElse(null);
+        if (selectedDataset == null || !selectedDataset.isQualified() || !selectedDataset.isYoloAvailable()) {
+            return AjaxResult.error("所选实例数据集缺少有效的 YOLO 标注或训测数据");
+        }
+        dataYamlRaw = selectedDataset.getDataYaml();
         if (StrUtil.isBlank(model)) return AjaxResult.error("请选择或填写 Ultralytics 模型");
         if (StrUtil.isBlank(direction) || StrUtil.isBlank(baselineId)) {
             return AjaxResult.error("请选择研究方向和对应的 Ultralytics 基线");
@@ -3219,6 +3224,15 @@ public class TrainTaskController {
         if (info == null) {
             throw new IllegalArgumentException("实例数据集不存在：" + datasetName);
         }
+        if (!info.isCocoAvailable()) {
+            throw new IllegalArgumentException("所选实例数据集缺少有效的 COCO 标注，请重新导出 COCO 或两者格式");
+        }
+        if (StrUtil.isNotBlank(info.getParamSchema()) && JSONUtil.isTypeJSONObject(info.getParamSchema())) {
+            String exportFormat = JSONUtil.parseObj(info.getParamSchema()).getStr("exportFormat");
+            if ("yolo".equalsIgnoreCase(exportFormat)) {
+                throw new IllegalArgumentException("该实例数据集仅导出 YOLO 标注，请选择 COCO 或两者格式的数据集");
+            }
+        }
 
         InstanceDatasetPathUtil.ResolvedInstanceDiskPaths disk =
                 InstanceDatasetPathUtil.resolveTargetOrThrow(info, WorkspacePathUtil.instanceDatasetRoot().toString());
@@ -3263,8 +3277,8 @@ public class TrainTaskController {
         }
 
         // 6. DOTA -> COCO
-        generateCocoFromDotaDir(trainImgDir, trainAnnoDir, trainJson, classNames);
-        generateCocoFromDotaDir(testImgDir,  testAnnoDir,  testJson,  classNames);
+        if (!Files.isRegularFile(trainJson)) generateCocoFromDotaDir(trainImgDir, trainAnnoDir, trainJson, classNames);
+        if (!Files.isRegularFile(testJson)) generateCocoFromDotaDir(testImgDir, testAnnoDir, testJson, classNames);
 
         // 7. 回填 DatasetCfg
         DatasetCfg cfg = new DatasetCfg();

@@ -19,6 +19,7 @@
         <el-button v-permission size="small" type="primary" class="result-manage-button" @click="toggleManageMode">
           {{ manageMode ? '完成管理' : '管理' }}
         </el-button>
+        <el-button v-permission size="small" plain @click="openImportDialog">导入 ZIP</el-button>
         <el-button v-permission
           v-if="manageMode"
           size="small"
@@ -27,6 +28,11 @@
           :loading="batchDeleting"
           @click="deleteSelectedResults"
         >批量删除{{ selectedResults.length ? ` (${selectedResults.length})` : '' }}</el-button>
+        <el-button v-if="manageMode" size="small" type="success" plain
+          :disabled="selectedResults.length < 2 || selectedResults.length > 8"
+          @click="openComparison">
+          跨实验对比{{ selectedResults.length ? ` (${selectedResults.length})` : '' }}
+        </el-button>
       </div>
     </div>
 
@@ -48,7 +54,13 @@
         <el-table-column prop="resultName" label="项目名称" align="center" fixed="left" width="260"
           column-key="resultName" sortable="custom" :filters="resultNameFilterOptions"
           :filter-method="tableColumnFilterPassAll">
-          <template #default="{ row }">{{ row.resultName || row.taskName }}</template>
+          <template #default="{ row }">
+            <div class="result-name-cell">
+              <span :title="row.resultName || row.taskName">{{ row.resultName || row.taskName }}</span>
+              <el-tag v-if="row.externalImported && !row.importLabelHidden" size="small" type="info" effect="plain"
+                class="import-source-tag" @click.stop="handleImportLabelClick(row)">导入</el-tag>
+            </div>
+          </template>
         </el-table-column>
 
         <el-table-column label="标签" align="center" width="180">
@@ -101,7 +113,7 @@
 
         <el-table-column prop="apl" label="APl" align="center" width="80" sortable="custom"/>
 
-        <el-table-column label="操作" align="center" width="185" fixed="right">
+        <el-table-column label="操作" align="center" width="180" fixed="right">
           <template #default="{ row }">
             <div class="result-action-group" @click.stop>
               <el-dropdown trigger="click" @command="command => handleResultCommand(command, row)">
@@ -110,7 +122,10 @@
                 </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item :disabled="logLoadingTaskId === row.taskId" command="log">
+                    <el-dropdown-item command="metrics">
+                      <el-icon><DataLine /></el-icon>训练看板
+                    </el-dropdown-item>
+                    <el-dropdown-item :disabled="row.externalImported || logLoadingTaskId === row.taskId" command="log">
                       <el-icon><View /></el-icon>查看日志
                     </el-dropdown-item>
                     <el-dropdown-item :disabled="configLoadingTaskId === row.taskId" command="config">
@@ -118,6 +133,12 @@
                     </el-dropdown-item>
                     <el-dropdown-item :disabled="openPathLoadingId === row.id" command="path">
                       <el-icon><FolderOpened /></el-icon>打开路径
+                    </el-dropdown-item>
+                    <el-dropdown-item :disabled="row.training || row.externalImported || inferenceLoadingId === row.id" command="infer">
+                      <el-icon><Aim /></el-icon>模型推理
+                    </el-dropdown-item>
+                    <el-dropdown-item v-if="!row.training" :disabled="exportingId !== null" command="export">
+                      <el-icon><Download /></el-icon>导出 ZIP
                     </el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
@@ -165,20 +186,117 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="importVisible" width="min(560px, 92vw)" title="导入历史训练结果"
+      :close-on-click-modal="!importing" :close-on-press-escape="!importing"
+      :show-close="!importing" @closed="resetImportDialog">
+      <div class="result-import-dialog">
+        <el-upload action="#" :auto-upload="false" :limit="1"
+          :file-list="importFile ? [importFile] : []" :disabled="importing"
+          accept=".zip,application/zip" :on-change="file => importFile = file"
+          :on-remove="() => importFile = null"
+          :on-exceed="() => ElMessage.warning('一次只能导入一个结果包')">
+          <el-button plain type="primary">选择 ZIP 文件</el-button>
+          <template #tip>
+            <div class="el-upload__tip">支持 Ultralytics results.csv 或 MMDetection vis_data/scalars.json；单个 ZIP 不超过 500 MB。</div>
+          </template>
+        </el-upload>
+        <el-alert type="info" :closable="false" title="导入结果将加入当前结果列表，可查看训练看板并导出结果包。" />
+      </div>
+      <template #footer>
+        <el-button :disabled="importing" @click="importVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!importFile" :loading="importing" @click="importResultPackage">导入结果</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="textVisible" width="min(960px, 90vw)" top="6vh" :title="textTitle" draggable>
       <pre class="result-text-viewer">{{ textContent }}</pre>
       <template #footer>
         <el-button @click="textVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="exportVisible" width="min(680px, 94vw)" title="导出训练结果 ZIP"
+      :close-on-click-modal="!exportRunning" :close-on-press-escape="!exportRunning"
+      :show-close="!exportRunning" @closed="resetExportDialog">
+      <div v-loading="exportInfoLoading" class="result-export-dialog">
+        <div class="result-export-title">
+          <span>{{ exportRow?.resultName || exportRow?.taskName || '训练结果' }}</span>
+          <el-tag size="small" effect="plain">ZIP</el-tag>
+        </div>
+        <el-radio-group v-model="exportMode" class="result-export-options" :disabled="exportRunning">
+          <el-radio label="full" border class="result-export-option">
+            <span class="result-export-option-name">完整结果包</span>
+            <span class="result-export-option-meta">
+              {{ formatBytes(exportInfo.full?.originalBytes) }} · {{ exportInfo.full?.fileCount || 0 }} 个文件
+            </span>
+            <span class="result-export-option-desc">包含指标、配置、日志、图表和全部模型权重。</span>
+          </el-radio>
+          <el-radio label="dashboard" border class="result-export-option">
+            <span class="result-export-option-name">看板数据包</span>
+            <span class="result-export-option-meta">
+              {{ formatBytes(exportInfo.dashboard?.originalBytes) }} · {{ exportInfo.dashboard?.fileCount || 0 }} 个文件
+            </span>
+            <span class="result-export-option-desc">保留训练看板所需内容，不包含 PT、PTH、CKPT、ONNX 权重。</span>
+          </el-radio>
+        </el-radio-group>
+        <el-alert v-if="exportMode === 'full' && Number(exportInfo.full?.weightBytes || 0) > 0"
+          type="info" :closable="false" show-icon
+          :title="`完整包中的权重原始大小为 ${formatBytes(exportInfo.full?.weightBytes)}。`" />
+        <el-alert v-if="!supportsFilePicker" type="warning" :closable="false" show-icon
+          title="当前浏览器不支持网页选择保存位置；小文件将使用浏览器默认下载方式，大于 512 MB 的文件请改用 Chrome 或 Edge。" />
+        <p class="result-export-hint">以上为打包前的原始大小；实际 ZIP 大小会因压缩率不同而变化。{{ supportsFilePicker ? '点击导出后可选择文件名和保存位置。' : '点击导出后将使用浏览器默认下载方式。' }}</p>
+        <div v-if="exportRunning" class="result-export-progress">
+          <el-progress :percentage="exportPercent" :stroke-width="10" :show-text="false" />
+          <div>{{ exportStatus }} · 已接收 {{ formatBytes(exportReceivedBytes) }}</div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button v-if="exportRunning" type="danger" plain @click="cancelExport">取消导出</el-button>
+        <el-button v-else @click="exportVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="exportInfoLoading || !selectedExportInfo.fileCount"
+          :loading="exportRunning" @click="startExport">选择位置并导出</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="inferenceVisible" width="min(920px, 92vw)" top="6vh"
+      :title="`模型推理 - ${inferenceRow?.resultName || inferenceRow?.taskName || ''}`" @closed="resetInferenceDialog">
+      <div class="inference-dialog">
+        <el-alert type="info" :closable="false" show-icon
+          title="上传一张本地图片，系统会使用本次训练结果的权重进行推理并保存带标注的输出。" />
+        <el-upload v-model:file-list="inferenceFileList" action="#" :auto-upload="false" :limit="1"
+          :disabled="inferenceLoadingId !== null" :on-remove="clearInferenceFile"
+          accept="image/jpeg,image/png,image/bmp,image/gif" :on-change="handleInferenceFileChange"
+          :on-exceed="handleInferenceFileExceed" class="inference-upload">
+          <el-button type="primary" plain>选择图片</el-button>
+          <template #tip><div class="el-upload__tip">支持 JPG、PNG、BMP、GIF，单张不超过 10 MB。</div></template>
+        </el-upload>
+        <el-image v-if="inferencePreviewUrl" :src="inferencePreviewUrl" fit="contain" class="inference-image-preview" />
+        <el-empty v-else description="请选择待推理图片" :image-size="88" />
+        <div v-if="inferenceResult" class="inference-output">
+          <el-divider content-position="left">推理结果（{{ inferenceResult.detections?.length || 0 }} 个目标）</el-divider>
+          <InferenceResult :image-url="inferenceResult.sourceUrl" :detections="inferenceResult.detections" />
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="inferenceVisible = false">关闭</el-button>
+        <el-button type="primary" :disabled="!inferenceFile" :loading="inferenceLoadingId !== null" @click="runInference">开始推理</el-button>
+      </template>
+    </el-dialog>
+    <TrainingMetricsDialog v-model="metricsVisible" :target="metricsTarget" />
+    <ExperimentComparisonDialog v-model="comparisonVisible" :ids="comparisonIds" />
   </div>
 </template>
 
 <script setup>
 import PermissionNotice from '@/components/PermissionNotice.vue'
+import InferenceResult from '@/components/InferenceResult.vue'
+import TrainingMetricsDialog from '@/components/training/TrainingMetricsDialog.vue'
+import ExperimentComparisonDialog from '@/components/training/ExperimentComparisonDialog.vue'
+import { useLoginStore, useUserStore } from '@/stores/index'
+import { canMaintain } from '@/config/permissions'
     import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
     import { ElMessage, ElMessageBox } from 'element-plus';
-    import { ArrowDown, Document, FolderOpened, View } from '@element-plus/icons-vue';
+    import { Aim, ArrowDown, DataLine, Document, Download, FolderOpened, View } from '@element-plus/icons-vue';
     import dayjs   from 'dayjs'
     import { ResultQueryService, TrainTaskService } from "../../api/api";
 
@@ -197,6 +315,33 @@ import PermissionNotice from '@/components/PermissionNotice.vue'
     const logLoadingTaskId = ref(null);
     const configLoadingTaskId = ref(null);
     const openPathLoadingId = ref(null);
+    const inferenceLoadingId = ref(null);
+    const exportingId = ref(null);
+    const exportVisible = ref(false);
+    const exportInfoLoading = ref(false);
+    const exportRunning = ref(false);
+    const exportMode = ref('full');
+    const exportRow = ref(null);
+    const exportInfo = ref({ full: {}, dashboard: {} });
+    const exportReceivedBytes = ref(0);
+    const exportStatus = ref('准备导出');
+    const exportController = ref(null);
+    const supportsFilePicker = typeof window.showSaveFilePicker === 'function';
+    const inferenceVisible = ref(false);
+    const inferenceRow = ref(null);
+    const inferenceFileList = ref([]);
+    const inferenceFile = ref(null);
+    const inferencePreviewUrl = ref('');
+    const inferenceResult = ref(null);
+    const metricsVisible = ref(false);
+    const metricsTarget = ref(null);
+    const comparisonVisible = ref(false);
+    const comparisonIds = ref([]);
+    const importVisible = ref(false);
+    const importFile = ref(null);
+    const importing = ref(false);
+    let importLabelClicks = { id: null, count: 0, lastClick: 0 };
+    const hidingImportLabels = new Set();
     const detailVisible = ref(false);
     const detailLoading = ref(false);
     const detailSaving = ref(false);
@@ -228,6 +373,14 @@ import PermissionNotice from '@/components/PermissionNotice.vue'
       const minutes = Math.floor((seconds % 3600) / 60);
       const rest = Math.floor(seconds % 60);
       return [hours, minutes, rest].map(value => String(value).padStart(2, '0')).join(':');
+    };
+    const formatBytes = (bytes) => {
+      const value = Number(bytes || 0);
+      if (!Number.isFinite(value) || value <= 0) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+      const digits = index >= 3 ? 2 : 1;
+      return `${(value / (1024 ** index)).toFixed(digits)} ${units[index]}`;
     };
 
     const tableData = ref([])
@@ -302,7 +455,10 @@ import PermissionNotice from '@/components/PermissionNotice.vue'
           size: 100000,
         });
         if (res.code === 0) {
-            tableData.value = res.data.records || [];
+            tableData.value = (res.data.records || []).map(row => ({
+              ...row,
+              importLabelHidden: row.importLabelHidden || hiddenImportLabelIds.has(row.id),
+            }));
         } else {
           ElMessage.warning(res.msg);
         }
@@ -310,6 +466,190 @@ import PermissionNotice from '@/components/PermissionNotice.vue'
         if (!silent) loading.value = false;
         refreshing.value = false;
       }
+    };
+
+    // Keep a completed dismissal visible to polling requests that started before it was saved.
+    const hiddenImportLabelIds = new Set();
+    const handleImportLabelClick = async (row) => {
+      if (!row?.externalImported || !row.id || row.importLabelHidden
+          || !canMaintain(useUserStore().user) || hidingImportLabels.has(row.id)) return;
+      const now = Date.now();
+      const consecutive = importLabelClicks.id === row.id && now - importLabelClicks.lastClick <= 1500;
+      importLabelClicks = { id: row.id, count: consecutive ? importLabelClicks.count + 1 : 1, lastClick: now };
+      if (importLabelClicks.count < 5) return;
+      importLabelClicks = { id: null, count: 0, lastClick: 0 };
+      hidingImportLabels.add(row.id);
+      try {
+        const response = await ResultQueryService.hideImportLabel(row.id);
+        if (response.code !== 0 || !response.data?.result?.importLabelHidden) {
+          throw new Error(response.msg || '隐藏导入标签失败');
+        }
+        hiddenImportLabelIds.add(row.id);
+        tableData.value.forEach(item => {
+          if (item.id === row.id) item.importLabelHidden = true;
+        });
+      } catch (error) {
+        ElMessage.error(error?.msg || error?.message || '隐藏导入标签失败，请重试');
+      } finally {
+        hidingImportLabels.delete(row.id);
+      }
+    };
+
+    const openImportDialog = () => {
+      importFile.value = null;
+      importVisible.value = true;
+    };
+    const resetImportDialog = () => { importFile.value = null; };
+    const importResultPackage = async () => {
+      const file = importFile.value?.raw;
+      if (!file || importing.value) return;
+      if (!file.name.toLowerCase().endsWith('.zip') || file.size > 500 * 1024 * 1024) {
+        ElMessage.warning('请选择不超过 500 MB 的 ZIP 文件');
+        return;
+      }
+      importing.value = true;
+      try {
+        const form = new FormData();
+        form.append('file', file);
+        const response = await ResultQueryService.importResultPackage(form);
+        if (response.code !== 0) throw new Error(response.msg || '导入失败');
+        importVisible.value = false;
+        ElMessage.success('历史结果已导入');
+        await loadResults();
+      } catch (error) {
+        ElMessage.error(error?.msg || error?.message || '导入失败');
+      } finally {
+        importing.value = false;
+      }
+    };
+
+    const selectedExportInfo = computed(() => exportInfo.value[exportMode.value] || {});
+    const exportPercent = computed(() => {
+      if (!exportRunning.value) return 0;
+      const originalBytes = Number(selectedExportInfo.value.originalBytes || 0);
+      if (!originalBytes) return 0;
+      return Math.min(95, Math.round(exportReceivedBytes.value * 100 / originalBytes));
+    });
+
+    const resetExportDialog = () => {
+      if (exportRunning.value) return;
+      exportingId.value = null;
+      exportRow.value = null;
+      exportMode.value = 'full';
+      exportInfo.value = { full: {}, dashboard: {} };
+      exportReceivedBytes.value = 0;
+      exportStatus.value = '准备导出';
+      exportController.value = null;
+    };
+
+    const openExportDialog = async (row) => {
+      if (!row?.id || exportingId.value !== null) return;
+      exportingId.value = row.id;
+      exportRow.value = row;
+      exportVisible.value = true;
+      exportInfoLoading.value = true;
+      try {
+        const res = await ResultQueryService.getExportPackageInfo(row.id);
+        if (res.code !== 0 || !res.data) throw new Error(res.msg || '读取导出信息失败');
+        exportInfo.value = res.data;
+      } catch (error) {
+        ElMessage.error(error?.msg || error?.message || '读取导出信息失败');
+        exportVisible.value = false;
+      } finally {
+        exportInfoLoading.value = false;
+      }
+    };
+
+    const responseError = async (response) => {
+      const text = await response.text();
+      try {
+        const body = JSON.parse(text);
+        return body.msg || body.message || `导出请求失败（${response.status}）`;
+      } catch (_) {
+        return text || `导出请求失败（${response.status}）`;
+      }
+    };
+
+    const startExport = async () => {
+      if (!exportRow.value?.id || exportRunning.value) return;
+      const safeName = (exportRow.value.resultName || exportRow.value.taskName || 'training-result')
+        .replace(/[\\/:*?"<>|]/g, '_');
+      const suggestedName = `${safeName}-${exportMode.value === 'full' ? '完整结果' : '看板数据'}.zip`;
+      let fileHandle = null;
+      if (supportsFilePicker) {
+        try {
+          fileHandle = await window.showSaveFilePicker({
+            suggestedName,
+            types: [{ description: 'ZIP 压缩包', accept: { 'application/zip': ['.zip'] } }],
+          });
+        } catch (error) {
+          if (error?.name === 'AbortError') return;
+          ElMessage.error(error?.message || '无法打开保存位置选择器');
+          return;
+        }
+      } else if (Number(selectedExportInfo.value.originalBytes || 0) > 512 * 1024 * 1024) {
+        ElMessage.error('当前浏览器不能流式保存大文件，请使用 Chrome 或 Edge 导出，并选择保存位置');
+        return;
+      }
+
+      const controller = new AbortController();
+      exportController.value = controller;
+      exportRunning.value = true;
+      exportReceivedBytes.value = 0;
+      exportStatus.value = '服务端正在压缩并传输';
+      let writable = null;
+      try {
+        if (fileHandle) writable = await fileHandle.createWritable();
+        const token = useLoginStore().token;
+        const response = await fetch(ResultQueryService.exportResultPackageUrl(exportRow.value.id, exportMode.value), {
+          method: 'GET',
+          credentials: 'include',
+          headers: token ? { Authorization: token } : {},
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+        if (!response.ok) throw new Error(await responseError(response));
+        if (!response.body) throw new Error('浏览器无法读取下载数据流');
+
+        const reader = response.body.getReader();
+        const chunks = [];
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          exportReceivedBytes.value += value.byteLength;
+          if (writable) await writable.write(value);
+          else chunks.push(value);
+        }
+        if (writable) {
+          await writable.close();
+          writable = null;
+        } else {
+          const blob = new Blob(chunks, { type: 'application/zip' });
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = suggestedName;
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+          window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        }
+        exportStatus.value = '导出完成';
+        ElMessage.success(`已导出 ${formatBytes(exportReceivedBytes.value)} ZIP 文件`);
+        exportVisible.value = false;
+      } catch (error) {
+        if (writable) await writable.abort().catch(() => {});
+        if (error?.name === 'AbortError') ElMessage.info('已取消导出');
+        else ElMessage.error(error?.message || '导出失败，请确认结果产物目录仍存在');
+      } finally {
+        exportRunning.value = false;
+        exportController.value = null;
+      }
+    };
+
+    const cancelExport = () => {
+      exportStatus.value = '正在取消';
+      exportController.value?.abort();
     };
 
     const resultRowKey = (row) => row.training ? `training-${row.taskId}` : `result-${row.id}`;
@@ -355,6 +695,20 @@ import PermissionNotice from '@/components/PermissionNotice.vue'
       manageMode.value = !manageMode.value;
       selectedResults.value = [];
       nextTick(() => tableRef.value?.clearSelection?.());
+    };
+
+    const openComparison = () => {
+      const rows = selectedResults.value.filter(canSelectResult);
+      if (rows.length < 2) {
+        ElMessage.warning('请选择至少两个已完成的训练结果');
+        return;
+      }
+      if (rows.length > 8) {
+        ElMessage.warning('一次最多对比 8 个训练结果');
+        return;
+      }
+      comparisonIds.value = rows.map(row => row.id);
+      comparisonVisible.value = true;
     };
 
     watch(searchName, () => { currentPage.value = 1; });
@@ -592,10 +946,91 @@ import PermissionNotice from '@/components/PermissionNotice.vue'
         openPathLoadingId.value = null;
       }
     };
+    const clearInferencePreview = () => {
+      if (inferencePreviewUrl.value) URL.revokeObjectURL(inferencePreviewUrl.value);
+      inferencePreviewUrl.value = '';
+    };
+    const resetInferenceDialog = () => {
+      clearInferencePreview();
+      inferenceRow.value = null;
+      inferenceFile.value = null;
+      inferenceFileList.value = [];
+      inferenceResult.value = null;
+    };
+    const clearInferenceFile = () => {
+      clearInferencePreview();
+      inferenceFile.value = null;
+      inferenceFileList.value = [];
+      inferenceResult.value = null;
+    };
+    const openInferenceDialog = (row) => {
+      if (!row?.id || row.training) {
+        ElMessage.warning('训练中的任务暂不支持模型推理');
+        return;
+      }
+      resetInferenceDialog();
+      inferenceRow.value = row;
+      inferenceVisible.value = true;
+    };
+    const handleInferenceFileChange = (file) => {
+      const raw = file?.raw;
+      const supported = ['image/jpeg', 'image/png', 'image/bmp', 'image/gif'];
+      if (!raw || !supported.includes(raw.type) || raw.size > 10 * 1024 * 1024) {
+        ElMessage.warning('请选择不超过 10 MB 的 JPG、PNG、BMP 或 GIF 图片');
+        clearInferenceFile();
+        return;
+      }
+      clearInferencePreview();
+      inferenceFile.value = raw;
+      inferencePreviewUrl.value = URL.createObjectURL(raw);
+      inferenceResult.value = null;
+    };
+    const handleInferenceFileExceed = () => ElMessage.warning('一次只能选择一张推理图片');
+    const runInference = async () => {
+      if (!inferenceRow.value?.id || !inferenceFile.value || inferenceLoadingId.value !== null) return;
+      inferenceLoadingId.value = inferenceRow.value.id;
+      inferenceResult.value = null;
+      const sourceFile = inferenceFile.value;
+      const sourceRow = inferenceRow.value;
+      const sourceUrl = inferencePreviewUrl.value;
+      try {
+        const formData = new FormData();
+        formData.append('id', String(inferenceRow.value.id));
+        formData.append('file', inferenceFile.value);
+        const res = await ResultQueryService.inferResult(formData);
+        if (!inferenceVisible.value || inferenceFile.value !== sourceFile || inferenceRow.value !== sourceRow) return;
+        if (res.code !== 0 || !res.data?.image_base64) {
+          ElMessage.warning(res.msg || '模型推理失败');
+          return;
+        }
+        const data = res.data;
+        inferenceResult.value = {
+          sourceUrl,
+          detections: Array.isArray(data.detections) ? data.detections : [],
+        };
+        ElMessage.success('模型推理完成');
+      } catch (error) {
+        ElMessage.error(error?.msg || error?.message || '模型推理失败');
+      } finally {
+        inferenceLoadingId.value = null;
+      }
+    };
     const handleResultCommand = (command, row) => {
+      if (command === 'metrics') {
+        metricsTarget.value = {
+          type: row.training ? 'task' : 'result',
+          id: row.training ? row.taskId : row.id,
+          name: row.resultName || row.taskName,
+          running: !!row.training,
+        };
+        metricsVisible.value = true;
+        return;
+      }
       if (command === 'log') return viewResultLog(row);
       if (command === 'config') return viewResultConfigSnapshot(row);
       if (command === 'path') return openResultPath(row);
+      if (command === 'infer') return openInferenceDialog(row);
+      if (command === 'export') return openExportDialog(row);
     };
 
 const refreshTimer = window.setInterval(() => loadResults(true), 2000);
@@ -603,6 +1038,8 @@ const elapsedTimer = window.setInterval(() => { nowTick.value = Date.now(); }, 1
 onBeforeUnmount(() => {
   window.clearInterval(refreshTimer);
   window.clearInterval(elapsedTimer);
+  exportController.value?.abort();
+  clearInferencePreview();
 });
 loadResults();
    
@@ -635,7 +1072,36 @@ loadResults();
 
     .result-search {
     width: 220px;
+    margin-left: 8px;
     }
+
+    .result-import-dialog {
+      display: grid;
+      gap: 16px;
+    }
+    .result-import-dialog :deep(.el-upload__tip) {
+      line-height: 1.5;
+    }
+
+    .result-export-dialog { min-height: 250px; display: flex; flex-direction: column; gap: 14px; }
+    .result-export-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: #303133; }
+    .result-export-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: 100%; }
+    .result-export-option { width: 100%; height: auto; min-height: 118px; margin: 0; padding: 16px; }
+    .result-export-option :deep(.el-radio__label) { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 7px; white-space: normal; }
+    .result-export-option-name { font-size: 15px; font-weight: 600; color: #303133; }
+    .result-export-option-meta { color: #409eff; font-weight: 600; }
+    .result-export-option-desc { color: #606266; font-size: 12px; line-height: 1.55; }
+    .result-export-hint { margin: 0; color: #909399; font-size: 12px; line-height: 1.6; }
+    .result-export-progress { display: flex; flex-direction: column; gap: 8px; color: #606266; font-size: 12px; }
+
+    @media (max-width: 640px) {
+      .result-export-options { grid-template-columns: 1fr; }
+    }
+
+    .result-name-cell { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; }
+    .result-name-cell span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .result-name-cell .el-tag { flex: 0 0 auto; }
+    .import-source-tag { cursor: pointer; user-select: none; }
 
     .result-manage-button {
     margin-left: 8px;
@@ -697,6 +1163,30 @@ loadResults();
     background: #f7f9fc;
     border: 1px solid #e4e7ed;
     border-radius: 8px;
+    }
+
+    .inference-dialog {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .inference-upload {
+      align-self: flex-start;
+    }
+
+    .inference-image-preview {
+      width: 100%;
+      max-height: 420px;
+      background: #f7f9fc;
+      border: 1px solid #e4e7ed;
+      border-radius: 8px;
+    }
+
+    .inference-output {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
 
 

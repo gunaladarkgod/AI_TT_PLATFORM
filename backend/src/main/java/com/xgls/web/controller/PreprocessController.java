@@ -28,7 +28,8 @@ public class PreprocessController {
                     request.getEnhanceParams(),
                     request.getAugmentScriptId(),
                     request.getAugmentParams(),
-                    request.getTrainRatio()
+                    request.getTrainRatio(),
+                    request.getExportFormat()
             );
             return preprocess_Result.success(results);
         } catch (Exception e) {
@@ -45,6 +46,7 @@ public class PreprocessController {
         private Integer augmentScriptId;
         private Map<String, Object> augmentParams;
         private Double trainRatio;
+        private String exportFormat;
 
         // Getters & Setters
         public List<Long> getSourceInstanceIds() {
@@ -89,5 +91,7 @@ public class PreprocessController {
 
         public Double getTrainRatio() { return trainRatio; }
         public void setTrainRatio(Double trainRatio) { this.trainRatio = trainRatio; }
+        public String getExportFormat() { return exportFormat; }
+        public void setExportFormat(String exportFormat) { this.exportFormat = exportFormat; }
     }
 }

@@ -65,3 +65,9 @@ weights/
 .env.*
 !.env.example
 backend/env.clearml.local
+# 本机启动配置（包含数据库密码）
+backend/.env.local
+# 本机自动同步与工具配置
+.codex/
+# macOS 启动器的本地编译可执行文件
+启动AI训练平台.app/Contents/MacOS/AITrainingPlatformLauncher

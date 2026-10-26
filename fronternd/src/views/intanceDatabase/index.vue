@@ -50,7 +50,7 @@
                   <span v-if="row.__rowType === 'parent'">{{ (currentPage - 1) * pageSize + row.__parentIndex + 1 }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="name" column-key="name" label="任务数据集名称 / 实例数据集名称" min-width="250" align="left" fixed="left" sortable="custom" show-overflow-tooltip />
+              <el-table-column prop="name" column-key="name" label="任务数据集名称 / 实例数据集名称" min-width="250" align="left" fixed="left" sortable="custom" show-overflow-tooltip ><template #default="{ row }">{{ row.name }} <el-tag v-if="row.__rowType !== 'parent'" size="small" :color="datasetFormatColor(row)" style="color:white">{{ datasetFormatLabel(row) }}</el-tag></template></el-table-column>
               <el-table-column prop="classNum" column-key="classNum" label="类别数" align="center" width="96" sortable="custom">
                 <template #default="{ row }"><span v-if="row.__rowType === 'parent'">{{ displayCoreClassNum(row) }}</span></template>
               </el-table-column>
@@ -139,7 +139,7 @@
               empty-text="暂无实例数据集"
               style="width: 100%"
             >
-              <el-table-column prop="name" label="数据集名称" align="center" min-width="160" show-overflow-tooltip />
+              <el-table-column prop="name" label="数据集名称" align="center" min-width="160" show-overflow-tooltip ><template #default="{ row }">{{ row.name }} <el-tag v-if="row.__rowType !== 'parent'" size="small" :color="datasetFormatColor(row)" style="color:white">{{ datasetFormatLabel(row) }}</el-tag></template></el-table-column>
               <el-table-column prop="imgNum" label="图片数" align="center" width="80" />
               <el-table-column prop="annoNum" label="样本数" align="center" width="80" />
               <el-table-column label="示例" align="center" width="70">
@@ -240,7 +240,7 @@
                   <span v-if="row.__rowType === 'parent'">{{ (currentPage - 1) * pageSize + row.__parentIndex + 1 }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="name" column-key="name" label="任务数据集名称 / 实例数据集名称" min-width="250" align="left" fixed="left" sortable="custom" show-overflow-tooltip />
+              <el-table-column prop="name" column-key="name" label="任务数据集名称 / 实例数据集名称" min-width="250" align="left" fixed="left" sortable="custom" show-overflow-tooltip ><template #default="{ row }">{{ row.name }} <el-tag v-if="row.__rowType !== 'parent'" size="small" :color="datasetFormatColor(row)" style="color:white">{{ datasetFormatLabel(row) }}</el-tag></template></el-table-column>
               <el-table-column prop="classNum" column-key="classNum" label="类别数" align="center" width="96" sortable="custom">
                 <template #default="{ row }"><span v-if="row.__rowType === 'parent'">{{ displayCoreClassNum(row) }}</span></template>
               </el-table-column>
@@ -329,7 +329,7 @@
               empty-text="暂无实例数据集"
               style="width: 100%"
             >
-              <el-table-column prop="name" label="数据集名称" align="center" min-width="160" show-overflow-tooltip />
+              <el-table-column prop="name" label="数据集名称" align="center" min-width="160" show-overflow-tooltip ><template #default="{ row }">{{ row.name }} <el-tag v-if="row.__rowType !== 'parent'" size="small" :color="datasetFormatColor(row)" style="color:white">{{ datasetFormatLabel(row) }}</el-tag></template></el-table-column>
               <el-table-column prop="imgNum" label="图片数" align="center" width="80" />
               <el-table-column prop="annoNum" label="样本数" align="center" width="80" />
               <el-table-column label="示例" align="center" width="70">
@@ -392,7 +392,7 @@
           style="width: 100%"
         >
           <el-table-column type="index" label="序号" width="60" align="center" />
-          <el-table-column prop="name" label="数据集名称" align="center" />
+          <el-table-column prop="name" label="数据集名称" align="center" ><template #default="{ row }">{{ row.name }} <el-tag v-if="row.__rowType !== 'parent'" size="small" :color="datasetFormatColor(row)" style="color:white">{{ datasetFormatLabel(row) }}</el-tag></template></el-table-column>
           <el-table-column prop="imgNum" label="图片数" align="center" />
           <el-table-column prop="annoNum" label="样本数" align="center" />
           <el-table-column prop="configList" label="预处理描述" align="center" width="300" show-overflow-tooltip>
@@ -605,6 +605,7 @@
 </template>
 
 <script setup>
+import { datasetFormatLabel, datasetFormatColor } from '@/utils/datasetFormat'
 import PermissionNotice from '@/components/PermissionNotice.vue'
 import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
