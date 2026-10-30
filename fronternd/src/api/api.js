@@ -20,6 +20,13 @@ export class DocumentationService {
     }
 }
 
+/** 本机工作区可选引擎与研究方向；由后端检测目录并返回安全的补充命令。 */
+export class WorkspaceComponentService {
+    static async list() {
+        return request('/api/workspace/components', {}, 'get', null, 'json');
+    }
+}
+
 /**用户管理接口 */
 export class UserService {
     static async profile() { return request('/auth/profile', {}, 'get', null, 'json'); }
