@@ -66,15 +66,75 @@ public class WorkspaceComponentService {
     }
 
     public synchronized Map<String, Object> start(String id, String engine) {
+        if (id != null && ENGINES.containsKey(id)) engine = id;
         List<String> selected = new ArrayList<>(paths(id, engine));
         if (DIRECTIONS.containsKey(id)) selected.add(0, ENGINES.get(engine));
-        if (task != null && "running".equals(task.get("status"))) throw new IllegalArgumentException("已有下载任务正在执行，请等待完成");
+        begin(id, engine, "download");
+        String selectedEngine = engine;
+        executor.submit(() -> download(id, selectedEngine, selected));
+        return snapshot();
+    }
+
+    public synchronized Map<String, Object> remove(String id, String engine) {
+        if (id != null && ENGINES.containsKey(id)) engine = id;
+        List<String> selected = paths(id, engine);
+        begin(id, engine, "remove");
+        String selectedEngine = engine;
+        executor.submit(() -> removeFiles(id, selectedEngine, selected));
+        return snapshot();
+    }
+
+    private void begin(String id, String engine, String operation) {
+        if (task != null && "running".equals(task.get("status"))) throw new IllegalArgumentException("已有组件任务正在执行，请等待完成");
         checkWorkspace();
         task = new LinkedHashMap<>(Map.of("id", UUID.randomUUID().toString(), "componentId", id,
-            "engine", engine, "status", "running", "message", "正在检查工作区"));
+            "engine", engine, "operation", operation, "status", "running", "message", "正在检查工作区"));
         logs.clear();
-        executor.submit(() -> download(id, engine, selected));
-        return snapshot();
+    }
+
+    private void checkClean(List<String> selected, boolean includeIgnored) {
+        List<String> status = new ArrayList<>(List.of("status", "--porcelain", "--untracked-files=all", "--"));
+        status.addAll(selected);
+        if (!git(30, status.toArray(String[]::new)).isBlank()) throw new IllegalArgumentException("目标组件含本地修改或未跟踪文件，请先保存并处理后重试");
+        if (includeIgnored) {
+            List<String> ignored = new ArrayList<>(List.of("ls-files", "--others", "--ignored", "--exclude-standard", "--"));
+            ignored.addAll(selected);
+            if (!git(30, ignored.toArray(String[]::new)).isBlank()) throw new IllegalArgumentException("组件目录内含环境、缓存或运行文件，请先移走这些文件再删除；平台不会清除个人文件");
+        }
+    }
+
+    private void removeFiles(String id, String engine, List<String> selected) {
+        try {
+            checkClean(selected, true);
+            if (ENGINES.containsKey(id)) {
+                for (String direction : DIRECTIONS.keySet()) {
+                    if (paths(direction, engine).stream().anyMatch(p -> Files.exists(root.resolve(p))))
+                        throw new IllegalArgumentException("仍有研究方向依赖该引擎，请先删除该引擎对应的研究方向组件");
+                }
+            }
+            List<String> current = git(15, "sparse-checkout", "list").lines().filter(s -> !s.isBlank()).toList();
+            for (String existing : current) {
+                if (!existing.matches("[A-Za-z0-9_./-]+")) throw new IllegalArgumentException("当前 sparse 选择含特殊路径，请通过 Git 手动调整，以保留原始选择");
+                for (String target : selected) {
+                    if (existing.equals(".") || target.startsWith(existing + "/"))
+                        throw new IllegalArgumentException("组件被更大的 sparse 目录选择包含，请先通过 Git 将选择细分后再删除");
+                }
+            }
+            List<String> remaining = current.stream().filter(p -> selected.stream().noneMatch(t -> p.equals(t) || p.startsWith(t + "/"))).toList();
+            // Recheck immediately before changing the working tree. Git itself also protects tracked edits.
+            checkClean(selected, true);
+            stage("正在移除组件源码，保留其他组件和平台文件");
+            List<String> args = new ArrayList<>(List.of("sparse-checkout", "set", "--cone", "--"));
+            args.addAll(remaining);
+            git(60, args.toArray(String[]::new));
+            if (selected.stream().anyMatch(p -> Files.exists(root.resolve(p))))
+                throw new IllegalArgumentException("组件仍有残留文件或被其他选择包含，请检查目录后重试；平台未强制删除文件");
+            stage("组件已删除，可重新下载；独立 Python 环境、数据集和训练结果保留");
+            synchronized (this) { task.put("status", "succeeded"); }
+        } catch (Exception e) {
+            stage(e.getMessage() == null ? "删除失败" : e.getMessage());
+            synchronized (this) { task.put("status", "failed"); }
+        }
     }
 
     public synchronized Map<String, Object> snapshot() {
@@ -93,9 +153,7 @@ public class WorkspaceComponentService {
     }
     private void download(String id, String engine, List<String> selected) {
         try {
-            List<String> status = new ArrayList<>(List.of("status", "--porcelain", "--untracked-files=all", "--"));
-            status.addAll(selected);
-            if (!git(30, status.toArray(String[]::new)).isBlank()) throw new IllegalArgumentException("目标组件含本地修改或未跟踪文件，请先保存并处理后重试");
+            checkClean(selected, false);
             stage("正在补充组件文件，已有选择将保留；首次下载可能需要较长时间");
             List<String> args = new ArrayList<>(List.of("sparse-checkout", "add", "--"));
             args.addAll(selected);

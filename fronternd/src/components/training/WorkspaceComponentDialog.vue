@@ -38,6 +38,9 @@
             @click="download(row)"
           >{{ row.status === 'partial' ? '补充下载' : '下载' }}</el-button>
           <span v-else class="component-command-missing">文件齐全</span>
+          <el-button v-if="row.status !== 'missing'" size="small" type="danger" plain
+            :disabled="!downloadSupported || running || !isAdmin"
+            @click="removeComponent(row)">删除组件</el-button>
           <el-tooltip v-if="row.message" :content="row.message" placement="top">
             <el-button link size="small" :icon="InfoFilled" aria-label="组件详情" />
           </el-tooltip>
@@ -47,18 +50,18 @@
     <el-empty v-else-if="!loading" :description="emptyText" :image-size="72" />
     <div v-if="task.id" class="component-footnote" aria-live="polite">
       <el-tag :type="task.status === 'failed' ? 'danger' : task.status === 'succeeded' ? 'success' : 'info'">
-        {{ task.status === 'running' ? '下载中' : task.status === 'succeeded' ? '下载完成' : '下载失败' }}
+        {{ task.operation === 'remove' ? '删除' : '下载' }}{{ task.status === 'running' ? '中' : task.status === 'succeeded' ? '完成' : '失败' }}
       </el-tag>
       <pre class="download-log">{{ (task.logs || []).join('\n') || task.message }}</pre>
     </div>
     <div class="component-footnote">下载到后端所在机器的当前工作区。研究方向会同时补充对应引擎；下载文件后仍需配置训练 Python 环境。</div>
-    <div v-if="!isAdmin" class="component-footnote">请由平台管理员下载组件。</div>
+    <div v-if="!isAdmin" class="component-footnote">请由平台管理员下载或删除组件。</div>
   </el-dialog>
 </template>
 
 <script setup>
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { InfoFilled, Refresh } from '@element-plus/icons-vue'
 import { WorkspaceComponentService } from '@/api/api'
 import { useUserStore } from '@/stores/index'
@@ -126,6 +129,24 @@ const download = async row => {
     await loadComponents()
   } catch (error) {
     ElMessage.error(error?.message || '下载启动失败')
+  }
+}
+
+const removeComponent = async row => {
+  try {
+    const scope = row.kind === 'direction'
+      ? `${engine.value} 对应的${row.name}基线及目录内改进包（保留引擎）`
+      : row.name
+    await ElMessageBox.confirm(`确定删除 ${scope} 的源码文件？删除后可以重新下载。独立 Python 环境、数据集和训练结果保留。请先停止使用该组件的训练任务。`, '删除组件', {
+      confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning',
+    })
+    const response = await WorkspaceComponentService.remove(row.id, row.kind === 'engine' ? row.id : engine.value)
+    if (response?.code !== 0) throw new Error(response?.msg || '删除启动失败')
+    task.value = response.data
+    await loadComponents()
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(error?.message || '删除启动失败')
   }
 }
 </script>

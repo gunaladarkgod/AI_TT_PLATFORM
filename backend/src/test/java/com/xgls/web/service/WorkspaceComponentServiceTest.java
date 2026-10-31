@@ -87,6 +87,53 @@ class WorkspaceComponentServiceTest {
         finally { service.close(); }
         assertTrue(Files.exists(root.resolve("engines/mmdet_run/unused.txt")));
     }
+    @Test void removeDirectionThenEngineAndDownloadEngineAgain() throws Exception {
+        Path root = checkout();
+        try (var holder = new AutoCloseableService(root)) {
+            var service = holder.service;
+            service.start("small-object", "ultralytics");
+            assertEquals("succeeded", finish(service).get("status"));
+            service.remove("ultralytics", "ultralytics");
+            assertEquals("failed", finish(service).get("status"));
+            assertTrue(Files.exists(root.resolve("engines/yolo_run/ultralytics_runner/requirements.txt")));
+            service.remove("small-object", "ultralytics");
+            assertEquals("succeeded", finish(service).get("status"), service.snapshot().toString());
+            assertFalse(Files.exists(root.resolve("research/small-object/ultralytics-yolo11n-v1")));
+            assertTrue(Files.exists(root.resolve("engines/yolo_run/ultralytics_runner/requirements.txt")));
+            service.remove("ultralytics", "ultralytics");
+            assertEquals("succeeded", finish(service).get("status"));
+            assertFalse(Files.exists(root.resolve("engines/yolo_run/ultralytics_runner")));
+            assertTrue(Files.exists(root.resolve("backend/keep.txt")));
+            service.start("ultralytics", "mmdet"); // Engine row determines its own dependency, regardless of direction filter.
+            assertEquals("succeeded", finish(service).get("status"));
+            assertFalse(Files.exists(root.resolve("research/small-object")));
+        }
+    }
+    @Test void removalProtectsEditsIgnoredFilesAndBroadSelections() throws Exception {
+        Path root = checkout();
+        try (var holder = new AutoCloseableService(root)) {
+            var service = holder.service;
+            service.start("ultralytics", "ultralytics");
+            assertEquals("succeeded", finish(service).get("status"));
+            Path requirement = root.resolve("engines/yolo_run/ultralytics_runner/requirements.txt");
+            Files.writeString(requirement, "local edit");
+            service.remove("ultralytics", "ultralytics");
+            assertEquals("failed", finish(service).get("status"));
+            assertEquals("local edit", Files.readString(requirement));
+            Files.writeString(requirement, "fixture");
+            Files.writeString(root.resolve(".git/info/exclude"), "*.cache\n");
+            Path cache = root.resolve("engines/yolo_run/ultralytics_runner/local.cache");
+            Files.writeString(cache, "personal runtime file");
+            service.remove("ultralytics", "ultralytics");
+            assertEquals("failed", finish(service).get("status"));
+            assertTrue(Files.exists(cache));
+            Files.delete(cache);
+            git(root, "sparse-checkout", "add", "engines");
+            service.remove("ultralytics", "ultralytics");
+            assertEquals("failed", finish(service).get("status"));
+            assertTrue(Files.exists(requirement));
+        }
+    }
     private static class AutoCloseableService implements AutoCloseable {
         final WorkspaceComponentService service;
         AutoCloseableService(Path root) { service = new WorkspaceComponentService(root); }

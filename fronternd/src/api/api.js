@@ -28,6 +28,9 @@ export class WorkspaceComponentService {
     static async download(id, engine) {
         return request('/api/workspace/components/download', { id, engine }, 'post', 'application/json', 'json');
     }
+    static async remove(id, engine) {
+        return request('/api/workspace/components/remove', { id, engine }, 'post', 'application/json', 'json');
+    }
 }
 
 /**用户管理接口 */

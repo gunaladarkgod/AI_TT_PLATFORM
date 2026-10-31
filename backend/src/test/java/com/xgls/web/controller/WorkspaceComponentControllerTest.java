@@ -16,6 +16,7 @@ class WorkspaceComponentControllerTest {
         try (var auth = mockStatic(AuthenticatedUserUtil.class)) {
             auth.when(() -> AuthenticatedUserUtil.current(any(), any(), any())).thenReturn(new User());
             assertFalse(controller.download(Map.of("id", "ultralytics", "engine", "ultralytics"), new MockHttpServletRequest()).isSuccess());
+            assertFalse(controller.remove(Map.of("id", "ultralytics", "engine", "ultralytics"), new MockHttpServletRequest()).isSuccess());
             verifyNoInteractions(components);
         }
     }
@@ -25,6 +26,7 @@ class WorkspaceComponentControllerTest {
         var request = new MockHttpServletRequest();
         assertFalse(controller.list("ultralytics", request).isSuccess());
         assertFalse(controller.download(Map.of("id", "ultralytics", "engine", "ultralytics"), request).isSuccess());
+        assertFalse(controller.remove(Map.of("id", "ultralytics", "engine", "ultralytics"), request).isSuccess());
         verifyNoInteractions(components);
     }
 }

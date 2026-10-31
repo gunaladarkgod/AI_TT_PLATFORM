@@ -27,4 +27,10 @@ public class WorkspaceComponentController {
         try { return AjaxResult.success(components.start(body.get("id"), body.get("engine"))); }
         catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
     }
+    @PostMapping("/remove") public AjaxResult remove(@RequestBody Map<String, String> body, HttpServletRequest request) {
+        if (!AuthenticatedUserUtil.isPlatformAdmin(AuthenticatedUserUtil.current(request, redis, users)))
+            return AjaxResult.error("删除组件会修改平台工作区，请由平台管理员执行");
+        try { return AjaxResult.success(components.remove(body.get("id"), body.get("engine"))); }
+        catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
+    }
 }
