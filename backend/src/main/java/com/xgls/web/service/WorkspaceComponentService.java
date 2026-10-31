@@ -178,7 +178,11 @@ public class WorkspaceComponentService {
             output = Files.createTempFile("ai-tt-component-", ".log");
             List<String> command = new ArrayList<>(List.of("git", "-c", "credential.interactive=false"));
             command.addAll(List.of(args));
-            ProcessBuilder pb = new ProcessBuilder(command).directory(root.toFile()).redirectErrorStream(true).redirectOutput(output.toFile());
+            // Only stdout is machine-readable status/config data. Successful Git commands may
+            // warn on stderr when a sparse path's parent does not exist yet. Such warnings are
+            // not local modifications. Discard stderr rather than expose credential-bearing URLs.
+            ProcessBuilder pb = new ProcessBuilder(command).directory(root.toFile())
+                .redirectError(ProcessBuilder.Redirect.DISCARD).redirectOutput(output.toFile());
             pb.environment().put("GIT_TERMINAL_PROMPT", "0");
             pb.environment().put("GCM_INTERACTIVE", "Never");
             pb.environment().put("GIT_SSH_COMMAND", "ssh -oBatchMode=yes -oConnectTimeout=15");

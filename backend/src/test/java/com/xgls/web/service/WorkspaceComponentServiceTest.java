@@ -139,4 +139,15 @@ class WorkspaceComponentServiceTest {
         AutoCloseableService(Path root) { service = new WorkspaceComponentService(root); }
         public void close() { service.close(); }
     }
+    @Test void missingEngineParentWarningIsNotTreatedAsLocalModification() throws Exception {
+        Path root = checkout();
+        // Platform startup creates legacy MMDet runtime directories without checking out an engine.
+        Files.createDirectories(root.resolve("engines/mmdet_run/myfiles/src/task"));
+        assertFalse(Files.exists(root.resolve("engines/yolo_run")));
+        try (var holder = new AutoCloseableService(root)) {
+            holder.service.start("ultralytics", "ultralytics");
+            assertEquals("succeeded", finish(holder.service).get("status"), holder.service.snapshot().toString());
+            assertTrue(Files.isRegularFile(root.resolve("engines/yolo_run/ultralytics_runner/requirements.txt")));
+        }
+    }
 }
