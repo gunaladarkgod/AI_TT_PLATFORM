@@ -20,10 +20,13 @@ export class DocumentationService {
     }
 }
 
-/** 本机工作区可选引擎与研究方向；由后端检测目录并返回安全的补充命令。 */
+/** 本机组件检测与后台下载。 */
 export class WorkspaceComponentService {
-    static async list() {
-        return request('/api/workspace/components', {}, 'get', null, 'json');
+    static async list(engine = 'ultralytics') {
+        return request('/api/workspace/components', { engine }, 'get', null, 'json');
+    }
+    static async download(id, engine) {
+        return request('/api/workspace/components/download', { id, engine }, 'post', 'application/json', 'json');
     }
 }
 

@@ -1,7 +1,10 @@
 <template>
   <el-dialog v-model="visible" title="按需组件" width="min(860px, 94vw)" destroy-on-close>
     <div class="component-toolbar">
-      <span>检查本地工作区中的引擎和研究方向</span>
+      <el-select v-model="engine" style="width: 240px" :disabled="running" @change="loadComponents">
+        <el-option label="Ultralytics 对应研究方向" value="ultralytics" />
+        <el-option label="MMDetection 对应研究方向" value="mmdet" />
+      </el-select>
       <el-button size="small" :icon="Refresh" :loading="loading" @click="loadComponents">刷新</el-button>
     </div>
 
@@ -11,6 +14,7 @@
       <el-tab-pane label="研究方向" name="direction" />
     </el-tabs>
 
+    <el-alert v-if="workspaceMessage" type="info" :closable="false" :title="workspaceMessage" />
     <el-alert v-if="errorText" type="warning" :closable="false" show-icon :title="errorText" />
     <el-table v-else-if="filteredItems.length" :data="filteredItems" size="small" row-key="id">
       <el-table-column label="组件" min-width="210">
@@ -27,12 +31,13 @@
       <el-table-column label="操作" min-width="270">
         <template #default="{ row }">
           <el-button
-            v-if="row.status !== 'ready' && (row.downloadCommand || row.installCommand)"
+            v-if="row.status !== 'ready'"
             size="small"
-            :icon="CopyDocument"
-            @click="copyCommand(row.downloadCommand || row.installCommand)"
-          >复制补充命令</el-button>
-          <span v-else class="component-command-missing">{{ row.status === 'ready' ? '已就绪' : '暂无补充命令' }}</span>
+            :disabled="!downloadSupported || running || !isAdmin"
+            :loading="running && task.componentId === row.id"
+            @click="download(row)"
+          >{{ row.status === 'partial' ? '补充下载' : '下载' }}</el-button>
+          <span v-else class="component-command-missing">文件齐全</span>
           <el-tooltip v-if="row.message" :content="row.message" placement="top">
             <el-button link size="small" :icon="InfoFilled" aria-label="组件详情" />
           </el-tooltip>
@@ -40,17 +45,23 @@
       </el-table-column>
     </el-table>
     <el-empty v-else-if="!loading" :description="emptyText" :image-size="72" />
-    <div v-if="!errorText" class="component-footnote">
-      命令由后端根据当前工作区生成；复制后在项目根目录的终端执行。
+    <div v-if="task.id" class="component-footnote" aria-live="polite">
+      <el-tag :type="task.status === 'failed' ? 'danger' : task.status === 'succeeded' ? 'success' : 'info'">
+        {{ task.status === 'running' ? '下载中' : task.status === 'succeeded' ? '下载完成' : '下载失败' }}
+      </el-tag>
+      <pre class="download-log">{{ (task.logs || []).join('\n') || task.message }}</pre>
     </div>
+    <div class="component-footnote">下载到后端所在机器的当前工作区。研究方向会同时补充对应引擎；下载文件后仍需配置训练 Python 环境。</div>
+    <div v-if="!isAdmin" class="component-footnote">请由平台管理员下载组件。</div>
   </el-dialog>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
-import { CopyDocument, InfoFilled, Refresh } from '@element-plus/icons-vue'
+import { InfoFilled, Refresh } from '@element-plus/icons-vue'
 import { WorkspaceComponentService } from '@/api/api'
+import { useUserStore } from '@/stores/index'
 
 const props = defineProps({ modelValue: { type: Boolean, default: false } })
 const emit = defineEmits(['update:modelValue'])
@@ -61,6 +72,13 @@ const visible = computed({
 const activeTab = ref('all')
 const items = ref([])
 const loading = ref(false)
+const engine = ref('ultralytics')
+const task = ref({})
+const downloadSupported = ref(false)
+const workspaceMessage = ref('')
+const isAdmin = computed(() => Number(useUserStore().user?.type) === 1)
+const running = computed(() => task.value.status === 'running')
+let timer
 const errorText = ref('')
 const filteredItems = computed(() => activeTab.value === 'all'
   ? items.value
@@ -74,36 +92,46 @@ const loadComponents = async () => {
   loading.value = true
   errorText.value = ''
   try {
-    const response = await WorkspaceComponentService.list()
+    const response = await WorkspaceComponentService.list(engine.value)
     if (response?.code !== 0) throw new Error(response?.msg || '组件状态查询失败')
     const data = response.data
     items.value = Array.isArray(data) ? data : Array.isArray(data?.components) ? data.components : []
+    downloadSupported.value = data?.downloadSupported === true
+    workspaceMessage.value = data?.message || ''
+    task.value = data?.task || {}
   } catch (error) {
     items.value = []
     errorText.value = error?.message || '组件状态接口暂不可用'
   } finally {
     loading.value = false
+    clearTimeout(timer)
+    if (visible.value && running.value) timer = setTimeout(loadComponents, 2000)
   }
 }
 
 watch(visible, isVisible => {
   if (isVisible) loadComponents()
+  else clearTimeout(timer)
 })
+onBeforeUnmount(() => clearTimeout(timer))
 
-const statusLabel = status => ({ ready: '已就绪', missing: '未下载', partial: '不完整' }[status] || '未知')
+const statusLabel = status => ({ ready: '文件齐全', missing: '未下载', partial: '不完整' }[status] || '未知')
 const statusType = status => ({ ready: 'success', missing: 'warning', partial: 'danger' }[status] || 'info')
 
-const copyCommand = async command => {
+const download = async row => {
   try {
-    await navigator.clipboard.writeText(command)
-    ElMessage.success('补充命令已复制')
-  } catch {
-    ElMessage.error('复制失败，请检查浏览器剪贴板权限')
+    const response = await WorkspaceComponentService.download(row.id, row.kind === 'engine' ? row.id : engine.value)
+    if (response?.code !== 0) throw new Error(response?.msg || '下载启动失败')
+    task.value = response.data
+    await loadComponents()
+  } catch (error) {
+    ElMessage.error(error?.message || '下载启动失败')
   }
 }
 </script>
 
 <style scoped>
+.download-log { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; }
 .component-toolbar {
   display: flex;
   align-items: center;
