@@ -20,6 +20,19 @@ export class DocumentationService {
     }
 }
 
+/** 本机组件检测与后台下载。 */
+export class WorkspaceComponentService {
+    static async list(engine = 'ultralytics') {
+        return request('/api/workspace/components', { engine }, 'get', null, 'json');
+    }
+    static async download(id, engine) {
+        return request('/api/workspace/components/download', { id, engine }, 'post', 'application/json', 'json');
+    }
+    static async remove(id, engine) {
+        return request('/api/workspace/components/remove', { id, engine }, 'post', 'application/json', 'json');
+    }
+}
+
 /**用户管理接口 */
 export class UserService {
     static async profile() { return request('/auth/profile', {}, 'get', null, 'json'); }

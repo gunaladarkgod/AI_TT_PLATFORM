@@ -23,6 +23,9 @@
       <div>
 
         <el-space>
+          <el-button @click="componentManagerVisible = true" size="small">
+            <el-text size="small">组件管理</el-text>
+          </el-button>
           <el-button type="primary" @click="showAddModal" size="small"><el-text size="small"
               class="text-white">创建训练任务</el-text>
           </el-button>
@@ -269,6 +272,8 @@
 
   </div>
 
+
+  <WorkspaceComponentDialog v-model="componentManagerVisible" />
 
   <!-- 创建训练任务 -->
   <el-dialog v-model="addVisible" width="94vw" class="train-task-edit-dialog" align-center
@@ -2451,6 +2456,7 @@ import AceEdit from '@/components/AceEdit/index.vue'
 import TrainingMetricsDialog from '@/components/training/TrainingMetricsDialog.vue'
 import { showRemark } from "../../utils/str";
 import { add } from 'lodash';
+import WorkspaceComponentDialog from '@/components/training/WorkspaceComponentDialog.vue'
 const encode_src = ref(false);
 ApiService.getSysInfo().then(res => {
   if (res.code === 0) {
@@ -2548,6 +2554,7 @@ const currentPage = ref(1);
 const currentSize = ref(10);
 const total = ref(0);
 const tableData = ref([]);
+const componentManagerVisible = ref(false)
 const stoppingTaskId = ref(null)
 const editTaskMeta = ref(null)
 const savingRemark = ref(false)
