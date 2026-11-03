@@ -1,0 +1,19 @@
+schema_version: 1
+id: small-object/yolo11-baseline
+name: YOLO11 small-object detection baseline
+kind: baseline
+direction: small-object
+status: draft
+engine:
+  id: ultralytics
+  version: "8.4.115"
+data_format: yolo
+source:
+  type: external-git
+  repository: file:///E:/project/AI_TT_ALGO_SMALL_OBJECT_YOLO11_BASELINE
+  default_ref: develop
+  stable_ref: null
+  manifest: algorithm.yaml
+platform:
+  min_version: null
+description: Draft independent YOLO11 baseline using a local Git checkout.

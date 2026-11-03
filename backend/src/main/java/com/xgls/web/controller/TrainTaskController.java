@@ -773,30 +773,47 @@ public class TrainTaskController {
             return AjaxResult.error("所选实例数据集缺少有效的 YOLO 标注或训测数据");
         }
         dataYamlRaw = selectedDataset.getDataYaml();
-        if (StrUtil.isBlank(model)) return AjaxResult.error("请选择或填写 Ultralytics 模型");
-        if (StrUtil.isBlank(direction) || StrUtil.isBlank(baselineId)) {
-            return AjaxResult.error("请选择研究方向和对应的 Ultralytics 基线");
-        }
-
-        Map<String, Object> baseline = researchCatalogService.detail(baselineId);
-        if (baseline == null || !Boolean.TRUE.equals(baseline.get("valid"))) {
-            return AjaxResult.error("研究基线不存在或清单无效：" + baselineId);
-        }
-        if (!direction.equals(baseline.get("direction")) || !"ultralytics".equals(baseline.get("engine"))) {
-            return AjaxResult.error("所选研究方向与基线不匹配，或该基线不使用 Ultralytics 引擎");
-        }
+        String externalId = params.getStr("external_algorithm_id");
         List<String> improvementIds = jsonStringList(params.get("ultralytics_improvement_ids"));
-        Map<String, Object> stack = researchCatalogService.resolveStack(baselineId, improvementIds);
-        if (!Boolean.TRUE.equals(stack.get("valid"))) {
-            return AjaxResult.error("改进包组合不可用：" + String.join("；", jsonStringList(stack.get("errors"))));
-        }
         List<String> declaredParameterKeys = new ArrayList<>();
-        Object rawParameters = stack.get("parameters");
-        if (rawParameters instanceof Collection<?> definitions) {
-            for (Object definition : definitions) {
-                if (definition instanceof Map<?, ?> map) {
-                    String key = StrUtil.trim(String.valueOf(map.get("key")));
-                    if (StrUtil.isNotBlank(key)) declaredParameterKeys.add(key);
+        if (externalId != null) {
+            if (!"small-object/yolo11-baseline".equals(externalId)) {
+                return AjaxResult.error("Unknown external algorithm ID");
+            }
+            if (!improvementIds.isEmpty() || (params.getJSONObject("ultralytics_parameters") != null
+                    && !params.getJSONObject("ultralytics_parameters").isEmpty())) {
+                return AjaxResult.error("The external pilot does not declare parameter overrides or improvement packs");
+            }
+            direction = "small-object";
+            baselineId = externalId;
+            params.set("ultralytics_model", "yolo11n.yaml");
+            params.set("external_dataset_id", selectedDataset.getId());
+        } else {
+            if (StrUtil.isBlank(model)) return AjaxResult.error("请选择或填写 Ultralytics 模型");
+            if (StrUtil.isBlank(direction) || StrUtil.isBlank(baselineId)) {
+                return AjaxResult.error("请选择研究方向和对应的 Ultralytics 基线");
+            }
+
+            Map<String, Object> baseline = researchCatalogService.detail(baselineId);
+            if (baseline == null || !Boolean.TRUE.equals(baseline.get("valid"))) {
+                return AjaxResult.error("研究基线不存在或清单无效：" + baselineId);
+            }
+            if (!direction.equals(baseline.get("direction")) || !"ultralytics".equals(baseline.get("engine"))) {
+                return AjaxResult.error("所选研究方向与基线不匹配，或该基线不使用 Ultralytics 引擎");
+            }
+
+            Map<String, Object> stack = researchCatalogService.resolveStack(baselineId, improvementIds);
+            if (!Boolean.TRUE.equals(stack.get("valid"))) {
+                return AjaxResult.error("改进包组合不可用：" + String.join("；", jsonStringList(stack.get("errors"))));
+            }
+
+            Object rawParameters = stack.get("parameters");
+            if (rawParameters instanceof Collection<?> definitions) {
+                for (Object definition : definitions) {
+                    if (definition instanceof Map<?, ?> map) {
+                        String key = StrUtil.trim(String.valueOf(map.get("key")));
+                        if (StrUtil.isNotBlank(key)) declaredParameterKeys.add(key);
+                    }
                 }
             }
         }

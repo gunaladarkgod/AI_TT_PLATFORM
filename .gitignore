@@ -72,3 +72,5 @@ backend/.env.local
 .codex/
 # macOS 启动器的本地编译可执行文件
 启动AI训练平台.app/Contents/MacOS/AITrainingPlatformLauncher
+
+/components/

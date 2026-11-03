@@ -306,7 +306,8 @@ def build_ultralytics_execution(payload: Dict[str, Any], work_dir: Path) -> Tupl
         raise FileNotFoundError(f"training Python not found: {python_path}")
     model = str(payload.get("ultralytics_model") or "").strip()
     data = str(payload.get("ultralytics_data") or "").strip()
-    if not model:
+    external_id = payload.get("external_algorithm_id")
+    if not model and external_id is None:
         raise ValueError("missing ultralytics_model")
     if not data:
         raise ValueError("missing ultralytics_data")
@@ -350,6 +351,11 @@ def build_ultralytics_execution(payload: Dict[str, Any], work_dir: Path) -> Tupl
     undeclared = sorted(str(key) for key in parameters if key not in allowed)
     if undeclared:
         raise ValueError("Ultralytics task contains undeclared parameters: " + ", ".join(undeclared))
+    if external_id is not None:
+        from external_algorithm_pilot import prepare_pilot
+
+        return prepare_pilot(_REPO_ROOT_DIR, external_id, python_path, data_path, work_dir, parameters,
+                             payload.get("external_dataset_id"))
     spec_path = work_dir / "ultralytics_run.json"
     spec_path.write_text(json.dumps({"model": model, "data": str(data_path), "work_dir": str(work_dir),
                                      "parameters": parameters,
