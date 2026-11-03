@@ -279,6 +279,7 @@ git push origin --delete fix/123-result-open-path
 | `data/` | 中间实例数据集、最终实例数据集、预处理脚本等本地数据 | 运行数据，不提交 |
 | `artifacts/` | `result_metadata/` 保存结果索引；`mmdet_runs/`、`yolo_runs/`、`custom/` 分别保存对应引擎的日志、权重与运行规格，研究任务位于引擎目录下的 `research/{方向}/{基线}/` | 运行产物，不提交 |
 | `research/` | 研究方向、基线、改进包和项目内算法清单 | 提交算法定义与源码；不提交 `.runtime_cache/` |
+| `research-registry/` | 研究方向、算法元信息和公共实验公约；由平台核心只读校验 | 提交 YAML 与 Markdown 登记；不提交源码、数据集、权重或运行产物 |
 | `logs/` | 后端主日志及历史归档日志 | 本机日志，不提交 |
 | `docs/` | 使用、技术、协作与算法集成文档 | 提交 |
 | `.git/` | Git 本地版本库数据 | Git 自动维护，不手工修改或提交 |

@@ -1,0 +1,10 @@
+schema_version: 1
+id: small-object
+name: 小目标检测
+status: active
+description: 面向小尺度目标检测的公共实验方向；登记内容描述研究起点，不代表源码已经迁移。
+data_formats: [coco, yolo]
+metrics: [mAP, AP50, AP75, APs, APm, APl]
+engine_compatibility:
+  - { engine: mmdet, versions: ['3.0.0'], data_formats: [coco] }
+  - { engine: ultralytics, versions: ['8.4.115'], data_formats: [yolo] }

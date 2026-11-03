@@ -262,6 +262,7 @@ const topNavIconMap = {
   intanceDatabase: Collection,
   trainTask: Cpu,
   resultQuery: DataAnalysis,
+  researchRegistry: Document,
   datasetManageUnified: Files,
 }
 const getTopNavIcon = (routeName) => topNavIconMap[routeName] || Document
@@ -280,6 +281,7 @@ const unifiedPageRouteNames = new Set([
   'intanceDatabase',
   'trainTask',
   'resultQuery',
+  'researchRegistry',
   'datasetManageUnified',
   'taskDatasetManageDev',
 ])

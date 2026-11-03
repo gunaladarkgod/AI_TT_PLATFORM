@@ -1,0 +1,12 @@
+schema_version: 1
+id: small-object/yolo11n-augmentation-v1
+kind: improvement
+name: 小目标 YOLO11n 增强策略 v1
+direction: small-object
+status: draft
+repository: { url: https://github.com/<organization>/AI_TT_ALGO_SMALL_OBJECT_YOLO11N_AUGMENTATION.git, default_ref: develop, stable_ref: null }
+platform: { min_version: null }
+engine: { id: ultralytics, version: 8.4.115 }
+data_format: yolo
+algorithm_manifest: research/small-object/ultralytics-yolo11n-v1/improvements/small-object-augmentation-v1/algorithm.yaml
+description: 小目标 YOLO11n 基线的增强元信息登记；实际训练仍遵循旧目录清单和统一 Runner 校验。

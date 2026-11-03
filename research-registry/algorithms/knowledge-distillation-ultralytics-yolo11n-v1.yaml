@@ -1,0 +1,12 @@
+schema_version: 1
+id: knowledge-distillation/ultralytics-yolo11n-v1
+kind: baseline
+name: 官方 Ultralytics YOLO11n 蒸馏方向检测对照基线 v1
+direction: knowledge-distillation
+status: draft
+repository: { url: https://github.com/<organization>/AI_TT_ALGO_KD_YOLO11N_BASELINE.git, default_ref: develop, stable_ref: null }
+platform: { min_version: null }
+engine: { id: ultralytics, version: 8.4.115 }
+data_format: yolo
+algorithm_manifest: research/knowledge-distillation/ultralytics-yolo11n-v1/algorithm.yaml
+description: 知识蒸馏方向的 Ultralytics YOLO11n 检测对照元信息；当前不执行蒸馏损失。

@@ -1,0 +1,12 @@
+schema_version: 1
+id: small-object/ultralytics-yolo11n-v1
+kind: baseline
+name: 官方 Ultralytics YOLO11n 小目标基线 v1
+direction: small-object
+status: draft
+repository: { url: https://github.com/<organization>/AI_TT_ALGO_SMALL_OBJECT_YOLO11N_BASELINE.git, default_ref: develop, stable_ref: null }
+platform: { min_version: null }
+engine: { id: ultralytics, version: 8.4.115 }
+data_format: yolo
+algorithm_manifest: research/small-object/ultralytics-yolo11n-v1/algorithm.yaml
+description: 官方 Ultralytics YOLO11n 小目标检测元信息；当前仍由项目内 research 目录提供过渡清单。

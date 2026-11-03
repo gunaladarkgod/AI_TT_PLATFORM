@@ -1,0 +1,10 @@
+schema_version: 1
+id: knowledge-distillation
+name: 知识蒸馏
+status: active
+description: 面向知识蒸馏研究的公共对照方向；现有登记的检测基线暂不执行教师—学生蒸馏。
+data_formats: [coco, yolo]
+metrics: [mAP, AP50, AP75, APs, APm, APl]
+engine_compatibility:
+  - { engine: mmdet, versions: ['3.0.0'], data_formats: [coco] }
+  - { engine: ultralytics, versions: ['8.4.115'], data_formats: [yolo] }

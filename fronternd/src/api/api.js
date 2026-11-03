@@ -20,6 +20,13 @@ export class DocumentationService {
     }
 }
 
+/** 项目内研究基线登记与公约，只读。 */
+export class ResearchRegistryService {
+    static async get() {
+        return request('/api/research-registry', {}, 'get', null, 'json');
+    }
+}
+
 /** 本机组件检测与后台下载。 */
 export class WorkspaceComponentService {
     static async list(engine = 'ultralytics') {

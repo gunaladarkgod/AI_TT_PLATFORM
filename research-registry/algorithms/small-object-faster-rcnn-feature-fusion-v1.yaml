@@ -1,0 +1,12 @@
+schema_version: 1
+id: small-object/faster-rcnn-feature-fusion-v1
+kind: improvement
+name: 小目标 Faster R-CNN 特征融合 v1
+direction: small-object
+status: draft
+repository: { url: https://github.com/<organization>/AI_TT_ALGO_SMALL_OBJECT_FEATURE_FUSION.git, default_ref: develop, stable_ref: null }
+platform: { min_version: null }
+engine: { id: mmdet, version: 3.0.0 }
+data_format: coco
+algorithm_manifest: research/small-object/mmdet-faster-rcnn-r50-v1/improvements/feature-fusion-v1/algorithm.yaml
+description: Faster R-CNN 小目标基线的特征融合元信息登记，尚未声明为可运行改进。

@@ -1,0 +1,35 @@
+# 研究基线登记中心
+
+本目录是平台核心维护的研究方向、基线和改进方案元信息登记，不保存或下载独立算法仓库的源码。项目内旧 `research/` 目录仍是训练页的过渡机制；登记状态为 `draft` 的方案不能表述为已接入训练。
+
+## 固定字段
+
+方向文件位于 `directions/`，至少包含：
+
+- `schema_version: 1`
+- `id`：全局唯一的小写方向 ID，例如 `small-object`
+- `name`、`description`、`status`：状态为 `active`、`deprecated` 或 `archived`
+- `data_formats`、`metrics`、`engine_compatibility`
+
+算法登记文件位于 `algorithms/`，至少包含：
+
+- `schema_version: 1`、`id`、`name`、`direction`、`description`
+- `kind`：`baseline` 或 `improvement`
+- `status`：`draft`、`review` 或 `published`
+- `repository.url`、`repository.default_ref`、`repository.stable_ref`
+- `platform.min_version`
+- `engine.id`、`engine.version`：引擎 ID 为 `mmdet`、`ultralytics`、`custom` 或 `paper`
+- `data_format`：`coco`、`yolo` 或 `custom`
+- `algorithm_manifest`：登记对应的算法清单相对路径
+
+`id` 使用 `方向/方案简称`，仅允许小写字母、数字和连字符。仓库地址仅作展示和后续受控接入的元信息，当前接口不会把它交给 Git 执行。
+
+## 接口与状态
+
+登录后访问 `GET /api/research-registry`。成功时返回 `registry`、`directions`、`algorithms`、`conventions`；登记目录缺失、YAML 无效、字段缺失、重复 ID、未知引擎、非法路径或公约文件读取失败时，响应 `data.errors` 会列出原因。页面显示的状态含义如下：
+
+| 状态 | 含义 |
+| --- | --- |
+| `draft` | 已登记元信息，仍在开发或验证，不能视为可训练 |
+| `review` | 等待评审和兼容性确认 |
+| `published` | 已通过登记流程，可作为公开研究方案说明；训练可用性仍以引擎和源码验证为准 |

@@ -18,7 +18,7 @@ export function canMaintain(user = {}) {
   return [1, 2, 4].includes(Number(user.type))
 }
 
-const EXPERIMENT_PAGES = new Set(['originalDatasetManage', 'taskDatabaseManage', 'taskDatasetbaseManage', 'preprocess', 'intanceDatabase', 'trainTask', 'resultQuery', 'datasetManageUnified', 'userProfile'])
+const EXPERIMENT_PAGES = new Set(['originalDatasetManage', 'taskDatabaseManage', 'taskDatasetbaseManage', 'preprocess', 'intanceDatabase', 'trainTask', 'resultQuery', 'researchRegistry', 'datasetManageUnified', 'userProfile'])
 export function canVisitPage(user = {}, page = '') {
   return canMaintain(user) || EXPERIMENT_PAGES.has(page.replace(/^\//, '').split('/')[0])
 }

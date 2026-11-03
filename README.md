@@ -80,6 +80,7 @@ engines/       # 可扩展的训练引擎目录
 data/          # 中间实例数据集、最终实例数据集和预处理脚本
 artifacts/     # result_metadata 保存结果索引；mmdet_runs、yolo_runs、custom 分别保存各引擎训练日志与权重，研究任务位于对应引擎目录下
 research/      # 研究方向、算法基线、改进包及其项目内清单
+research-registry/ # 研究方向、算法元信息与公共实验公约的只读登记
 logs/          # 后端主日志与历史归档
 docs/          # 使用、技术、协作和算法集成文档
 ```

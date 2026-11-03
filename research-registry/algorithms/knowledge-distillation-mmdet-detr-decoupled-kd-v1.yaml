@@ -1,0 +1,12 @@
+schema_version: 1
+id: knowledge-distillation/detr-decoupled-kd-v1
+kind: improvement
+name: DETR 解耦知识蒸馏 v1
+direction: knowledge-distillation
+status: draft
+repository: { url: https://github.com/<organization>/AI_TT_ALGO_KD_DETR_DECOUPLED.git, default_ref: develop, stable_ref: null }
+platform: { min_version: null }
+engine: { id: mmdet, version: 3.0.0 }
+data_format: coco
+algorithm_manifest: research/knowledge-distillation/mmdet-detr-r50-v1/improvements/decoupled-kd-v1/algorithm.yaml
+description: DETR 知识蒸馏改进元信息登记；实际训练模块仍待独立算法仓库验证。
