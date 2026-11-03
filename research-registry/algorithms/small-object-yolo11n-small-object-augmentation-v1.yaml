@@ -1,0 +1,18 @@
+schema_version: 1
+id: small-object/ultralytics-yolo11n-v1/small-object-augmentation-v1
+name: 小目标增强策略 v1
+kind: improvement
+parent: small-object/ultralytics-yolo11n-v1
+direction: small-object
+status: draft
+engine:
+  id: ultralytics
+  version: 8.4.115
+data_format: yolo
+source:
+  type: in-tree
+  path: research/small-object/ultralytics-yolo11n-v1/improvements/small-object-augmentation-v1
+  manifest: algorithm.yaml
+platform:
+  min_version: null
+description: 现有项目内 YOLO11n 小目标增强改进包；当前为协议草稿，尚未形成跨仓库插件。

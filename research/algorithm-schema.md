@@ -2,6 +2,8 @@
 
 本协议约束 `research/` 下的方向、基线和改进包。算法定义保存在项目文件中，不依赖算法模板数据库表。
 
+> 迁移说明：`research/` 仍是当前项目内算法的运行来源。面向未来独立算法仓库的跨仓库登记协议位于 [research-registry/README.md](../research-registry/README.md)。两套协议当前并行存在；新增登记不自动迁移源码，也不改变现有训练逻辑。
+
 ## 1. 方向清单：`direction.yaml`
 
 每个研究方向目录必须包含一个 `direction.yaml`：

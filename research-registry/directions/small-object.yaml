@@ -1,0 +1,6 @@
+schema_version: 1
+id: small-object
+name: 小目标检测
+status: active
+description: 面向小尺度目标检测的基线、改进方案和实验比较。
+legacy_direction_manifest: research/small-object/direction.yaml

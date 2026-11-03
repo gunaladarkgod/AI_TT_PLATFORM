@@ -1,0 +1,18 @@
+schema_version: 1
+id: small-object/mmdet-faster-rcnn-r50-v1/feature-fusion-v1
+name: 小目标特征融合 v1
+kind: improvement
+parent: small-object/mmdet-faster-rcnn-r50-v1
+direction: small-object
+status: draft
+engine:
+  id: mmdet
+  version: 3.0.0
+data_format: coco
+source:
+  type: in-tree
+  path: research/small-object/mmdet-faster-rcnn-r50-v1/improvements/feature-fusion-v1
+  manifest: algorithm.yaml
+platform:
+  min_version: null
+description: 现有项目内 Faster R-CNN 特征融合改进包；当前为协议草稿，尚未形成跨仓库插件。

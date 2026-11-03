@@ -79,7 +79,8 @@ engines/       # 可扩展的训练引擎目录
   yolo_run/    # 官方 Ultralytics 依赖版本与说明（由统一 Runner 调度）
 data/          # 中间实例数据集、最终实例数据集和预处理脚本
 artifacts/     # result_metadata 保存结果索引；mmdet_runs、yolo_runs、custom 分别保存各引擎训练日志与权重，研究任务位于对应引擎目录下
-research/      # 研究方向、算法基线、改进包及其项目内清单
+research/      # 已接入的项目内研究方向、算法基线与改进包（迁移期保留）
+research-registry/ # 平台核心的研究基线公约、算法登记协议与跨仓库索引
 logs/          # 后端主日志与历史归档
 docs/          # 使用、技术、协作和算法集成文档
 ```
@@ -96,3 +97,4 @@ docs/          # 使用、技术、协作和算法集成文档
 - [选择性克隆指南](docs/v1.0/选择性克隆指南.md)
 - [平台内组件下载与接口](docs/v1.0/按需组件接口约定.md)：在模型训练页检测、下载所需引擎和研究方向。
 - [研究算法与改进包开发规范](docs/v1.0/算法集成规范.md)
+- [研究基线公约与算法登记协议](research-registry/README.md)

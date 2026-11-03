@@ -1,0 +1,6 @@
+schema_version: 1
+id: knowledge-distillation
+name: 知识蒸馏
+status: active
+description: 面向目标检测模型蒸馏的对照基线和后续蒸馏改进方案。
+legacy_direction_manifest: research/knowledge-distillation/direction.yaml

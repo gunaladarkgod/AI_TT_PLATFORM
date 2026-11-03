@@ -1,0 +1,17 @@
+schema_version: 1
+id: small-object/ultralytics-yolo11n-v1
+name: 官方 Ultralytics YOLO11n 小目标基线 v1
+kind: baseline
+direction: small-object
+status: draft
+engine:
+  id: ultralytics
+  version: 8.4.115
+data_format: yolo
+source:
+  type: in-tree
+  path: research/small-object/ultralytics-yolo11n-v1
+  manifest: algorithm.yaml
+platform:
+  min_version: null
+description: 现有项目内 YOLO11n 小目标检测基线；尚未迁移为独立算法仓库，也未完成端到端训练验证。

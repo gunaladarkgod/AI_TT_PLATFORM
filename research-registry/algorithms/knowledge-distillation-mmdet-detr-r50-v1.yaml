@@ -1,0 +1,17 @@
+schema_version: 1
+id: knowledge-distillation/mmdet-detr-r50-v1
+name: MMDet DETR R50 知识蒸馏基线 v1
+kind: baseline
+direction: knowledge-distillation
+status: draft
+engine:
+  id: mmdet
+  version: 3.0.0
+data_format: coco
+source:
+  type: in-tree
+  path: research/knowledge-distillation/mmdet-detr-r50-v1
+  manifest: algorithm.yaml
+platform:
+  min_version: null
+description: 现有项目内 DETR R50 知识蒸馏研究基线；尚未迁移为独立算法仓库。

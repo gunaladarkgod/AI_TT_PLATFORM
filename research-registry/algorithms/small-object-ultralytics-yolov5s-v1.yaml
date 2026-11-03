@@ -1,0 +1,17 @@
+schema_version: 1
+id: small-object/ultralytics-yolov5s-v1
+name: 官方 Ultralytics YOLOv5s 小目标基线 v1
+kind: baseline
+direction: small-object
+status: draft
+engine:
+  id: ultralytics
+  version: 8.4.115
+data_format: yolo
+source:
+  type: in-tree
+  path: research/small-object/ultralytics-yolov5s-v1
+  manifest: algorithm.yaml
+platform:
+  min_version: null
+description: 现有项目内 YOLOv5s 小目标检测基线；尚未迁移为独立算法仓库。

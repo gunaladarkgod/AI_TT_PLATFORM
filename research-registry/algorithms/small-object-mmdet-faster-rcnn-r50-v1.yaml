@@ -1,0 +1,17 @@
+schema_version: 1
+id: small-object/mmdet-faster-rcnn-r50-v1
+name: MMDet Faster R-CNN R50 小目标基线 v1
+kind: baseline
+direction: small-object
+status: draft
+engine:
+  id: mmdet
+  version: 3.0.0
+data_format: coco
+source:
+  type: in-tree
+  path: research/small-object/mmdet-faster-rcnn-r50-v1
+  manifest: algorithm.yaml
+platform:
+  min_version: null
+description: 现有项目内 Faster R-CNN R50 小目标检测基线；尚未迁移为独立算法仓库。

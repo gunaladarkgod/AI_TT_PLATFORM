@@ -1,0 +1,17 @@
+schema_version: 1
+id: knowledge-distillation/ultralytics-yolov5m-v1
+name: 官方 Ultralytics YOLOv5m 蒸馏方向检测对照基线 v1
+kind: baseline
+direction: knowledge-distillation
+status: draft
+engine:
+  id: ultralytics
+  version: 8.4.115
+data_format: yolo
+source:
+  type: in-tree
+  path: research/knowledge-distillation/ultralytics-yolov5m-v1
+  manifest: algorithm.yaml
+platform:
+  min_version: null
+description: 现有项目内知识蒸馏方向的 YOLOv5m 对照基线；当前不执行教师-学生蒸馏。
