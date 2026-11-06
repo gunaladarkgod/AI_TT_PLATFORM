@@ -780,10 +780,23 @@ public class TrainTaskController {
             if (!"small-object/yolo11-baseline".equals(externalId)) {
                 return AjaxResult.error("Unknown external algorithm ID");
             }
-            if (!improvementIds.isEmpty() || (params.getJSONObject("ultralytics_parameters") != null
-                    && !params.getJSONObject("ultralytics_parameters").isEmpty())) {
-                return AjaxResult.error("The external pilot does not declare parameter overrides or improvement packs");
+            if (!improvementIds.isEmpty()) {
+                return AjaxResult.error("外部试点不支持叠加改进包");
             }
+            Object rawOverrides = params.get("ultralytics_parameters");
+            if (rawOverrides != null) {
+                if (!(rawOverrides instanceof JSONObject overrides)) {
+                    return AjaxResult.error("ultralytics_parameters must be an object");
+                }
+                if (!overrides.isEmpty()) {
+                    Object epochs = overrides.get("epochs");
+                    if (overrides.size() != 1 || !(epochs instanceof Number)
+                            || !epochs.toString().matches("(?:[1-9][0-9]{0,2}|1000)")) {
+                        return AjaxResult.error("外部试点仅支持设置 1 至 1000 的整数训练轮数");
+                    }
+                }
+            }
+            declaredParameterKeys.add("epochs");
             direction = "small-object";
             baselineId = externalId;
             params.set("ultralytics_model", "yolo11n.yaml");

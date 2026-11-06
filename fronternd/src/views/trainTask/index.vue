@@ -295,9 +295,12 @@
           <template #append><el-button @click="pickTrainingPython(externalPilotForm)">选择</el-button></template>
         </el-input>
       </el-form-item>
+      <el-form-item label="训练轮数" required>
+        <el-input-number v-model="externalPilotForm.epochs" :min="1" :max="1000" :step="1" :precision="0" />
+      </el-form-item>
     </el-form>
     <el-alert type="info" :closable="false"
-      title="使用独立算法仓库的默认配置（100 轮）。创建后在任务列表启动训练。" />
+      title="填写 1 轮可快速验证训练链路。创建后在任务列表启动。" />
     <template #footer>
       <el-button @click="externalPilotVisible = false">取消</el-button>
       <el-button type="primary" :loading="externalPilotSaving" @click="saveExternalPilot">创建任务</el-button>
@@ -4517,7 +4520,7 @@ const resetFixedRunnerParameters = () => {
 }
 const externalPilotVisible = ref(false)
 const externalPilotSaving = ref(false)
-const externalPilotForm = reactive({ taskName: '', dataset: '', python: '' })
+const externalPilotForm = reactive({ taskName: '', dataset: '', python: '', epochs: 100 })
 
 const openExternalPilot = () => {
   externalPilotForm.taskName = 'YOLO11-外部试点-' + formatQuickTaskName()
@@ -4526,9 +4529,13 @@ const openExternalPilot = () => {
 }
 
 const saveExternalPilot = async () => {
-  const { taskName, dataset, python } = externalPilotForm
+  const { taskName, dataset, python, epochs } = externalPilotForm
   if (!taskName.trim() || !dataset || !python.trim()) {
     ElMessage.warning('请填写任务名称、实例数据集和训练 Python')
+    return
+  }
+  if (!Number.isInteger(epochs) || epochs < 1 || epochs > 1000) {
+    ElMessage.warning('训练轮数必须是 1 至 1000 的整数')
     return
   }
   externalPilotSaving.value = true
@@ -4540,6 +4547,7 @@ const saveExternalPilot = async () => {
       taskName: taskName.trim(),
       dataset,
       training_python_path: python.trim(),
+      ultralytics_parameters: { epochs },
     }))
     const res = await TrainTaskService.addMMD(form)
     if (res.code !== 0) {
