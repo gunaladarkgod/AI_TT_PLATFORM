@@ -41,6 +41,53 @@ class DatasetPathsTest(unittest.TestCase):
                 with self.subTest(contents=contents), self.assertRaises((ValueError, FileNotFoundError)):
                     resolve_dataset_yaml(str(source), base / "run")
 
+    def test_preflight_rejects_invalid_yaml_before_writing_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "data.yaml"
+            source.write_text("names: [unclosed", encoding="utf-8")
+            output = base / "run"
+            with self.assertRaisesRegex(ValueError, r"Dataset YAML syntax error .*line 1"):
+                resolve_dataset_yaml(str(source), output, validate_splits=True)
+            self.assertFalse(output.exists())
+
+    def test_preflight_checks_train_and_val_sources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "data.yaml"
+            train = base / "images" / "train"
+            val = base / "images" / "val"
+            output = base / "run"
+            source.write_text("train: images/train\nval: images/val\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(FileNotFoundError, "'train'.*does not exist"):
+                resolve_dataset_yaml(str(source), output, validate_splits=True)
+            train.mkdir(parents=True)
+            with self.assertRaisesRegex(ValueError, "'train'.*no supported image files"):
+                resolve_dataset_yaml(str(source), output, validate_splits=True)
+            (train / "image.JPG").touch()
+
+            with self.assertRaisesRegex(FileNotFoundError, "'val'.*does not exist"):
+                resolve_dataset_yaml(str(source), output, validate_splits=True)
+            val.mkdir()
+            with self.assertRaisesRegex(ValueError, "'val'.*no supported image files"):
+                resolve_dataset_yaml(str(source), output, validate_splits=True)
+            (val / "image.png").touch()
+
+            self.assertTrue(resolve_dataset_yaml(str(source), output, validate_splits=True).is_file())
+
+    def test_preflight_accepts_lists_of_image_sources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "data.yaml"
+            images = base / "images"
+            images.mkdir()
+            (images / "sample.webp").touch()
+            (base / "images.txt").write_text("./images/sample.webp\n", encoding="utf-8")
+            source.write_text("train: [images, images.txt]\nval: images.txt\n", encoding="utf-8")
+
+            self.assertTrue(resolve_dataset_yaml(str(source), base / "run", validate_splits=True).is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

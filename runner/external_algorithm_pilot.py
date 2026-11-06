@@ -85,7 +85,7 @@ def prepare_pilot(workspace, algorithm_id, python, data, output, parameters, dat
     config = read_yaml(component_file(root, manifest["default_config"]))
     if not data.resolve().is_relative_to(workspace):
         raise ValueError("Pilot data YAML must be inside the workspace")
-    data_yaml = resolve_dataset_yaml(str(data), output)
+    data_yaml = resolve_dataset_yaml(str(data), output, validate_splits=True)
     spec_path = output / "external_algorithm_execution.json"
     spec_path.write_text(json.dumps({
         "data": str(data_yaml), "work_dir": str(output), "parameters": parameters,
