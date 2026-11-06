@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # uvicorn mmdet_runner_server:app --host 127.0.0.1 --port 8009
 
+import hashlib
 import os
 import sys
 import re
@@ -123,11 +124,36 @@ def find_cfg_path(run_id: str) -> Path:
     return Path(ROOT_UPLOAD) / "modelcfg" / run_id / "config.py"
 
 
+_RUN_DIRECTORY_SEPARATOR = "_from_pyserver_sync_"
+
+
+def ascii_run_name(run_id: str) -> str:
+    if run_id.isascii():
+        return run_id
+    return "run-" + hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:24]
+
+
+def matches_run_directory(directory: Path, run_id: str) -> bool:
+    # Keep historical directories discoverable alongside ASCII names.
+    name, separator, _ = directory.name.rpartition(_RUN_DIRECTORY_SEPARATOR)
+    if not separator or name not in (run_id, ascii_run_name(run_id)):
+        return False
+    if not re.fullmatch(r"run-[0-9a-f]{24}", name):
+        return True
+    # An ASCII task name could equal the encoded name of a different task.
+    try:
+        with (directory / "train.log").open(encoding="utf-8") as log:
+            log.readline()
+            return log.readline().rstrip("\r\n") == f"[server] run_id={run_id}"
+    except OSError:
+        return False
+
+
 def make_work_dir(run_id: str, mode_override: Optional[str] = None, root_override: Optional[str] = None) -> Path:
     # D:/xgls/artifacts/mmdet_runs/{runId}_from_pyserver_sync_{ts}
     mode = current_runner_mode(mode_override)
     root = root_override or (FIXED_WORK_ROOT if mode == "fixed" else DEFAULT_WORK_ROOT)
-    return Path(root) / f"{run_id}_from_pyserver_sync_{ts_for_path()}"
+    return Path(root) / f"{run_id}{_RUN_DIRECTORY_SEPARATOR}{ts_for_path()}"
 
 
 _CATALOG_SEGMENT = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -192,10 +218,9 @@ def find_latest_train_log(run_id: str, work_root: Optional[str] = None) -> Optio
     root = resolve_work_root(work_root)
     if not root.is_dir():
         return None
-    prefix = f"{run_id}_from_pyserver_sync_"
     candidates = []
     for child in root.iterdir():
-        if child.is_dir() and child.name.startswith(prefix):
+        if child.is_dir() and matches_run_directory(child, run_id):
             log_path = child / "train.log"
             if log_path.is_file():
                 candidates.append(log_path)
@@ -217,9 +242,8 @@ def find_result_work_dir(
         return exact if exact.is_dir() else None
     if not root.is_dir():
         return None
-    prefix = f"{run_id}_from_pyserver_sync_"
     candidates = [child.resolve() for child in root.iterdir()
-                  if child.is_dir() and child.name.startswith(prefix)]
+                  if child.is_dir() and matches_run_directory(child, run_id)]
     candidates = [child for child in candidates if child.parent == root]
     if not candidates:
         return None
@@ -731,6 +755,8 @@ def start_train(
     payload: Optional[Dict[str, Any]] = Body(None),
 ):
     payload = payload or {}
+    if not runId or runId in (".", "..") or any(c in runId for c in ("/", "\\")):
+        return JSONResponse(content=api_response(False, 400, "invalid runId"), status_code=400)
     engine = str(payload.get("engine") or "mmdet").strip().lower()
     if engine not in ("mmdet", "ultralytics", "custom", "paper"):
         return JSONResponse(content=api_response(False, 400, "unsupported engine", error=engine), status_code=400)
@@ -755,7 +781,8 @@ def start_train(
         work_root = resolve_research_work_root(payload, base_work_root)
     except ValueError as e:
         return JSONResponse(content=api_response(False, 400, "invalid artifact root", error=str(e)), status_code=400)
-    work_dir = make_work_dir(runId, mode, str(work_root))
+    directory_run_id = ascii_run_name(runId) if engine == "ultralytics" else runId
+    work_dir = make_work_dir(directory_run_id, mode, str(work_root))
     ensure_dir(work_dir)
     log_path = work_dir / "train.log"
     _append_log(log_path, f"[server] request_at={now_str()}")
@@ -1024,10 +1051,9 @@ def training_metrics(
             raise ValueError("workRoot does not match engine")
         if not runId or runId in (".", "..") or any(char in runId for char in ("/", "\\")):
             raise ValueError("invalid runId")
-        prefix = f"{runId}_from_pyserver_sync_"
         if resultDir:
             work_dir = find_result_work_dir(runId, None, str(root), resultDir)
-            if work_dir is not None and not work_dir.name.startswith(prefix):
+            if work_dir is not None and not matches_run_directory(work_dir, runId):
                 raise ValueError("resultDir does not match runId")
         else:
             started = datetime.fromisoformat(startedAt) if startedAt else None
@@ -1036,20 +1062,20 @@ def training_metrics(
             candidates = []
             if root.is_dir():
                 for child in root.iterdir():
-                    if not child.is_dir() or not child.name.startswith(prefix):
+                    if not child.is_dir() or not matches_run_directory(child, runId):
                         continue
                     child = child.resolve()
                     if child.parent != root:
                         continue
                     if started is not None:
                         try:
-                            created = datetime.strptime(child.name[len(prefix):], "%Y%m%d_%H%M%S_%f")
+                            created = datetime.strptime(child.name.rsplit(_RUN_DIRECTORY_SEPARATOR, 1)[-1], "%Y%m%d_%H%M%S_%f")
                         except ValueError:
                             continue
                         if created < started:
                             continue
                     candidates.append(child)
-            work_dir = max(candidates, key=lambda path: path.name, default=None)
+            work_dir = max(candidates, key=lambda path: path.name.rsplit(_RUN_DIRECTORY_SEPARATOR, 1)[-1], default=None)
     except ValueError as exc:
         return JSONResponse(content=api_response(False, 400, "invalid metrics request", error=str(exc)), status_code=400)
     if work_dir is None:

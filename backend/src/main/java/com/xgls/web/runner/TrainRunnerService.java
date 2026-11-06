@@ -981,41 +981,45 @@ public class TrainRunnerService {
                     return RunnerTrainResponse.transportError("interrupted before retry");
                 }
             }
-            RunnerTrainResponse resp = callRunner(runId, runnerOptions);
-            if (resp.isOk()) {
-                return resp;
+            try {
+                // An HTTP response means the Runner received the request, even if training failed.
+                return callRunner(runId, runnerOptions);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return RunnerTrainResponse.transportError("runner call interrupted");
+            } catch (Exception e) {
+                lastError = RunnerTrainResponse.transportError(e.getMessage());
+                if (!isRunnerConnectionFailure(e)) {
+                    log.error("runner call failed after possible submission, runId={}", runId, e);
+                    return lastError;
+                }
+                log.warn("runner connection failed (attempt {}/{}), runId={}, error={}",
+                        i + 1, retryDelaysMs.length, runId, lastError.getError());
             }
-            lastError = resp;
-            log.warn("runner call failed (attempt {}/{}), runId={}, error={}",
-                    i + 1, retryDelaysMs.length, runId, resp.getError());
         }
         return lastError;
     }
 
-    private RunnerTrainResponse callRunner(String runId, JSONObject runnerOptions) {
-        try {
-            String url = runnerTrainUrl + "?runId=" + URLEncoder.encode(runId, StandardCharsets.UTF_8);
-            HttpClient client = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofSeconds(10))
-                    .version(HttpClient.Version.HTTP_1_1)
-                    .build();
-            String json = runnerOptions == null ? "{}" : runnerOptions.toString();
+    private RunnerTrainResponse callRunner(String runId, JSONObject runnerOptions)
+            throws IOException, InterruptedException {
+        String url = runnerTrainUrl + "?runId=" + URLEncoder.encode(runId, StandardCharsets.UTF_8);
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .version(HttpClient.Version.HTTP_1_1)
+                .build();
+        String json = runnerOptions == null ? "{}" : runnerOptions.toString();
 
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .version(HttpClient.Version.HTTP_1_1)
-                    .timeout(Duration.ofMinutes(90))
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofByteArray(json.getBytes(StandardCharsets.UTF_8)))
-                    .build();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .version(HttpClient.Version.HTTP_1_1)
+                .timeout(Duration.ofMinutes(90))
+                .header("Content-Type", "application/json; charset=UTF-8")
+                .header("Accept", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(json.getBytes(StandardCharsets.UTF_8)))
+                .build();
 
-            HttpResponse<String> resp = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            return parseResponse(resp.statusCode(), resp.body());
-        } catch (Exception e) {
-            log.error("call python runner failed, runId={}", runId, e);
-            return RunnerTrainResponse.transportError(e.getMessage());
-        }
+        HttpResponse<String> resp = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        return parseResponse(resp.statusCode(), resp.body());
     }
 
     private RunnerTrainResponse parseResponse(int statusCode, String body) {
@@ -1034,7 +1038,7 @@ public class TrainRunnerService {
             }
             result.setResultsTxt(resultsTxt);
         } catch (Exception ex) {
-            result.setOk(statusCode >= 200 && statusCode < 300);
+            result.setOk(false);
             result.setError("invalid runner response: " + ex.getMessage());
         }
         return result;
