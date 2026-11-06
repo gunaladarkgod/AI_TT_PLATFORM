@@ -26,6 +26,7 @@
           <el-button @click="componentManagerVisible = true" size="small">
             <el-text size="small">组件管理</el-text>
           </el-button>
+          <el-button size="small" @click="openExternalPilot">YOLO11 外部算法试点</el-button>
           <el-button type="primary" @click="showAddModal" size="small"><el-text size="small"
               class="text-white">创建训练任务</el-text>
           </el-button>
@@ -276,6 +277,33 @@
   <WorkspaceComponentDialog v-model="componentManagerVisible" />
 
   <!-- 创建训练任务 -->
+  <el-dialog v-model="externalPilotVisible" title="YOLO11 外部算法试点" width="min(620px, 95vw)"
+    :close-on-click-modal="false">
+    <el-form label-width="110px">
+      <el-form-item label="任务名称" required>
+        <el-input v-model="externalPilotForm.taskName" />
+      </el-form-item>
+      <el-form-item label="实例数据集" required>
+        <el-select v-model="externalPilotForm.dataset" filterable :loading="instanceReadinessLoading"
+          placeholder="选择已导出 YOLO 的实例数据集">
+          <el-option v-for="item in ultraDatasetRows" :key="item.id" :label="item.name" :value="item.name"
+            :disabled="!item.qualified" :title="item.reasons.join('；')" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="训练 Python" required>
+        <el-input v-model="externalPilotForm.python" placeholder="需要安装 ultralytics==8.4.115">
+          <template #append><el-button @click="pickTrainingPython(externalPilotForm)">选择</el-button></template>
+        </el-input>
+      </el-form-item>
+    </el-form>
+    <el-alert type="info" :closable="false"
+      title="使用独立算法仓库的默认配置（100 轮）。创建后在任务列表启动训练。" />
+    <template #footer>
+      <el-button @click="externalPilotVisible = false">取消</el-button>
+      <el-button type="primary" :loading="externalPilotSaving" @click="saveExternalPilot">创建任务</el-button>
+    </template>
+  </el-dialog>
+
   <el-dialog v-model="addVisible" width="94vw" class="train-task-edit-dialog" align-center
     :close-on-press-escape="false"
     :title="is_create ? (is_add ? '创建任务(追加模式)' : '创建任务') : '编辑任务_#' + cur_task_id" draggable
@@ -4487,6 +4515,48 @@ const resetFixedRunnerParameters = () => {
   fixedRunnerParameter.command_line = 'tools/runner_fixed_test.py --run-id {run_id} --work-dir {work_dir}'
   fixedRunnerParameter.work_root = 'artifacts/custom'
 }
+const externalPilotVisible = ref(false)
+const externalPilotSaving = ref(false)
+const externalPilotForm = reactive({ taskName: '', dataset: '', python: '' })
+
+const openExternalPilot = () => {
+  externalPilotForm.taskName = 'YOLO11-外部试点-' + formatQuickTaskName()
+  externalPilotVisible.value = true
+  fetchMmdetInstanceDatasets()
+}
+
+const saveExternalPilot = async () => {
+  const { taskName, dataset, python } = externalPilotForm
+  if (!taskName.trim() || !dataset || !python.trim()) {
+    ElMessage.warning('请填写任务名称、实例数据集和训练 Python')
+    return
+  }
+  externalPilotSaving.value = true
+  try {
+    const form = new FormData()
+    form.append('params', JSON.stringify({
+      engine: 'ultralytics',
+      external_algorithm_id: 'small-object/yolo11-baseline',
+      taskName: taskName.trim(),
+      dataset,
+      training_python_path: python.trim(),
+    }))
+    const res = await TrainTaskService.addMMD(form)
+    if (res.code !== 0) {
+      ElMessage.warning(res.msg || '创建试点任务失败')
+      return
+    }
+    externalPilotVisible.value = false
+    ElMessage.success('试点任务已创建，可在任务列表启动')
+    queryUsers()
+    handleCurrentChange()
+  } catch (error) {
+    ElMessage.error(error?.message || '创建试点任务失败')
+  } finally {
+    externalPilotSaving.value = false
+  }
+}
+
 const trainingPythonPath = ref('')
 const trainingEngine = ref('mmdet')
 const researchDirections = ref([])
@@ -4783,11 +4853,12 @@ const loadDefaultTrainingPython = async () => {
   }
 }
 
-const pickTrainingPython = async () => {
+const pickTrainingPython = async (pilotForm = null) => {
   try {
     const res = await TrainTaskService.pickTrainingPython()
     if (res.code === 0 && res.data?.path) {
-      trainingPythonPath.value = String(res.data.path)
+      if (pilotForm === externalPilotForm) pilotForm.python = String(res.data.path)
+      else trainingPythonPath.value = String(res.data.path)
       ElMessage.success('已选择训练 Python 解释器')
     } else if (res.msg) {
       ElMessage.warning(res.msg)
