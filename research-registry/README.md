@@ -41,7 +41,7 @@ research-registry/
 
 ## 算法登记协议 v1
 
-每个 `algorithms/*.yaml` 必须是一个独立方案记录。一个方案可以是 `baseline` 或 `improvement`；一次调参、一次训练任务或一次结果记录不能新建算法登记。
+每个 `algorithms/*.yaml` 必须是一个独立方案记录。迁移期的项目内方案可以是 `baseline` 或 `improvement`；新的独立 C 算法固定使用 `standalone-algorithm`。一次调参、一次训练任务或一次结果记录不能新建算法登记。
 
 最小字段如下：
 
@@ -49,7 +49,7 @@ research-registry/
 schema_version: 1
 id: small-object/yolo11-baseline
 name: YOLO11 小目标检测基线
-kind: baseline
+kind: standalone-algorithm
 direction: small-object
 status: draft
 engine:
@@ -62,6 +62,12 @@ source:
   default_ref: develop
   stable_ref: null
   manifest: algorithm.yaml
+  derived_manifest: derived-from.yaml
+derived_from:
+  baseline:
+    repository: https://github.com/<organization>/AI_TT_BASELINE_SMALL_OBJECT_YOLO11.git
+    ref: v1.0.0
+    commit: <40 位提交 ID>
 platform:
   min_version: null
 description: 说明方案用途、边界和验证状态。
@@ -73,12 +79,14 @@ description: 说明方案用途、边界和验证状态。
 | --- | --- |
 | `schema_version` | 当前固定为整数 `1`。不兼容变更必须升级版本。 |
 | `id` | 全局唯一，格式为 `方向/方案简称`；仅允许小写字母、数字和连字符及分隔符 `/`。改进包可使用 `方向/基线/改进`。 |
-| `kind` | 只允许 `baseline` 或 `improvement`。 |
+| `kind` | 迁移期允许 `baseline` 或 `improvement`；新外部 C 固定为 `standalone-algorithm`。 |
 | `direction` | 必须存在于 `directions/`。 |
 | `status` | 只允许 `draft`、`review`、`published`、`deprecated`、`archived`。只有实际验证通过且完成审查的方案才可标为 `published`。 |
 | `engine.id` | 当前只允许 `mmdet`、`ultralytics`、`custom`、`paper`。`paper` 当前不代表可运行。 |
 | `data_format` | 当前只允许 `coco`、`yolo`、`custom`。 |
 | `source` | 指向项目内过渡来源或独立 Git 算法仓库。登记信息只用于描述和后续受控校验，浏览器与后端不得据此执行任意 Git 命令。 |
+| `source.derived_manifest` | 新外部 C 的 `derived-from.yaml` 相对路径；平台下载后读取并与登记来源逐字段核对。 |
+| `derived_from.baseline` | 新外部 C 的 B 来源，必须有 `repository`、`ref` 和 `commit`。 |
 | `platform.min_version` | 最低兼容的平台 Release Tag；未形成稳定版本时可为 `null`，但不得假装已验证兼容。 |
 | `parent` | `kind: improvement` 时必填，值为父基线的完整 `id`。 |
 

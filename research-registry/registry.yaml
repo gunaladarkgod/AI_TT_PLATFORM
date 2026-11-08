@@ -1,13 +1,13 @@
 schema_version: 1
 id: ai-tt-research-registry
 name: AI 训练平台研究基线公约与算法登记中心
-description: 平台核心维护的研究方向、算法方案和跨仓库兼容性登记；当前仅定义协议和样例，不驱动训练运行。
+description: 平台核心维护的研究方向、算法方案和跨仓库兼容性登记；外部独立算法可由受控本机组件服务下载，但尚未自动接入训练 Runner。
 directories:
   directions: directions
   algorithms: algorithms
   templates: templates
 allowed:
-  algorithm_kinds: [baseline, improvement]
+  algorithm_kinds: [baseline, improvement, standalone-algorithm]
   statuses: [draft, review, published, deprecated, archived]
   engines: [mmdet, ultralytics, custom, paper]
   data_formats: [coco, yolo, custom]

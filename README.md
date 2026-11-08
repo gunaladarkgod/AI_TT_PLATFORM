@@ -23,7 +23,7 @@ B：AI_TT_BASELINE_SMALL_OBJECT_YOLO11
 | 类型 | 当前试点仓库 | 职责 | 当前状态 |
 | --- | --- | --- | --- |
 | B 基线 | [AI_TT_BASELINE_SMALL_OBJECT_YOLO11](https://github.com/gunaladarkgod/AI_TT_BASELINE_SMALL_OBJECT_YOLO11) | 提供可追溯、可复用的 YOLO11 小目标检测代码起点。 | 已上传源码；尚未建立正式 Release Tag、算法清单和独立验证记录。 |
-| C 算法 | [AI_TT_ALGO_SMALL_OBJECT_TDSC](https://github.com/gunaladarkgod/AI_TT_ALGO_SMALL_OBJECT_TDSC) | 从 B 的固定提交派生出的 TDSC 完整算法；它独立维护，不与其他 C 在运行时叠加。 | 已上传已提交源码；尚未登记到平台，也尚未完成平台调度验证。 |
+| C 算法 | [AI_TT_ALGO_SMALL_OBJECT_TDSC](https://github.com/gunaladarkgod/AI_TT_ALGO_SMALL_OBJECT_TDSC) | 从 B 的固定提交派生出的 TDSC 完整算法；它独立维护，不与其他 C 在运行时叠加。 | 已登记为草稿，并已提供受控下载与状态查询接口；C 仓库尚缺标准清单和 Runner 入口，未完成平台调度验证。 |
 
 上述 C 的 `main@ae35a9a41` 以 B 的 `main@8397ada12` 为祖先。后续需要在 C 中补齐 `algorithm.yaml`、`derived-from.yaml`、依赖说明、训练入口和验证记录；B/C 的权重、数据集、日志、虚拟环境及 Git 凭据均不得提交。
 
@@ -36,7 +36,7 @@ B：AI_TT_BASELINE_SMALL_OBJECT_YOLO11
 3. 模型训练页面只从“已下载且清单匹配”的 C 中选择算法；
 4. 使用现有统一 Runner 对所选 C、任务 Python 和 YOLO `data.yaml` 做预检，并完成一次训练启动、日志读取和结果定位验证。
 
-在以上四步通过前，B/C 只能称为“已上传源码”，不能称为“平台已接入”或“已验证可训练”。详细分工见 [开发者 A 任务书](docs/v1.0/多仓库改造-开发者A-平台登记与受控算法下载.md) 和 [开发者 B 任务书](docs/v1.0/多仓库改造-开发者B-基线派生与独立算法仓库.md)。
+目前第 1 步和第 2 步的后端接口已经开始实现；尚未以真实私有仓库完成下载验证，也未接入 Runner 执行。前端必须以接口返回的 `localStatus`、`trainingReady` 与 `blockers` 为准，不能因仓库已登记就显示“可训练”。在以上四步通过前，B/C 不能称为“平台已接入”或“已验证可训练”。详细分工见 [开发者 A 任务书](docs/v1.0/多仓库改造-开发者A-平台登记与受控算法下载.md)、[开发者 B 任务书](docs/v1.0/多仓库改造-开发者B-基线派生与独立算法仓库.md) 和[独立算法组件接口约定](docs/v1.0/按需组件接口约定.md)。
 
 ## 快速启动（跨平台图形启动器）
 

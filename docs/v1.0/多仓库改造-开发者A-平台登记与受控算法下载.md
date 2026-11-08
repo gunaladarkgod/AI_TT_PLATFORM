@@ -27,6 +27,51 @@ C：AI_TT_ALGO_<方向>_<方案>（独立算法仓库）
 
 本任务的目标是实现并验证 A 的“登记、展示、受控下载、状态说明”闭环；不要求迁移现有训练引擎，也不要求把全部旧算法变成 C。
 
+## 前端开发者必须对接的接口（本次后端先行交付）
+
+开发者 A 中负责前端的人员只能调用以下 **独立 C 算法组件接口**，不能复用旧的 `/api/workspace/components` 来下载 C。旧接口是同一平台仓库的 sparse checkout，C 则是克隆到 `local-components/` 的独立 Git 仓库；两者目录、权限、状态和删除策略都不同。
+
+所有接口的外层均为现有 `AjaxResult`：成功时 `code=0`、业务数据在 `data`；失败时读取 `message`。浏览器**不得**提交 Git URL、ref、命令、绝对路径或本机目标目录。
+
+| 前端用途 | 方法和地址 | 访问权限 | 请求 | 前端应如何使用 |
+| --- | --- | --- | --- | --- |
+| 列出登记 C 与本机状态 | `GET /api/algorithm-components?direction=small-object` | 所有已登录用户 | `direction` 可选 | 页面首屏加载；组件任务运行时每 2 秒轮询，任务结束后停止轮询。 |
+| 读取训练选择/预检资料 | `GET /api/algorithm-components/training-profile?id=small-object/tdsc` | 所有已登录用户 | 登记 ID | 训练页选中 C 后调用。当前只显示状态和阻塞原因，不直接启动训练。 |
+| 下载已登记 C | `POST /api/algorithm-components/install` | 仅平台管理员 | `{"id":"small-object/tdsc"}` | 管理员点击下载后轮询列表中的 `data.task`；其他角色不显示或禁用此按钮。 |
+| 移除本机 C 副本 | `POST /api/algorithm-components/remove` | 仅平台管理员 | `{"id":"small-object/tdsc"}` | 必须二次确认；只删除本机副本，不删除远程 C/B 仓库。 |
+
+`GET` 返回的 `data.components` 每项至少包含：
+
+```json
+{
+  "id": "small-object/tdsc",
+  "name": "小目标 TDSC 独立算法",
+  "direction": "small-object",
+  "registrationStatus": "draft",
+  "engine": {"id": "ultralytics", "version": "unverified"},
+  "dataFormat": "yolo",
+  "localStatus": "not-downloaded",
+  "trainingReady": false,
+  "blockers": ["本机尚未下载该算法组件"],
+  "sourceCommit": null,
+  "derivedFrom": {"baseline": {"repository": "...", "ref": "...", "commit": "..."}},
+  "installAllowed": true,
+  "removeAllowed": false
+}
+```
+
+状态展示规则：
+
+1. `localStatus=not-downloaded`：显示“未下载”；只有平台管理员可见“下载”按钮。
+2. `localStatus=invalid`：显示“下载内容不可用”，完整列出 `blockers`；不得在训练下拉框中显示为可选项。
+3. `localStatus=downloaded` 但 `trainingReady=false`：代码和清单一致，但登记状态、环境或 Runner 接入仍未满足；显示原因，不得创建训练任务。
+4. 只有 `trainingReady=true` 才进入“可创建训练任务”的 C 下拉框。当前试点阶段可能没有任何可训练 C，这是正确状态，不能用前端默认值绕过。
+5. `data.task.status` 为 `running|succeeded|failed`；展示 `message` 和 `logs`，不得自己推测 Git 失败原因。页面卸载不取消后台下载，重新进入页面可从 GET 的 `task` 恢复状态。
+
+前端 API 封装应集中写在 `fronternd/src/api/api.js`，建议函数命名为 `fetchAlgorithmComponents`、`fetchAlgorithmTrainingProfile`、`installAlgorithmComponent`、`removeAlgorithmComponent`。训练表单不得直接拼 Runner 命令：本阶段 Runner 尚未执行 C，后续由后端在清单验证完成后受控接入。
+
+**阶段边界：** 当前试点 C `small-object/tdsc` 已登记为 `draft`，而 C 仓库尚未提供 `algorithm.yaml`、`derived-from.yaml` 和经过验证的 Runner 入口。因此前端应如实呈现“未验证/不可训练”，不能将“已登记”翻译成“可训练”。
+
 ## 2. 总体边界
 
 ### 2.1 必须遵守的架构边界
@@ -71,11 +116,13 @@ source:
   default_ref: develop
   stable_ref: v0.1.0
   manifest: algorithm.yaml
+  derived_manifest: derived-from.yaml
 
 derived_from:
-  repository: https://github.com/<organization>/AI_TT_BASELINE_SMALL_OBJECT_YOLO11.git
-  ref: v1.0.0
-  commit: <40 位提交 ID>
+  baseline:
+    repository: https://github.com/<organization>/AI_TT_BASELINE_SMALL_OBJECT_YOLO11.git
+    ref: v1.0.0
+    commit: <40 位提交 ID>
 
 platform:
   min_version: null
@@ -92,7 +139,8 @@ description: 说明方案解决的问题、当前验证状态和已知限制。
 | `kind` | 新架构固定使用 `standalone-algorithm`；历史 `baseline`、`improvement` 记录仅作迁移兼容，不得误标为新 C。 |
 | `source.repository` | 仅能由平台仓库受控登记文件提供；不能来自浏览器请求。不得带 Token、密码或私钥。 |
 | `source.stable_ref` | 优先 Release Tag 或固定提交；为空表示开发版，只能在页面明确标注“未固定版本”。 |
-| `derived_from` | C 必填，记录创建它的 B 仓库、基线版本和精确提交，便于追溯。 |
+| `source.derived_manifest` | 固定为 C 根目录相对路径（通常是 `derived-from.yaml`）；下载后与平台登记的 `derived_from.baseline` 逐字段比对。 |
+| `derived_from.baseline` | C 必填，记录创建它的 B 仓库、基线版本和精确提交，便于追溯。 |
 | `status` | `draft`、`review`、`published`、`deprecated`、`archived`。只有下载、预检和真实训练验证均记录完成后，才可设为 `published`。 |
 | 路径 | `manifest` 等相对路径不得包含盘符、绝对路径或 `..`。 |
 

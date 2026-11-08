@@ -1,8 +1,9 @@
 # 此文件是模板，不是已登记方案；复制到 algorithms/ 后必须删除所有占位符。
+# standalone-algorithm 表示一个完整、独立的 C 算法仓库，不是可动态叠加的改进包。
 schema_version: 1
 id: <direction-id>/<algorithm-id>
 name: <算法显示名称>
-kind: baseline
+kind: standalone-algorithm
 direction: <direction-id>
 status: draft
 engine:
@@ -15,6 +16,12 @@ source:
   default_ref: develop
   stable_ref: null
   manifest: algorithm.yaml
+  derived_manifest: derived-from.yaml
+derived_from:
+  baseline:
+    repository: https://github.com/<organization>/<baseline-repository>.git
+    ref: <基线 Tag 或分支>
+    commit: <40 位基线提交 ID>
 platform:
   min_version: null
 description: <算法用途、边界、验证状态>

@@ -1,0 +1,25 @@
+schema_version: 1
+id: small-object/tdsc
+name: 小目标 TDSC 独立算法
+kind: standalone-algorithm
+direction: small-object
+status: draft
+engine:
+  id: ultralytics
+  version: unverified
+data_format: yolo
+source:
+  type: external-git
+  repository: https://github.com/gunaladarkgod/AI_TT_ALGO_SMALL_OBJECT_TDSC.git
+  default_ref: main
+  stable_ref: null
+  manifest: algorithm.yaml
+  derived_manifest: derived-from.yaml
+derived_from:
+  baseline:
+    repository: https://github.com/gunaladarkgod/AI_TT_BASELINE_SMALL_OBJECT_YOLO11.git
+    ref: main
+    commit: 8397ada1230e369dcccf4888c6f300a4826db19b
+platform:
+  min_version: null
+description: 小目标 TDSC 的独立 C 算法仓库登记。当前仅完成源码快照上传与平台登记，未声明可训练版本。

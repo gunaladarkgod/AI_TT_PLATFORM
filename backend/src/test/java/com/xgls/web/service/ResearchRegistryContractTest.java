@@ -96,11 +96,22 @@ class ResearchRegistryContractTest {
                 assertNotNull(records.get(parent), "改进包父基线未登记: " + record.get("id"));
                 assertEquals("baseline", text(records.get(parent).get("kind")), "改进包父项必须是基线: " + record.get("id"));
             }
+            if ("standalone-algorithm".equals(text(record.get("kind")))) {
+                Map<String, Object> derived = map(record.get("derived_from"));
+                Map<String, Object> baseline = map(derived.get("baseline"));
+                assertFalse(text(baseline.get("repository")).isBlank(), "独立算法缺少基线仓库: " + record.get("id"));
+                assertFalse(text(baseline.get("ref")).isBlank(), "独立算法缺少基线版本: " + record.get("id"));
+                assertFalse(text(baseline.get("commit")).isBlank(), "独立算法缺少基线提交: " + record.get("id"));
+            }
         }
 
         Set<String> legacyIds = legacyManifestIds(workspace.resolve("research"));
-        assertEquals(legacyIds, records.keySet(), "旧 research 清单必须与过渡期登记一一对应");
-        assertEquals(11, records.size(), "当前应登记 8 个基线与 3 个改进包");
+        Set<String> inTreeIds = new LinkedHashSet<>();
+        for (Map<String, Object> record : records.values()) {
+            if ("in-tree".equals(text(map(record.get("source")).get("type")))) inTreeIds.add(text(record.get("id")));
+        }
+        assertEquals(legacyIds, inTreeIds, "旧 research 清单必须与项目内来源登记一一对应");
+        assertEquals(11, inTreeIds.size(), "当前应登记 8 个基线与 3 个改进包");
     }
 
     @Test
@@ -109,7 +120,9 @@ class ResearchRegistryContractTest {
         Map<String, Object> record = readYaml(template);
         assertEquals(1, number(record.get("schema_version")));
         assertEquals("external-git", text(map(record.get("source")).get("type")));
+        assertEquals("standalone-algorithm", text(record.get("kind")));
         assertEquals("algorithm.yaml", text(map(record.get("source")).get("manifest")));
+        assertEquals("derived-from.yaml", text(map(record.get("source")).get("derived_manifest")));
         assertEquals("draft", text(record.get("status")));
     }
 
