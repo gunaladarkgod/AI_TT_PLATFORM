@@ -1,0 +1,21 @@
+# 此文件是外部 B 基线仓库的登记模板，不是已登记基线。
+# B 是可独立验证和派生的稳定起点，不是 C 的运行时依赖。
+schema_version: 1
+id: <direction-id>/<baseline-id>
+name: <基线显示名称>
+kind: baseline
+direction: <direction-id>
+status: draft
+engine:
+  id: ultralytics
+  version: <确切引擎版本>
+data_format: yolo
+source:
+  type: external-git
+  repository: https://github.com/<organization>/<baseline-repository>.git
+  default_ref: main
+  stable_ref: null
+  manifest: algorithm.yaml
+platform:
+  min_version: null
+description: <基线用途、适用范围、验证状态和已知限制>

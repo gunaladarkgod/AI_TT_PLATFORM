@@ -22,7 +22,7 @@ B：AI_TT_BASELINE_SMALL_OBJECT_YOLO11
 
 | 类型 | 当前试点仓库 | 职责 | 当前状态 |
 | --- | --- | --- | --- |
-| B 基线 | [AI_TT_BASELINE_SMALL_OBJECT_YOLO11](https://github.com/gunaladarkgod/AI_TT_BASELINE_SMALL_OBJECT_YOLO11) | 提供可追溯、可复用的 YOLO11 小目标检测代码起点。 | 已上传源码；尚未建立正式 Release Tag、算法清单和独立验证记录。 |
+| B 基线 | [AI_TT_BASELINE_SMALL_OBJECT_YOLO11](https://github.com/gunaladarkgod/AI_TT_BASELINE_SMALL_OBJECT_YOLO11) | 提供可追溯、可复用的 YOLO11 小目标检测代码起点。 | 已登记为草稿；可通过受控接口下载到本机做清单校验和基线验证，尚未建立正式 Release Tag、算法清单和独立验证记录。 |
 | C 算法 | [AI_TT_ALGO_SMALL_OBJECT_TDSC](https://github.com/gunaladarkgod/AI_TT_ALGO_SMALL_OBJECT_TDSC) | 从 B 的固定提交派生出的 TDSC 完整算法；它独立维护，不与其他 C 在运行时叠加。 | 已登记为草稿，并已提供受控下载与状态查询接口；C 仓库尚缺标准清单和 Runner 入口，未完成平台调度验证。 |
 
 上述 C 的 `main@ae35a9a41` 以 B 的 `main@8397ada12` 为祖先。后续需要在 C 中补齐 `algorithm.yaml`、`derived-from.yaml`、依赖说明、训练入口和验证记录；B/C 的权重、数据集、日志、虚拟环境及 Git 凭据均不得提交。
@@ -31,10 +31,10 @@ B：AI_TT_BASELINE_SMALL_OBJECT_YOLO11
 
 第一阶段不迁移全部算法、不删除 `engines/`，也不处理任意改进组合。只验证以下最小闭环：
 
-1. 在 `research-registry/` 登记 TDSC C 的仓库地址、提交版本、Ultralytics 引擎、YOLO 数据格式和 B 来源；
-2. 由平台管理员将已登记 C 下载到本机 `local-components/algorithms/`，并校验其清单；
-3. 模型训练页面只从“已下载且清单匹配”的 C 中选择算法；
-4. 使用现有统一 Runner 对所选 C、任务 Python 和 YOLO `data.yaml` 做预检，并完成一次训练启动、日志读取和结果定位验证。
+1. 在 `research-registry/` 分别登记 B 基线和 TDSC C 的仓库地址、版本、引擎、数据格式及 B→C 来源；
+2. 由平台管理员将 B 下载到 `local-components/baselines/` 做基线验证，将 C 下载到 `local-components/algorithms/` 并校验清单；
+3. 基线页面只用于 B 的下载、版本查看和验证；模型训练页面只从“已下载且清单匹配”的 C 中选择算法；
+4. 使用统一 Runner 分别完成 B 基线验证和所选 C 的任务 Python、YOLO `data.yaml` 预检，再完成训练启动、日志读取和结果定位验证。
 
 目前第 1 步和第 2 步的后端接口已经开始实现；尚未以真实私有仓库完成下载验证，也未接入 Runner 执行。前端必须以接口返回的 `localStatus`、`trainingReady` 与 `blockers` 为准，不能因仓库已登记就显示“可训练”。在以上四步通过前，B/C 不能称为“平台已接入”或“已验证可训练”。详细分工见 [开发者 A 任务书](docs/v1.0/多仓库改造-开发者A-平台登记与受控算法下载.md)、[开发者 B 任务书](docs/v1.0/多仓库改造-开发者B-基线派生与独立算法仓库.md) 和[独立算法组件接口约定](docs/v1.0/按需组件接口约定.md)。
 
@@ -113,7 +113,7 @@ data/          # 中间实例数据集、最终实例数据集和预处理脚本
 artifacts/     # result_metadata 保存结果索引；mmdet_runs、yolo_runs、custom 分别保存各引擎训练日志与权重，研究任务位于对应引擎目录下
 research/      # 已接入的项目内研究方向、算法基线与改进包（迁移期保留）
 research-registry/ # 平台核心的研究基线公约、算法登记协议与跨仓库索引
-local-components/ # 管理员按需下载的独立算法 C；仅本机存在、受 .gitignore 忽略，不提交到平台仓库
+local-components/ # 管理员按需下载的 B 基线与 C 算法；仅本机存在、受 .gitignore 忽略，不提交到平台仓库
 logs/          # 后端主日志与历史归档
 docs/          # 使用、技术、协作和算法集成文档
 ```

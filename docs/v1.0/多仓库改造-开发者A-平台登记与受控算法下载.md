@@ -14,7 +14,7 @@
 A：AI_TT_PLATFORM（平台核心）
    ├─ 前后端、数据集、统一 Runner、日志和结果管理
    ├─ 研究方向公约、算法登记元信息
-   └─ 本地已下载 C 算法的受控管理功能
+   └─ 本地已下载 B 基线和 C 算法的受控管理功能
 
 B：AI_TT_BASELINE_<方向>_<基线>（基线仓库）
    └─ 可独立运行的基线源码、入口、依赖和实验说明
@@ -23,13 +23,13 @@ C：AI_TT_ALGO_<方向>_<方案>（独立算法仓库）
    └─ 从一个 B 复制/派生而来，包含完整代码及本方案修改
 ```
 
-用户在平台中看到的是已登记的 C；平台管理员可选择某个 C 下载到**本机平台工作目录**。平台远程仓库只提交登记信息、接口与页面，不提交任何 B/C 源码。普通训练用户只能使用管理员已接入且预检通过的 C。
+用户在平台中看到的是已登记的 B 和 C；平台管理员可选择下载到**本机平台工作目录**。B 只用于版本查看、清单校验和后续基线验证，C 才是后续正式训练的候选。平台远程仓库只提交登记信息、接口与页面，不提交任何 B/C 源码。普通训练用户只能使用管理员已接入且预检通过的 C。
 
 本任务的目标是实现并验证 A 的“登记、展示、受控下载、状态说明”闭环；不要求迁移现有训练引擎，也不要求把全部旧算法变成 C。
 
 ## 前端开发者必须对接的接口（本次后端先行交付）
 
-开发者 A 中负责前端的人员只能调用以下 **独立 C 算法组件接口**，不能复用旧的 `/api/workspace/components` 来下载 C。旧接口是同一平台仓库的 sparse checkout，C 则是克隆到 `local-components/` 的独立 Git 仓库；两者目录、权限、状态和删除策略都不同。
+开发者 A 中负责前端的人员必须区分 **B 基线组件接口** 与 **C 独立算法组件接口**，不能复用旧的 `/api/workspace/components`。旧接口是同一平台仓库的 sparse checkout；B/C 则是克隆到 `local-components/` 的独立 Git 仓库，目录、权限、状态和删除策略都不同。
 
 所有接口的外层均为现有 `AjaxResult`：成功时 `code=0`、业务数据在 `data`；失败时读取 `message`。浏览器**不得**提交 Git URL、ref、命令、绝对路径或本机目标目录。
 
@@ -39,6 +39,9 @@ C：AI_TT_ALGO_<方向>_<方案>（独立算法仓库）
 | 读取训练选择/预检资料 | `GET /api/algorithm-components/training-profile?id=small-object/tdsc` | 所有已登录用户 | 登记 ID | 训练页选中 C 后调用。当前只显示状态和阻塞原因，不直接启动训练。 |
 | 下载已登记 C | `POST /api/algorithm-components/install` | 仅平台管理员 | `{"id":"small-object/tdsc"}` | 管理员点击下载后轮询列表中的 `data.task`；其他角色不显示或禁用此按钮。 |
 | 移除本机 C 副本 | `POST /api/algorithm-components/remove` | 仅平台管理员 | `{"id":"small-object/tdsc"}` | 必须二次确认；只删除本机副本，不删除远程 C/B 仓库。 |
+| 列出登记 B 与本机状态 | `GET /api/baseline-components?direction=small-object` | 所有已登录用户 | `direction` 可选 | 基线管理页首屏加载；任务运行时每 2 秒轮询。 |
+| 读取 B 验证资料 | `GET /api/baseline-components/validation-profile?id=small-object/yolo11-baseline` | 所有已登录用户 | 登记 ID | 基线页选中 B 后调用；只展示验证前提，不直接启动训练。 |
+| 下载/移除 B | `POST /api/baseline-components/install` / `remove` | 仅平台管理员 | `{"id":"small-object/yolo11-baseline"}` | 下载位置固定为 `local-components/baselines/`；不影响任何 C。 |
 
 `GET` 返回的 `data.components` 每项至少包含：
 
@@ -69,6 +72,8 @@ C：AI_TT_ALGO_<方向>_<方案>（独立算法仓库）
 5. `data.task.status` 为 `running|succeeded|failed`；展示 `message` 和 `logs`，不得自己推测 Git 失败原因。页面卸载不取消后台下载，重新进入页面可从 GET 的 `task` 恢复状态。
 
 前端 API 封装应集中写在 `fronternd/src/api/api.js`，建议函数命名为 `fetchAlgorithmComponents`、`fetchAlgorithmTrainingProfile`、`installAlgorithmComponent`、`removeAlgorithmComponent`。训练表单不得直接拼 Runner 命令：本阶段 Runner 尚未执行 C，后续由后端在清单验证完成后受控接入。
+
+基线页面增加 `fetchBaselineComponents`、`fetchBaselineValidationProfile`、`installBaselineComponent`、`removeBaselineComponent`。B 的 `baselineValidationReady=true` 仅允许进入后续“基线验证”流程，不能加入 C 的“正式算法训练”下拉框；B 的下载、更新或移除也不得影响任何已下载 C。
 
 **阶段边界：** 当前试点 C `small-object/tdsc` 已登记为 `draft`，而 C 仓库尚未提供 `algorithm.yaml`、`derived-from.yaml` 和经过验证的 Runner 入口。因此前端应如实呈现“未验证/不可训练”，不能将“已登记”翻译成“可训练”。
 

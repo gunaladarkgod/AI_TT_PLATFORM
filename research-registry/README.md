@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-本目录当前完成“登记协议冻结”阶段：字段、样例和迁移状态已经确定，但平台后端和前端尚未读取本目录作为运行来源。现有 `research/` 仍是已接入本地研究基线/改进包的运行来源，不能因本目录出现而删除或移动。
+本目录已开始被后端的受控组件服务读取，用于登记、下载和校验外部 B/C；前端页面和统一 Runner 尚未完成 B/C 的真实训练接入。现有 `research/` 仍是已接入本地研究基线/改进包的运行来源，不能因本目录出现而删除或移动。
 
 登记为 `draft` 仅表示方案信息已记录；不表示算法源码已经迁移、训练环境可用或可以启动训练。
 
@@ -22,7 +22,7 @@ research-registry/
 
 ## 目标目录与内容边界
 
-完成迁移后，本目录将只保存 A 平台的公约和 C 的索引，建议扩展为：
+完成迁移后，本目录将保存 A 平台的公约、B 基线和 C 算法的索引，建议扩展为：
 
 ```text
 research-registry/
@@ -30,14 +30,14 @@ research-registry/
 ├─ directions/                           # 方向级公共定义
 │  └─ <direction-id>.yaml                # 格式、指标、状态、适用公约
 ├─ conventions/                          # 数据、评测、Runner、权限、仓库生命周期规则
-├─ algorithms/                           # 每份文件代表一个独立完整的 C
-│  └─ <direction>--<algorithm>.yaml      # 仓库、Tag/提交、引擎、格式、B 来源
-└─ templates/                            # 注册 C、algorithm.yaml、derived-from.yaml 模板
+├─ algorithms/                           # B 基线或独立完整 C 的登记
+│  └─ <direction>--<component>.yaml      # 仓库、Tag/提交、引擎、格式、B→C 来源
+└─ templates/                            # 注册 B/C、algorithm.yaml、derived-from.yaml 模板
 ```
 
-它不保存 B/C 的源码、数据集、权重、训练日志、虚拟环境或任何 Git 凭据。实际 C 代码位于其独立私有仓库；被平台管理员下载后，位于本机 `local-components/algorithms/`，该路径受 `.gitignore` 忽略。
+它不保存 B/C 的源码、数据集、权重、训练日志、虚拟环境或任何 Git 凭据。实际 B/C 代码位于各自的独立私有仓库；被平台管理员下载后，分别位于本机 `local-components/baselines/` 与 `local-components/algorithms/`，两者均受 `.gitignore` 忽略。
 
-未来的新 C 登记会使用 `kind: standalone-algorithm`，并增加 `derived_from`（B 的仓库、Tag 与提交）。旧字段和记录在兼容期继续可读，具体迁移步骤见 [开发者 A 任务书](../docs/v1.0/多仓库改造-开发者A-平台登记与受控算法下载.md)。
+外部 B 使用 `kind: baseline`；外部 C 使用 `kind: standalone-algorithm`，并增加 `derived_from`（B 的仓库、Tag 与提交）。旧字段和记录在兼容期继续可读，具体迁移步骤见 [开发者 A 任务书](../docs/v1.0/多仓库改造-开发者A-平台登记与受控算法下载.md)。
 
 ## 算法登记协议 v1
 

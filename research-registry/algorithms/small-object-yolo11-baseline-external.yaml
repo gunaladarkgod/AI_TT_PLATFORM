@@ -1,0 +1,19 @@
+schema_version: 1
+id: small-object/yolo11-baseline
+name: 官方 YOLO11 小目标检测基线
+kind: baseline
+direction: small-object
+status: draft
+engine:
+  id: ultralytics
+  version: unverified
+data_format: yolo
+source:
+  type: external-git
+  repository: https://github.com/gunaladarkgod/AI_TT_BASELINE_SMALL_OBJECT_YOLO11.git
+  default_ref: main
+  stable_ref: null
+  manifest: algorithm.yaml
+platform:
+  min_version: null
+description: 小目标检测 B 基线仓库登记。可下载到本机进行清单校验和基线验证；当前尚未提供标准清单、正式版本和真实训练验证记录。

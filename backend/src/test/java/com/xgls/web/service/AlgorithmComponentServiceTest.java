@@ -71,6 +71,20 @@ class AlgorithmComponentServiceTest {
         }
     }
 
+    @Test
+    void keepsBaselineDownloadsAndValidationSeparateFromCAlgorithms() throws Exception {
+        baselineRegistry("small-object/yolo11-baseline", "draft");
+        try (var service = new CloseableService(root)) {
+            Map<String, Object> item = only(service.service.listBaselines("small-object"));
+            assertEquals("baseline", item.get("kind"));
+            assertEquals("not-downloaded", item.get("localStatus"));
+            assertFalse((Boolean) item.get("baselineValidationReady"));
+            assertTrue(((List<?>) item.get("blockers")).toString().contains("基线 B"));
+            assertEquals("not-connected", service.service.baselineValidationProfile("small-object/yolo11-baseline").get("runnerIntegration"));
+            assertThrows(IllegalArgumentException.class, () -> service.service.startInstall("small-object/yolo11-baseline"));
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> only(Map<String, Object> response) {
         return (Map<String, Object>) ((List<?>) response.get("components")).get(0);
@@ -105,6 +119,33 @@ class AlgorithmComponentServiceTest {
                     repository: https://example.invalid/baseline.git
                     ref: main
                     commit: abcdef1
+                description: test
+                """.formatted(id, status));
+    }
+
+    private void baselineRegistry(String id, String status) throws Exception {
+        Path dir = root.resolve("research-registry/algorithms");
+        Files.createDirectories(dir);
+        Path directions = root.resolve("research-registry/directions");
+        Files.createDirectories(directions);
+        Files.writeString(directions.resolve("small-object.yaml"), "schema_version: 1\nid: small-object\nname: test\n");
+        Files.writeString(dir.resolve("baseline.yaml"), """
+                schema_version: 1
+                id: %s
+                name: YOLO11 baseline
+                kind: baseline
+                direction: small-object
+                status: %s
+                engine:
+                  id: ultralytics
+                  version: test
+                data_format: yolo
+                source:
+                  type: external-git
+                  repository: https://example.invalid/baseline.git
+                  default_ref: main
+                  stable_ref: null
+                  manifest: algorithm.yaml
                 description: test
                 """.formatted(id, status));
     }
