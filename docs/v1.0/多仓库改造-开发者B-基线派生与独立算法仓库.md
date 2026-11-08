@@ -35,6 +35,51 @@ C 是一个完整算法实现，不是补丁、插件或与 B 动态拼接的目
 
 ## 2. 概念与目录边界
 
+### 2.0 A 平台与本机组件目录：B 必须遵守的路径契约
+
+B 负责 B/C 独立仓库的代码和清单，但必须理解 A 平台的本机目录边界，避免写出依赖平台私有路径的训练代码。A 的目标结构如下：
+
+```text
+AI_TT_PLATFORM/
+├─ backend/                    # 平台后端、认证、登记、受控下载和任务接口
+├─ fronternd/                  # 平台前端；不复制 B/C 的训练源码
+├─ runner/                     # 统一 Runner；未来按清单受控调度，不是 B/C 代码目录
+├─ engines/                    # 仍在使用的旧训练兼容链路；本任务禁止删除或依赖其私有路径
+├─ mmdet_run/                  # 历史 MMDet 兼容目录；B/C 不得新增对它的路径依赖
+├─ data/                       # 平台管理的数据集及预处理产物
+├─ artifacts/                  # 平台任务的日志、配置和结果产物
+├─ research/                   # 旧研究内容/兼容目录，不是新 B/C 的来源目录
+├─ research-registry/          # 已提交的研究方向公约、B/C 登记和模板，不保存 B/C 源码
+├─ local-components/           # 被 .gitignore 忽略的本机 B/C 下载缓存
+│  ├─ baselines/               # B 的本机工作区
+│  └─ algorithms/              # C 的本机工作区
+├─ docs/                       # 使用、维护、协作文档
+└─ logs/                       # 平台自身日志
+```
+
+本任务相关的本机目录约定为：
+
+```text
+local-components/
+├─ baselines/
+│  └─ small-object/
+│     └─ yolo11/                # 下载的 B，仅用于验证、查看和派生
+└─ algorithms/
+   └─ small-object/
+      └─ tdsc/                  # 下载的 C，可作为平台训练候选
+```
+
+服务端实际按登记 ID 推导目录，当前试点的真实映射如下：
+
+| 类型 | 当前登记 ID | 当前实际目录 | 是否可成为平台训练候选 |
+| --- | --- | --- | --- |
+| B：YOLO11 基线 | `small-object/yolo11-baseline` | `local-components/baselines/small-object/yolo11-baseline/` | 否；仅验证、查看和派生 |
+| C：TDSC | `small-object/tdsc` | `local-components/algorithms/small-object/tdsc/` | 只有清单、环境和 Runner 预检均通过后才可以 |
+
+`yolo11/` 是后续建议的规范化目录名称；现有试点仍使用 `yolo11-baseline/`，不能手工改名。要统一名称时，必须由 A 同时迁移登记 ID、接口、测试和已有本机目录。B/C 的训练入口必须只接收调用方明确提供的数据集、输出目录和参数；不得假设自己位于某个绝对路径，也不得访问相邻的 B 或 C 目录。
+
+`local-components/` 的每个目录保留它自身的 `.git/`，但这些工作区永远不提交回 A。A 下载 B/C 时会使用临时 `.staging/` 目录；B 无需也不得依赖该临时目录。B 与 C 不建立 Git 子模块关系，C 不通过软链接、相对导入或共享工作目录使用 B。
+
 ### 2.1 B 基线仓库应包含什么
 
 ```text
@@ -56,6 +101,8 @@ AI_TT_BASELINE_SMALL_OBJECT_YOLO11/
 
 B 必须能脱离 A 平台运行：给定符合要求的 Python 环境、YOLO `data.yaml` 和输出目录，能执行训练入口。B 不包含 A 的前后端、数据库、Runner，也不把 A 作为子模块。
 
+B 在 A 中被下载后，主要用于三类受控动作：查看版本与文档、运行独立基线验证、从固定提交派生一个新的 C。B 不是 C 训练时的依赖；因此 B 被删除、升级或存在本地修改时，均不得改变任何已派生 C 的运行结果。
+
 “使用官方 Ultralytics”通常意味着在 `requirements.txt` 固定版本（例如 `ultralytics==8.4.115`），而不是把整个第三方 Ultralytics 源码复制进仓库。只有确实修改了引擎源码，才需要将修改后的引擎 Fork/源码纳入 B，并在 README 中写明来源和差异。
 
 ### 2.2 C 算法仓库应包含什么
@@ -74,6 +121,8 @@ AI_TT_ALGO_SMALL_OBJECT_YOLO11_AUGMENTATION/
 ```
 
 C 的远程仓库会保存一份完整的派生代码，因此确实会增加远程仓库总体体积；但 A 的远程仓库不会增加这些源码。开发人员本机也只需克隆正在开发或运行的 C，不需要把所有 C 下载到 A。
+
+在 A 的 `local-components/algorithms/<direction>/<algorithm-id>/` 中，C 必须保持上述完整结构，且 `algorithm.yaml` 与 `derived-from.yaml` 位于仓库根目录。未提供这两个清单的 C 可以作为个人开发仓库存在，但不能登记为“可供平台下载和训练”的 C。
 
 ### 2.3 禁止的做法
 
