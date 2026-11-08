@@ -8,7 +8,7 @@
 
 登记为 `draft` 仅表示方案信息已记录；不表示算法源码已经迁移、训练环境可用或可以启动训练。
 
-## 目录
+## 当前目录
 
 ```text
 research-registry/
@@ -17,6 +17,27 @@ research-registry/
 ├─ algorithms/<algorithm-id>.yaml    # 一个基线或改进方案的登记
 └─ templates/external-algorithm.yaml # 独立算法仓库登记模板
 ```
+
+当前目录服务于旧 `research/` 向多仓库架构过渡，因此已有记录仍可能使用 `baseline` 或 `improvement`。它们描述的是现有项目内实现，不应被误认为已经完成外部 B/C 仓库迁移。
+
+## 目标目录与内容边界
+
+完成迁移后，本目录将只保存 A 平台的公约和 C 的索引，建议扩展为：
+
+```text
+research-registry/
+├─ registry.yaml                         # Schema、允许枚举、兼容性与目录入口
+├─ directions/                           # 方向级公共定义
+│  └─ <direction-id>.yaml                # 格式、指标、状态、适用公约
+├─ conventions/                          # 数据、评测、Runner、权限、仓库生命周期规则
+├─ algorithms/                           # 每份文件代表一个独立完整的 C
+│  └─ <direction>--<algorithm>.yaml      # 仓库、Tag/提交、引擎、格式、B 来源
+└─ templates/                            # 注册 C、algorithm.yaml、derived-from.yaml 模板
+```
+
+它不保存 B/C 的源码、数据集、权重、训练日志、虚拟环境或任何 Git 凭据。实际 C 代码位于其独立私有仓库；被平台管理员下载后，位于本机 `local-components/algorithms/`，该路径受 `.gitignore` 忽略。
+
+未来的新 C 登记会使用 `kind: standalone-algorithm`，并增加 `derived_from`（B 的仓库、Tag 与提交）。旧字段和记录在兼容期继续可读，具体迁移步骤见 [开发者 A 任务书](../docs/v1.0/多仓库改造-开发者A-平台登记与受控算法下载.md)。
 
 ## 算法登记协议 v1
 

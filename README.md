@@ -6,6 +6,38 @@ Linux 桌面环境可使用 [图形启动器](launcher/linux/README.md) 从应�
 
 平台核心提供前后端、统一 Runner、任务队列和数据集处理；`research/` 保存研究方向、可复现基线和可叠加改进包。引擎属于平台核心，基线引用引擎，改进包只能叠加到指定基线。
 
+## 多仓库试点：B 基线到 C 独立算法
+
+平台正在从“项目内基线与改进包”过渡到“平台 A + 基线 B + 独立算法 C”的方式。平台远程仓库只保存核心代码和算法登记信息；B、C 均是独立私有仓库，算法源码不会被提交回本仓库。
+
+```text
+B：AI_TT_BASELINE_SMALL_OBJECT_YOLO11
+   固定的小目标 YOLO11/Ultralytics 基线起点
+   main@8397ada12
+        │
+        └──派生──> C：AI_TT_ALGO_SMALL_OBJECT_TDSC
+                         TDSC 完整算法实现
+                         main@ae35a9a41
+```
+
+| 类型 | 当前试点仓库 | 职责 | 当前状态 |
+| --- | --- | --- | --- |
+| B 基线 | [AI_TT_BASELINE_SMALL_OBJECT_YOLO11](https://github.com/gunaladarkgod/AI_TT_BASELINE_SMALL_OBJECT_YOLO11) | 提供可追溯、可复用的 YOLO11 小目标检测代码起点。 | 已上传源码；尚未建立正式 Release Tag、算法清单和独立验证记录。 |
+| C 算法 | [AI_TT_ALGO_SMALL_OBJECT_TDSC](https://github.com/gunaladarkgod/AI_TT_ALGO_SMALL_OBJECT_TDSC) | 从 B 的固定提交派生出的 TDSC 完整算法；它独立维护，不与其他 C 在运行时叠加。 | 已上传已提交源码；尚未登记到平台，也尚未完成平台调度验证。 |
+
+上述 C 的 `main@ae35a9a41` 以 B 的 `main@8397ada12` 为祖先。后续需要在 C 中补齐 `algorithm.yaml`、`derived-from.yaml`、依赖说明、训练入口和验证记录；B/C 的权重、数据集、日志、虚拟环境及 Git 凭据均不得提交。
+
+### 第一目标：先完成 B/C 与平台 A 的最小连接
+
+第一阶段不迁移全部算法、不删除 `engines/`，也不处理任意改进组合。只验证以下最小闭环：
+
+1. 在 `research-registry/` 登记 TDSC C 的仓库地址、提交版本、Ultralytics 引擎、YOLO 数据格式和 B 来源；
+2. 由平台管理员将已登记 C 下载到本机 `local-components/algorithms/`，并校验其清单；
+3. 模型训练页面只从“已下载且清单匹配”的 C 中选择算法；
+4. 使用现有统一 Runner 对所选 C、任务 Python 和 YOLO `data.yaml` 做预检，并完成一次训练启动、日志读取和结果定位验证。
+
+在以上四步通过前，B/C 只能称为“已上传源码”，不能称为“平台已接入”或“已验证可训练”。详细分工见 [开发者 A 任务书](docs/v1.0/多仓库改造-开发者A-平台登记与受控算法下载.md) 和 [开发者 B 任务书](docs/v1.0/多仓库改造-开发者B-基线派生与独立算法仓库.md)。
+
 ## 快速启动（跨平台图形启动器）
 
 项目根目录提供图形启动器。macOS 使用原生 `启动AI训练平台.app`，Windows 使用 `启动AI训练平台.bat`，Linux 使用 `启动AI训练平台.sh`，直接双击对应入口即可，不需要手动输入启动命令。
@@ -81,6 +113,7 @@ data/          # 中间实例数据集、最终实例数据集和预处理脚本
 artifacts/     # result_metadata 保存结果索引；mmdet_runs、yolo_runs、custom 分别保存各引擎训练日志与权重，研究任务位于对应引擎目录下
 research/      # 已接入的项目内研究方向、算法基线与改进包（迁移期保留）
 research-registry/ # 平台核心的研究基线公约、算法登记协议与跨仓库索引
+local-components/ # 管理员按需下载的独立算法 C；仅本机存在、受 .gitignore 忽略，不提交到平台仓库
 logs/          # 后端主日志与历史归档
 docs/          # 使用、技术、协作和算法集成文档
 ```
@@ -98,5 +131,5 @@ docs/          # 使用、技术、协作和算法集成文档
 - [平台内组件下载与接口](docs/v1.0/按需组件接口约定.md)：在模型训练页检测、下载所需引擎和研究方向。
 - [研究算法与改进包开发规范](docs/v1.0/算法集成规范.md)
 - [研究基线公约与算法登记协议](research-registry/README.md)
-- [多仓库改造任务书 A：平台登记与研究基线公约](docs/v1.0/多仓库改造-开发者A-平台登记与公约.md)
-- [多仓库改造任务书 B：算法试点、运行接入与可复现工作区](docs/v1.0/多仓库改造-开发者B-算法试点与运行接入.md)
+- [多仓库改造任务书 A：平台登记与受控算法下载](docs/v1.0/多仓库改造-开发者A-平台登记与受控算法下载.md)
+- [多仓库改造任务书 B：基线派生与独立算法仓库试点](docs/v1.0/多仓库改造-开发者B-基线派生与独立算法仓库.md)

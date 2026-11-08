@@ -47,6 +47,7 @@ runner/.conda_runner/
 # 本机生成的数据、训练产物与任务配置
 /data/
 /artifacts/
+/local-components/
 research/.runtime_cache/
 engines/mmdet_run/myfiles/modelcfg/
 runs/
