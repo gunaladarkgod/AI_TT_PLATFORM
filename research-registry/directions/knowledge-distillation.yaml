@@ -1,5 +1,6 @@
 schema_version: 1
 id: knowledge-distillation
+code: B2
 name: 知识蒸馏
 status: active
 description: 面向知识蒸馏研究的公共对照方向；现有登记的检测基线暂不执行教师—学生蒸馏。

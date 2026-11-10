@@ -1,5 +1,6 @@
 schema_version: 1
 id: small-object
+code: B1
 name: 小目标检测
 status: active
 description: 面向小尺度目标检测的公共实验方向；登记内容描述研究起点，不代表源码已经迁移。

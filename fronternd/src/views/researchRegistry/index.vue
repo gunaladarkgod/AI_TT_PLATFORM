@@ -25,6 +25,18 @@
 
       <el-empty v-if="!registry.directions?.length && !registry.algorithms?.length" description="当前没有可展示的登记内容" />
 
+      <section v-if="registry.registry?.platform_engines?.supported?.length" class="registry-section">
+        <div class="section-heading">
+          <h3>A 层公共引擎</h3>
+          <span>{{ registry.registry.platform_engines.description }}</span>
+        </div>
+        <div class="engine-list">
+          <el-tag v-for="engine in registry.registry.platform_engines.supported" :key="engine.id" effect="plain">
+            {{ engine.name }} · {{ engine.versions.join(' / ') }}
+          </el-tag>
+        </div>
+      </section>
+
       <section v-if="registry.directions?.length" class="registry-section">
         <div class="section-heading">
           <h3>研究方向</h3>
@@ -34,7 +46,7 @@
           <el-card v-for="direction in registry.directions" :key="direction.id" shadow="never" class="direction-card">
             <template #header>
               <div class="card-heading">
-                <strong>{{ direction.name }}</strong>
+                <strong>{{ direction.code }} · {{ direction.name }}</strong>
                 <el-tag size="small" :type="direction.status === 'active' ? 'success' : 'info'">{{ direction.status }}</el-tag>
               </div>
             </template>
@@ -121,6 +133,7 @@ onMounted(async () => {
 .registry-intro p { margin: 8px 0 0; }
 .registry-section { margin-top: 24px; }
 .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.engine-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .direction-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
 .direction-card { border-radius: 6px; }
 .card-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

@@ -1,0 +1,11 @@
+schema_version: 1
+id: spatiotemporal
+code: B3
+name: 时空
+status: active
+description: 面向视频、序列或时空关联建模的研究方向；登记具体可运行基线后，用户可从固定基线派生独立算法 C。
+data_formats: [coco, custom]
+metrics: [mAP, AP50, temporal_consistency]
+engine_compatibility:
+  - { engine: mmdet, versions: ['3.0.0'], data_formats: [coco] }
+  - { engine: custom, versions: ['*'], data_formats: [custom] }

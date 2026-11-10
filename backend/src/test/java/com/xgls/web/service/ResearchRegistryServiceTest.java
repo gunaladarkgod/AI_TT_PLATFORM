@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -62,7 +63,13 @@ class ResearchRegistryServiceTest {
     void validatesProjectRegistry() {
         Map<String, Object> result = new ResearchRegistryService().load();
         assertEquals(Boolean.TRUE, result.get("valid"), String.valueOf(result.get("errors")));
-        assertEquals(2, ((List<?>) result.get("directions")).size());
+        List<?> directions = (List<?>) result.get("directions");
+        assertEquals(3, directions.size());
+        assertEquals(Set.of("B1:small-object", "B2:knowledge-distillation", "B3:spatiotemporal"),
+                directions.stream().map(value -> {
+                    Map<?, ?> direction = (Map<?, ?>) value;
+                    return direction.get("code") + ":" + direction.get("id");
+                }).collect(java.util.stream.Collectors.toSet()));
         assertEquals(11, ((List<?>) result.get("algorithms")).size());
     }
 }

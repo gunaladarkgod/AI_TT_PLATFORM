@@ -1,6 +1,11 @@
 schema_version: 1
-name: AI_TT_PLATFORM 研究基线登记中心
-description: 项目内研究方向、算法基线和兼容公约的只读登记入口。
+name: AI_TT_PLATFORM 研究方向与算法登记中心
+description: A 层管理公共平台能力与引擎接入；B1/B2/B3 登记研究方向和可运行基线；C 登记基于所选基线独立派生的算法。
+platform_engines:
+  description: A 层提供公共引擎接入、版本约束、环境检查和统一 Runner 调度；不要求将第三方框架源码复制进平台仓库。
+  supported:
+    - { id: ultralytics, name: Ultralytics YOLO, versions: ['8.4.115'] }
+    - { id: mmdet, name: MMDetection, versions: ['3.0.0'] }
 conventions:
   - { id: dataset-format, title: 数据格式公约, path: conventions/dataset-format.md }
   - { id: evaluation-metrics, title: 评测指标公约, path: conventions/evaluation-metrics.md }
