@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI 训练平台 · 快速开始</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #202a34;
+      background: #f3f6f7;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; }
+    button, input, select { font: inherit; }
+    .topbar { height: 58px; background: #fff; border-bottom: 1px solid #dfe6e8; display: flex; align-items: center; }
+    .topbar-inner, main { width: min(1040px, calc(100% - 40px)); margin: 0 auto; }
+    .topbar-inner { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 650; }
+    .brand-mark { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; color: #fff; background: #167d78; font-size: 13px; }
+    .demo-tag { border: 1px solid #e5bd71; border-radius: 4px; padding: 4px 8px; color: #80530b; background: #fff8e8; font-size: 12px; }
+    main { padding: 36px 0 56px; }
+    .intro { margin-bottom: 26px; }
+    h1 { margin: 0 0 8px; font-size: 25px; line-height: 1.25; }
+    .intro p { max-width: 660px; margin: 0; color: #63717b; line-height: 1.65; font-size: 14px; }
+    .steps { display: flex; gap: 0; margin: 24px 0 28px; border-bottom: 1px solid #dce4e6; }
+    .step { position: relative; padding: 0 22px 12px 0; margin-right: 22px; color: #87939a; font-size: 13px; }
+    .step.active { color: #126e69; font-weight: 650; }
+    .step.done { color: #3c766b; }
+    .step.active::after { position: absolute; right: 22px; bottom: -1px; left: 0; height: 2px; background: #167d78; content: ""; }
+    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin: 0 0 12px; }
+    h2 { margin: 0; font-size: 16px; }
+    .section-note { color: #75828a; font-size: 12px; }
+    .baseline-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .baseline { min-height: 134px; text-align: left; padding: 16px; border: 1px solid #d7e0e2; border-radius: 6px; background: #fff; color: inherit; cursor: pointer; transition: border-color .15s, background .15s; }
+    .baseline:hover { border-color: #58a19c; }
+    .baseline[aria-pressed="true"] { border: 2px solid #167d78; padding: 15px; background: #f1faf8; }
+    .baseline-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+    .code { color: #167d78; font-size: 12px; font-weight: 700; }
+    .direction { font-size: 16px; font-weight: 650; }
+    .baseline p { margin: 0; color: #687781; font-size: 13px; line-height: 1.55; }
+    .panel { margin-top: 22px; padding: 18px 0; border-top: 1px solid #dce4e6; border-bottom: 1px solid #dce4e6; }
+    .selection-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .selection-title { font-size: 14px; font-weight: 600; }
+    .selection-detail { margin-top: 4px; color: #718089; font-size: 12px; }
+    .primary, .secondary { min-height: 38px; padding: 0 14px; border-radius: 5px; cursor: pointer; font-weight: 600; }
+    .primary { border: 1px solid #126f69; background: #167d78; color: white; }
+    .primary:hover:not(:disabled) { background: #106d68; }
+    .primary:disabled { border-color: #aab7b9; background: #aab7b9; cursor: not-allowed; }
+    .secondary { border: 1px solid #cbd6d8; background: #fff; color: #43525c; }
+    .status { display: none; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 12px; border: 1px solid #e6d4a8; border-radius: 5px; background: #fffaf0; color: #715311; font-size: 13px; line-height: 1.5; }
+    .status.visible { display: flex; }
+    .status-mark { flex: none; width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #bf8617; font-size: 11px; }
+    .next-panel { display: none; padding-top: 24px; }
+    .next-panel.visible { display: block; }
+    .form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 14px; }
+    label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
+    input, select { width: 100%; height: 40px; padding: 0 10px; border: 1px solid #cad5d7; border-radius: 5px; background: white; color: #24313a; }
+    input:focus, select:focus, button:focus-visible { outline: 3px solid #b6dfda; outline-offset: 2px; }
+    .training-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 20px; padding-top: 18px; border-top: 1px solid #e1e7e8; }
+    .training-status { min-height: 20px; margin-top: 12px; color: #476a66; font-size: 13px; }
+    .footnote { margin-top: 24px; color: #7a878e; font-size: 12px; line-height: 1.6; }
+    @media (max-width: 680px) {
+      main { padding-top: 25px; }
+      .topbar-inner, main { width: min(100% - 28px, 1040px); }
+      .baseline-grid, .form-grid { grid-template-columns: 1fr; }
+      .baseline { min-height: auto; }
+      .selection-row, .training-row { align-items: stretch; flex-direction: column; }
+      .section-head { display: block; }
+      .section-note { display: block; margin-top: 5px; }
+      .step { margin-right: 12px; padding-right: 12px; font-size: 12px; }
+      .step.active::after { right: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">AI</span><span>AI 训练平台</span></div>
+      <span class="demo-tag">本地演示</span>
+    </div>
+  </header>
+  <main>
+    <section class="intro">
+      <h1>开始一次研究实验</h1>
+      <p>选择一个研究方向和基线，准备自己的算法，再关联数据集。此页面展示目标操作流程，当前不会访问 GitHub 或启动训练。</p>
+    </section>
+
+    <nav class="steps" aria-label="实验步骤">
+      <span class="step active" id="step1">1 选择基线</span>
+      <span class="step" id="step2">2 准备算法 C</span>
+      <span class="step" id="step3">3 选择数据并训练</span>
+    </nav>
+
+    <section aria-labelledby="baselineHeading">
+      <div class="section-head">
+        <h2 id="baselineHeading">选择研究方向</h2>
+        <span class="section-note">每次只准备所选的一条基线</span>
+      </div>
+      <div class="baseline-grid" role="group" aria-label="研究方向">
+        <button class="baseline" type="button" data-id="B1" data-name="小目标检测" aria-pressed="false">
+          <div class="baseline-top"><span class="code">B1</span><span class="direction">小目标检测</span></div>
+          <p>选择该方向下的一条基线，开展小尺度目标检测实验。</p>
+        </button>
+        <button class="baseline" type="button" data-id="B2" data-name="知识蒸馏" aria-pressed="false">
+          <div class="baseline-top"><span class="code">B2</span><span class="direction">知识蒸馏</span></div>
+          <p>选择教师—学生或其他已定义基线，开展蒸馏研究。</p>
+        </button>
+        <button class="baseline" type="button" data-id="B3" data-name="时空" aria-pressed="false">
+          <div class="baseline-top"><span class="code">B3</span><span class="direction">时空</span></div>
+          <p>选择适用于视频、序列或时空关联任务的基线。</p>
+        </button>
+      </div>
+
+      <div class="panel">
+        <div class="selection-row">
+          <div>
+            <div class="selection-title" id="selectionTitle">尚未选择基线</div>
+            <div class="selection-detail" id="selectionDetail">选择方向后继续</div>
+          </div>
+          <button class="primary" id="prepareButton" type="button" disabled>准备所选基线</button>
+        </div>
+        <div class="status" id="downloadStatus" role="status" aria-live="polite">
+          <span class="status-mark" aria-hidden="true">i</span>
+          <span><strong>演示状态：</strong>基线仓库尚未配置，未执行克隆。真实使用时，本地服务会将所选 B 下载到本机工作区。</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="next-panel" id="algorithmPanel" aria-labelledby="algorithmHeading">
+      <div class="section-head">
+        <h2 id="algorithmHeading">准备自己的算法 C</h2>
+        <span class="section-note" id="chosenBaseline"></span>
+      </div>
+      <div class="form-grid">
+        <div>
+          <label for="algorithmName">算法名称</label>
+          <input id="algorithmName" maxlength="60" placeholder="例如：多尺度特征增强">
+        </div>
+        <div>
+          <label for="datasetSelect">训练数据集</label>
+          <select id="datasetSelect">
+            <option value="">选择演示数据集</option>
+            <option value="demo-small">演示小目标数据集 · YOLO</option>
+            <option value="demo-coco">演示 COCO 数据集</option>
+            <option value="demo-video">演示时空序列数据集</option>
+          </select>
+        </div>
+      </div>
+      <div class="training-row">
+        <div>
+          <div class="selection-title">算法 C 在自己的工作区中修改和维护</div>
+          <div class="selection-detail">模拟流程不会创建 Git 仓库、复制源码或产生训练结果。</div>
+        </div>
+        <button class="primary" id="trainButton" type="button">模拟创建训练任务</button>
+      </div>
+      <div class="training-status" id="trainingStatus" role="status" aria-live="polite"></div>
+    </section>
+    <p class="footnote">本演示使用固定选项，不连接远程仓库、平台后端或真实数据。正式接入时，基线列表将来自登记信息，克隆和训练由本地服务执行。</p>
+  </main>
+  <script>
+    const buttons = [...document.querySelectorAll('.baseline')];
+    const selectionTitle = document.querySelector('#selectionTitle');
+    const selectionDetail = document.querySelector('#selectionDetail');
+    const prepareButton = document.querySelector('#prepareButton');
+    const status = document.querySelector('#downloadStatus');
+    const algorithmPanel = document.querySelector('#algorithmPanel');
+    const chosenBaseline = document.querySelector('#chosenBaseline');
+    const trainButton = document.querySelector('#trainButton');
+    const trainingStatus = document.querySelector('#trainingStatus');
+    let selected = null;
+
+    buttons.forEach(button => button.addEventListener('click', () => {
+      selected = { id: button.dataset.id, name: button.dataset.name };
+      buttons.forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+      selectionTitle.textContent = `${selected.id} · ${selected.name}`;
+      selectionDetail.textContent = '将只准备所选方向的基线';
+      prepareButton.disabled = false;
+      status.classList.remove('visible');
+      algorithmPanel.classList.remove('visible');
+      trainingStatus.textContent = '';
+      setStep(1);
+    }));
+
+    prepareButton.addEventListener('click', () => {
+      if (!selected) return;
+      status.classList.add('visible');
+      algorithmPanel.classList.add('visible');
+      chosenBaseline.textContent = `当前选择：${selected.id} · ${selected.name}`;
+      setStep(2);
+      algorithmPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    trainButton.addEventListener('click', () => {
+      const name = document.querySelector('#algorithmName').value.trim();
+      const dataset = document.querySelector('#datasetSelect').value;
+      if (!name || !dataset) {
+        trainingStatus.textContent = '请填写算法名称并选择一个演示数据集。';
+        return;
+      }
+      trainingStatus.textContent = `演示完成：已模拟选择 ${selected.id} 基线、算法“${name}”和数据集。未创建真实任务。`;
+      setStep(3);
+    });
+
+    function setStep(active) {
+      [1, 2, 3].forEach(number => {
+        const item = document.querySelector(`#step${number}`);
+        item.classList.toggle('active', number === active);
+        item.classList.toggle('done', number < active);
+      });
+    }
+  </script>
+</body>
+</html>
