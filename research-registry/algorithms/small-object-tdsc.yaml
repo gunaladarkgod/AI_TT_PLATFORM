@@ -1,0 +1,22 @@
+schema_version: 1
+id: small-object/tdsc
+kind: standalone-algorithm
+name: YOLO11 TDSC 小目标算法
+direction: small-object
+status: draft
+repository:
+  url: https://github.com/gunaladarkgod/AI_TT_ALGO_SMALL_OBJECT_TDSC.git
+  default_ref: main
+  stable_ref: null
+derived_from:
+  baseline:
+    id: small-object/yolo11
+    repository: https://github.com/gunaladarkgod/AI_TT_BASELINE_SMALL_OBJECT_YOLO11.git
+    ref: main
+    commit: null
+platform: { min_version: null }
+engine: { id: ultralytics, version: 8.4.165 }
+data_format: yolo
+algorithm_manifest: algorithm.yaml
+derived_manifest: derived-from.yaml
+description: C 仓库已包含 TDSC 模块、模型配置和训练脚本；平台清单与精确派生提交尚待补齐，当前不可作为可训练算法。

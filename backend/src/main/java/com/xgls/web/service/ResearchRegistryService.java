@@ -155,7 +155,7 @@ public class ResearchRegistryService {
         String direction = string(algorithm.get("direction"));
         if (!directions.contains(direction)) errors.add("算法引用了未登记方向：" + direction + "（" + id + "）");
         if (number(algorithm.get("schema_version")) != 1) errors.add("算法 schema_version 必须为 1：" + id);
-        if (!Set.of("baseline", "improvement").contains(string(algorithm.get("kind")))) errors.add("算法 kind 必须为 baseline 或 improvement：" + id);
+        if (!Set.of("baseline", "improvement", "standalone-algorithm").contains(string(algorithm.get("kind")))) errors.add("算法 kind 必须为 baseline、improvement 或 standalone-algorithm：" + id);
         for (String field : List.of("name", "description", "data_format", "algorithm_manifest")) {
             if (string(algorithm.get(field)).isBlank()) errors.add("算法缺少 " + field + "：" + id);
         }

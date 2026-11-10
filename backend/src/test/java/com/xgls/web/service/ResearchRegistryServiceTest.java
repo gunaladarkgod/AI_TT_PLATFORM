@@ -70,6 +70,12 @@ class ResearchRegistryServiceTest {
                     Map<?, ?> direction = (Map<?, ?>) value;
                     return direction.get("code") + ":" + direction.get("id");
                 }).collect(java.util.stream.Collectors.toSet()));
-        assertEquals(11, ((List<?>) result.get("algorithms")).size());
+        assertEquals(12, ((List<?>) result.get("algorithms")).size());
+        Map<?, ?> tdsc = ((List<Map<?, ?>>) result.get("algorithms")).stream()
+                .filter(item -> "small-object/tdsc".equals(item.get("id"))).findFirst().orElseThrow();
+        assertEquals("standalone-algorithm", tdsc.get("kind"));
+        assertEquals("draft", tdsc.get("status"));
+        Map<?, ?> baseline = (Map<?, ?>) ((Map<?, ?>) tdsc.get("derived_from")).get("baseline");
+        assertEquals("small-object/yolo11", baseline.get("id"));
     }
 }

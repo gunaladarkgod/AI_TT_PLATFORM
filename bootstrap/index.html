@@ -37,6 +37,8 @@
     .baseline-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
     .baseline { min-height: 134px; text-align: left; padding: 16px; border: 1px solid #d7e0e2; border-radius: 6px; background: #fff; color: inherit; cursor: pointer; transition: border-color .15s, background .15s; }
     .baseline:hover { border-color: #58a19c; }
+    .baseline.unavailable { color: #89969c; background: #f7f9f9; cursor: not-allowed; }
+    .baseline.unavailable:hover { border-color: #d7e0e2; }
     .baseline[aria-pressed="true"] { border: 2px solid #167d78; padding: 15px; background: #f1faf8; }
     .baseline-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
     .code { color: #167d78; font-size: 12px; font-weight: 700; }
@@ -103,15 +105,15 @@
       <div class="baseline-grid" role="group" aria-label="研究方向">
         <button class="baseline" type="button" data-id="B1" data-name="小目标检测" aria-pressed="false">
           <div class="baseline-top"><span class="code">B1</span><span class="direction">小目标检测</span></div>
-          <p>选择该方向下的一条基线，开展小尺度目标检测实验。</p>
+          <p>YOLO11 基线已登记；选择后只准备这一条基线。</p>
         </button>
-        <button class="baseline" type="button" data-id="B2" data-name="知识蒸馏" aria-pressed="false">
+        <button class="baseline unavailable" type="button" aria-disabled="true" title="该方向的基线仓库尚未登记">
           <div class="baseline-top"><span class="code">B2</span><span class="direction">知识蒸馏</span></div>
-          <p>选择教师—学生或其他已定义基线，开展蒸馏研究。</p>
+          <p>基线仓库尚未登记</p>
         </button>
-        <button class="baseline" type="button" data-id="B3" data-name="时空" aria-pressed="false">
+        <button class="baseline unavailable" type="button" aria-disabled="true" title="该方向的基线仓库尚未登记">
           <div class="baseline-top"><span class="code">B3</span><span class="direction">时空</span></div>
-          <p>选择适用于视频、序列或时空关联任务的基线。</p>
+          <p>基线仓库尚未登记</p>
         </button>
       </div>
 
@@ -125,7 +127,7 @@
         </div>
         <div class="status" id="downloadStatus" role="status" aria-live="polite">
           <span class="status-mark" aria-hidden="true">i</span>
-          <span><strong>演示状态：</strong>基线仓库尚未配置，未执行克隆。真实使用时，本地服务会将所选 B 下载到本机工作区。</span>
+          <span><strong>演示状态：</strong>已登记 YOLO11 基线仓库，但此轻量原型尚未连接本地下载服务，因此没有执行克隆。</span>
         </div>
       </div>
     </section>

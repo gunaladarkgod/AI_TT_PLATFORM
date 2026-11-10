@@ -58,6 +58,21 @@
         </div>
       </section>
 
+      <section v-if="registry.registry?.baselines?.length" class="registry-section">
+        <div class="section-heading">
+          <h3>已登记基线</h3>
+          <span>选择并下载需要的基线；状态为草稿时表示尚未通过平台清单验证</span>
+        </div>
+        <el-table :data="registry.registry.baselines" stripe border size="small">
+          <el-table-column prop="code" label="方向" width="82" />
+          <el-table-column prop="name" label="基线" min-width="210" />
+          <el-table-column label="引擎" width="130"><template #default="{ row }">{{ row.engine?.id || '—' }}</template></el-table-column>
+          <el-table-column label="版本" width="110"><template #default="{ row }">{{ row.engine?.version || '—' }}</template></el-table-column>
+          <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag size="small" :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
+          <el-table-column label="仓库" min-width="260" show-overflow-tooltip><template #default="{ row }"><a :href="row.repository?.url" target="_blank" rel="noopener">{{ row.repository?.url || '未登记' }}</a></template></el-table-column>
+        </el-table>
+      </section>
+
       <section class="registry-section">
         <div class="section-heading">
           <h3>算法登记</h3>
