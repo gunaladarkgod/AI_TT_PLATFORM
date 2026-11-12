@@ -42,6 +42,7 @@ __pycache__/
 venv/
 env/
 launcher/windows/.build-venv/
+launcher/windows/.build/
 launcher/windows/build/
 launcher/windows/build-fixed/
 launcher/windows/dist/

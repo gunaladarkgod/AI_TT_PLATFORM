@@ -55,6 +55,39 @@ class LauncherHelperTests(unittest.TestCase):
 
         self.assertEqual(result.stdout.splitlines(), ["first argument", "second"])
 
+    def test_backend_environment_file_supplies_database_settings(self):
+        with tempfile.TemporaryDirectory() as temp:
+            env_file = Path(temp) / ".env.local"
+            env_file.write_text(
+                "# local settings\nDB_USERNAME=platform_user\nDB_PASSWORD='local secret'\nOTHER=value\n",
+                encoding="utf-8",
+            )
+            env = launcher.load_backend_environment({}, env_file)
+
+        self.assertEqual(env, {"DB_USERNAME": "platform_user", "DB_PASSWORD": "local secret"})
+
+    def test_process_environment_overrides_local_database_settings(self):
+        with tempfile.TemporaryDirectory() as temp:
+            env_file = Path(temp) / ".env.local"
+            env_file.write_text("DB_USERNAME=file_user\nDB_PASSWORD=file_password\n", encoding="utf-8")
+            env = launcher.load_backend_environment({"DB_USERNAME": "process_user"}, env_file)
+
+        self.assertEqual(env["DB_USERNAME"], "process_user")
+        self.assertEqual(env["DB_PASSWORD"], "file_password")
+
+    def test_database_authentication_error_is_detected_without_reading_entire_log(self):
+        with tempfile.TemporaryDirectory() as temp:
+            log_path = Path(temp) / "backend.log"
+            log_path.write_text("noise\njava.sql.SQLException: Access denied for user 'root'", encoding="utf-8")
+            self.assertTrue(launcher.database_authentication_error(log_path))
+
+    def test_old_database_authentication_error_is_ignored_after_start_offset(self):
+        with tempfile.TemporaryDirectory() as temp:
+            log_path = Path(temp) / "backend.log"
+            old_error = "java.sql.SQLException: Access denied for user 'root'\n"
+            log_path.write_text(old_error + "Application started\n", encoding="utf-8")
+            self.assertFalse(launcher.database_authentication_error(log_path, len(old_error)))
+
 
 if __name__ == "__main__":
     unittest.main()

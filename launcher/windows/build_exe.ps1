@@ -25,9 +25,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not install PyInstaller.' }
 
 $sourceFile = Join-Path $launcherDir 'ai-training-platform-launcher.py'
 $distDir = Join-Path $launcherDir 'dist'
-$buildDir = Join-Path $launcherDir 'build'
+$buildDir = Join-Path $launcherDir '.build\work'
+$specDir = Join-Path $launcherDir '.build\spec'
 & $venvPython -m PyInstaller --noconfirm --clean --onefile --windowed `
-    --name '启动AI训练平台' --specpath $launcherDir --distpath $distDir `
+    --name '启动AI训练平台' --specpath $specDir --distpath $distDir `
     --workpath $buildDir $sourceFile
 if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed to build the launcher.' }
 

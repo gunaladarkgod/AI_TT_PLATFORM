@@ -21,6 +21,7 @@ from tkinter import messagebox, ttk
 
 APP_NAME = "AI 训练平台启动器"
 START_TIMEOUT = 180
+RUNNER_WAIT_TIMEOUT = 45
 BUILD_TIMEOUT = 240
 POLL_INTERVAL = 0.5
 
@@ -62,6 +63,38 @@ def log_failure(name: str, path: Path, reason: str) -> None:
                 append_log(f"{name}> {line.rstrip()}")
     except OSError:
         pass
+
+
+def load_backend_environment(env: dict[str, str], env_file: Path | None = None) -> dict[str, str]:
+    path = env_file or ROOT / "backend" / ".env.local"
+    if not path.is_file():
+        return env
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return env
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key in {"DB_URL", "DB_USERNAME", "DB_PASSWORD"} and key not in env:
+            env[key] = value.strip().strip('"').strip("'")
+    return env
+
+
+def database_authentication_error(log_path: Path, start_offset: int = 0) -> bool:
+    try:
+        with log_path.open("rb") as stream:
+            stream.seek(start_offset)
+            stream.seek(0, os.SEEK_END)
+            end = stream.tell()
+            stream.seek(max(start_offset, end - 131072))
+            tail = stream.read().decode("utf-8", errors="replace")
+    except OSError:
+        return False
+    return "Access denied for user" in tail and "java.sql.SQLException" in tail
 
 
 def frontend_needs_build() -> bool:
@@ -118,6 +151,7 @@ class Service:
         self.readiness = readiness
         self.log_path = LOG_DIR / f"{key}.log"
         self.process: subprocess.Popen | None = None
+        self.log_start_offset = 0
         self.external = False
         self.state = "stopped"
 
@@ -126,8 +160,8 @@ class Launcher(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_NAME)
-        self.geometry("590x390")
-        self.minsize(520, 350)
+        self.geometry("560x350")
+        self.minsize(500, 320)
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.operation_lock = threading.Lock()
@@ -155,7 +189,7 @@ class Launcher(tk.Tk):
             style.theme_use("vista")
         except tk.TclError:
             pass
-        outer = ttk.Frame(self, padding=22)
+        outer = ttk.Frame(self, padding=18)
         outer.pack(fill="both", expand=True)
         ttk.Label(outer, text=APP_NAME, font=("Segoe UI", 17, "bold")).pack(anchor="w")
         ttk.Label(outer, text=f"项目目录：{ROOT}", foreground="#666666").pack(anchor="w", pady=(4, 18))
@@ -168,6 +202,7 @@ class Launcher(tk.Tk):
         self.stop_button = ttk.Button(buttons, text="停止全部", command=self.stop_all)
         self.stop_button.pack(side="left", padx=(10, 0))
         ttk.Button(buttons, text="打开启动日志", command=self.open_log).pack(side="left", padx=(10, 0))
+        ttk.Button(buttons, text="数据库配置", command=self.open_database_config).pack(side="left", padx=(10, 0))
         ttk.Button(buttons, text="打开平台", command=self.open_platform).pack(side="right")
         self.message = ttk.Label(outer, text="就绪", foreground="#555555")
         self.message.pack(anchor="w", pady=(4, 0))
@@ -264,6 +299,8 @@ class Launcher(tk.Tk):
             if backend.readiness():
                 backend.external = backend.process is None
                 self._emit_state(backend, "ready", "已有后端响应")
+                if self._show_database_error(backend):
+                    return
             else:
                 if port_open(8081):
                     self._emit_state(backend, "failed", "端口 8081 被占用，但后端无响应")
@@ -277,11 +314,13 @@ class Launcher(tk.Tk):
                     return
                 self._emit_state(backend, "starting", "正在启动")
                 env = os.environ.copy()
+                load_backend_environment(env)
                 env.update({"APP_WORKSPACE_ROOT": str(ROOT), "APP_REDIS_REQUIRED": "false",
                             "APP_REDIS_FALLBACK_MEMORY": "true", "RUNNER_AUTO_START": "true",
                             "RUNNER_AUTO_START_LOG": str(LOG_DIR / "runner.log"),
                             "STATIC_ROOT": str(FRONTEND_DIR), "PYTHONUTF8": "1"})
                 self.backend = backend
+                backend.log_start_offset = backend.log_path.stat().st_size if backend.log_path.exists() else 0
                 with backend.log_path.open("a", encoding="utf-8") as stream:
                     backend.process = subprocess.Popen(command, cwd=ROOT / "backend", env=env,
                         stdin=subprocess.DEVNULL, stdout=stream, stderr=subprocess.STDOUT,
@@ -291,6 +330,8 @@ class Launcher(tk.Tk):
                 while time.monotonic() < deadline and not self.cancel_start.is_set():
                     if backend.readiness():
                         self._emit_state(backend, "ready", "127.0.0.1:8081")
+                        if self._show_database_error(backend):
+                            return
                         break
                     if backend.process.poll() is not None:
                         reason = f"进程已退出（{backend.process.returncode}），请查看日志"
@@ -306,16 +347,22 @@ class Launcher(tk.Tk):
             if self.cancel_start.is_set():
                 return
             self._emit_state(runner, "starting", "等待后端自动启动 Runner")
-            deadline = time.monotonic() + START_TIMEOUT
+            deadline = time.monotonic() + RUNNER_WAIT_TIMEOUT
             while time.monotonic() < deadline and not self.cancel_start.is_set():
+                if backend.process is not None and database_authentication_error(
+                        backend.log_path, backend.log_start_offset):
+                    self._show_database_error(backend)
+                    return
                 if runner.readiness():
                     self._emit_state(runner, "ready", "127.0.0.1:8009")
                     break
                 time.sleep(POLL_INTERVAL)
             else:
                 if not self.cancel_start.is_set():
-                    self._emit_state(runner, "failed", "Runner 启动超时，请查看后端和 Runner 日志")
+                    self._emit_state(runner, "failed", "Runner 暂不可用；训练功能不可用")
                     log_failure(runner.key, runner.log_path, "后端启动后 Runner 未就绪")
+                    self.events.put(("message", "后端已启动；Runner 暂不可用，可先打开平台。训练功能就绪前请检查 Runner 日志。"))
+                    return
             self.events.put(("message", "服务状态检查完成"))
         except Exception as exc:
             append_log(f"start worker failed: {exc!r}")
@@ -323,6 +370,17 @@ class Launcher(tk.Tk):
         finally:
             self.operation_lock.release()
             self.events.put(("stop_after_cancel" if self.cancel_start.is_set() else "buttons", True))
+
+    def _show_database_error(self, backend: Service) -> bool:
+        if backend.process is None or not database_authentication_error(
+                backend.log_path, backend.log_start_offset):
+            return False
+        detail = "MySQL 账号或密码不匹配"
+        self._emit_state(backend, "failed", detail)
+        self._emit_state(self.services[2], "failed", "数据库未就绪，Runner 自动启动尚未开始")
+        self.events.put(("message", "MySQL 拒绝了数据库登录。请打开“数据库配置”填写正确账号和密码，再停止并重新启动后端。"))
+        append_log("backend startup blocked: MySQL rejected configured credentials")
+        return True
 
     def _backend_command(self) -> tuple[list[str] | str | None, str]:
         jars = [Path(path) for path in glob.glob(str(ROOT / "backend" / "target" / "*.jar"))
@@ -464,6 +522,18 @@ class Launcher(tk.Tk):
         path = LOG_DIR / "launcher.log"
         path.touch(exist_ok=True)
         os.startfile(path)
+
+    def open_database_config(self) -> None:
+        path = ROOT / "backend" / ".env.local"
+        if not path.exists():
+            path.write_text(
+                "# Local backend settings. This file is ignored by Git.\n"
+                "# Set the credentials used by your local MySQL server.\n"
+                "DB_USERNAME=root\n"
+                "DB_PASSWORD=\n",
+                encoding="utf-8",
+            )
+        subprocess.Popen(["notepad.exe", str(path)])
 
     def open_platform(self) -> None:
         if not FRONTEND_INDEX.is_file():

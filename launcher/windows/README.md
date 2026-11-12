@@ -4,9 +4,9 @@
 
 EXE 必须放在项目仓库内的 `launcher/windows/dist/`，快捷方式会自动把项目根目录设为工作目录。启动器仍需要读取当前仓库中的前后端源码和配置，因此不能把 EXE 单独移出仓库使用。
 
-窗口提供 MySQL、后端和 Runner 状态，以及启动、停止、打开日志和打开平台操作。需要重新创建快捷方式时，双击 `create_desktop_shortcut.bat`。
+窗口提供 MySQL、后端和 Runner 状态，以及启动、停止、打开日志、数据库配置和打开平台操作。首次设置或修改 MySQL 账号时，点击“数据库配置”，在打开的 `backend/.env.local` 中填写 `DB_USERNAME` 与 `DB_PASSWORD`，保存后停止并重新启动后端。该本机配置不会提交到 Git。
 
-首次使用或前端源码更新时，启动器会使用已安装的 Node.js 构建 `fronternd/dist/`。后端直接提供构建后的网页，因此不需要保留 Vite 开发服务器。Spring Boot 会按项目配置自动启动 Runner；MySQL 需要预先作为 Windows 服务启动。
+首次使用或前端源码更新时，启动器会使用已安装的 Node.js 构建 `fronternd/dist/`。后端直接提供构建后的网页，因此不需要保留 Vite 开发服务器。Spring Boot 会按项目配置自动启动 Runner；数据库连接失败时启动器会显示明确提示，不再等待 Runner 超时。MySQL 需要预先作为 Windows 服务启动。
 
 构建 EXE 需要 Windows、Python 3（含 Tkinter）和可联网安装 PyInstaller。运行平台还需要 JDK 17、Maven（如果 `backend/target/` 中已有可运行 JAR 则不需要）、Node.js/npm 和 MySQL。首次准备环境和数据库仍需按项目根目录 README 完成。Runner 的 Python 由 `runner/start_runner.cmd` 按 `RUNNER_PYTHON`、项目虚拟环境、旧环境和系统 Python 的顺序选择。
 
