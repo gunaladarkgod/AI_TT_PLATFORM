@@ -103,10 +103,11 @@ def find_command(*names: str) -> str | None:
     return None
 
 
-def windows_command(command: str, *args: str) -> list[str]:
-    """Run .cmd/.bat files through cmd.exe with quoted arguments."""
+def windows_command(command: str, *args: str) -> str:
+    """Run .cmd/.bat files through cmd.exe without re-quoting its /c payload."""
     line = subprocess.list2cmdline([command, *args])
-    return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/s", "/c", f'"{line}"']
+    comspec = subprocess.list2cmdline([os.environ.get("COMSPEC", "cmd.exe")])
+    return f'{comspec} /d /s /c "{line}"'
 
 
 class Service:
@@ -323,7 +324,7 @@ class Launcher(tk.Tk):
             self.operation_lock.release()
             self.events.put(("stop_after_cancel" if self.cancel_start.is_set() else "buttons", True))
 
-    def _backend_command(self) -> tuple[list[str] | None, str]:
+    def _backend_command(self) -> tuple[list[str] | str | None, str]:
         jars = [Path(path) for path in glob.glob(str(ROOT / "backend" / "target" / "*.jar"))
                 if not Path(path).name.endswith(("-sources.jar", "-javadoc.jar", "-plain.jar"))]
         java = find_command("java.exe", "java")

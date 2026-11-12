@@ -2,6 +2,7 @@
 
 import importlib.util
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -46,10 +47,13 @@ class LauncherHelperTests(unittest.TestCase):
                 self.assertTrue(launcher.frontend_needs_build())
 
     def test_cmd_wrapper_quotes_paths_with_spaces(self):
-        command = launcher.windows_command(r"C:\Program Files\Maven\bin\mvn.cmd", "-f", r"C:\AI Platform\backend\pom.xml")
-        self.assertEqual(command[:3], [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/s"])
-        self.assertIn('"C:\\Program Files\\Maven\\bin\\mvn.cmd"', command[-1])
-        self.assertIn('"C:\\AI Platform\\backend\\pom.xml"', command[-1])
+        with tempfile.TemporaryDirectory(prefix="launcher cmd test ") as temp:
+            script = Path(temp) / "print-args.cmd"
+            script.write_text("@echo off\r\necho %~1\r\necho %~2\r\n", encoding="ascii")
+            command = launcher.windows_command(str(script), "first argument", "second")
+            result = subprocess.run(command, capture_output=True, text=True, check=True)
+
+        self.assertEqual(result.stdout.splitlines(), ["first argument", "second"])
 
 
 if __name__ == "__main__":
