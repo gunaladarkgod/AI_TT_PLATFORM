@@ -31,11 +31,11 @@ def find_workspace() -> Path:
         candidate = Path(configured).expanduser().resolve()
         if (candidate / "backend").is_dir() and (candidate / "fronternd").is_dir():
             return candidate
-    script = Path(__file__).resolve()
-    for candidate in (script.parent, *script.parents):
+    application = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve()
+    for candidate in (application.parent, *application.parents):
         if (candidate / "backend").is_dir() and (candidate / "fronternd").is_dir():
             return candidate
-    return script.parents[2]
+    return application.parent
 
 
 ROOT = find_workspace()

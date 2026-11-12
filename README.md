@@ -8,7 +8,7 @@ Windows、macOS 和 Linux 均提供图形启动器。Linux 使用 [独立启动�
 
 ## 快速启动（跨平台图形启动器）
 
-项目根目录提供图形启动器。macOS 使用原生 `启动AI训练平台.app`，Windows 使用 `启动AI训练平台.bat`，Linux 使用 `启动AI训练平台.sh`，直接双击对应入口即可，不需要手动输入启动命令。
+项目提供图形启动器。macOS 使用原生 `启动AI训练平台.app`，Linux 使用 `启动AI训练平台.sh`。Windows 首次在 `launcher/windows/` 双击 `build_exe.bat` 生成 EXE 和桌面快捷方式，之后从桌面快捷方式打开图形界面；详细步骤见 [Windows 启动器](launcher/windows/README.md)。
 
 macOS 分发包可从仓库分支下载 `launcher/macos/dist/启动AI训练平台-macOS.dmg`。打开 DMG 后运行其中的 App；首次启动时选择本地 `AI_TT_PLATFORM` 项目根目录，后续会记住该位置。
 

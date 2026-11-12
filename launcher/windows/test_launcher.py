@@ -15,6 +15,17 @@ SPEC.loader.exec_module(launcher)
 
 
 class LauncherHelperTests(unittest.TestCase):
+    def test_frozen_executable_finds_workspace_ancestor(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "backend").mkdir()
+            (root / "fronternd").mkdir()
+            executable = root / "launcher" / "windows" / "dist" / "launcher.exe"
+            with patch.dict(os.environ, {"APP_WORKSPACE_ROOT": ""}), \
+                    patch.object(launcher.sys, "frozen", True, create=True), \
+                    patch.object(launcher.sys, "executable", str(executable)):
+                self.assertEqual(launcher.find_workspace(), root.resolve())
+
     def test_frontend_build_is_required_when_sources_are_newer(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

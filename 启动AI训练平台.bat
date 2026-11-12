@@ -1,20 +1,13 @@
 @echo off
 setlocal EnableExtensions
 set "ROOT=%~dp0"
-set "SCRIPT=%ROOT%launcher\windows\ai-training-platform-launcher.py"
+set "LAUNCHER=%ROOT%launcher\windows\dist\启动AI训练平台.exe"
 
-where pyw.exe >nul 2>nul
-if not errorlevel 1 (
-  start "AI 训练平台启动器" pyw.exe -3 "%SCRIPT%"
+if exist "%LAUNCHER%" (
+  start "AI 训练平台启动器" "%LAUNCHER%"
   exit /b 0
 )
 
-where pythonw.exe >nul 2>nul
-if not errorlevel 1 (
-  start "AI 训练平台启动器" pythonw.exe "%SCRIPT%"
-  exit /b 0
-)
-
-echo 未找到 pythonw.exe。请安装包含 Tkinter 的 Python 3，并启用 pythonw.exe。
+echo 尚未生成图形启动器，请双击 launcher\windows\build_exe.bat 生成 EXE 和桌面快捷方式。
 pause
 exit /b 1
