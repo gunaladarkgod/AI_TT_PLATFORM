@@ -12,7 +12,7 @@ Windows、macOS 和 Linux 均提供图形启动器。Linux 使用 [独立启动�
 
 macOS 分发包可从仓库分支下载 `launcher/macos/dist/启动AI训练平台-macOS.dmg`。打开 DMG 后运行其中的 App；首次启动时选择本地 `AI_TT_PLATFORM` 项目根目录，后续会记住该位置。
 
-启动器会检查 MySQL、后端和 Runner 状态。Windows/Linux 会在首次运行或源码更新时构建前端，再由后端提供网页；Spring Boot 根据配置自动拉起 Runner。macOS 原生启动器可直接管理后端、Runner 和 Vite。日志写入 `logs/launcher/`，停止操作只影响启动器创建的后端进程。
+启动器会检查 MySQL、后端和 Runner 状态。Windows/Linux 会在首次运行或源码更新时构建前端；Windows 还会在首次启动或后端源码更新时打包 JAR，之后直接启动 JAR，避免重复 Maven 编译。网页由后端提供，Spring Boot 根据配置自动拉起 Runner。macOS 原生启动器可直接管理后端、Runner 和 Vite。日志写入 `logs/launcher/`，停止操作只影响启动器创建的后端进程。
 
 ### 1. 准备环境
 

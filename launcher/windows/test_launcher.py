@@ -88,6 +88,40 @@ class LauncherHelperTests(unittest.TestCase):
             log_path.write_text(old_error + "Application started\n", encoding="utf-8")
             self.assertFalse(launcher.database_authentication_error(log_path, len(old_error)))
 
+    def test_backend_is_packaged_only_when_missing_or_source_signature_changes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            backend = root / "backend"
+            source = backend / "src" / "main" / "java" / "App.java"
+            source.parent.mkdir(parents=True)
+            source.write_text("class App {}", encoding="utf-8")
+            self.assertTrue(launcher.backend_needs_package(root))
+
+            pom = backend / "pom.xml"
+            pom.write_text("<project />", encoding="utf-8")
+            jar = backend / "target" / "app.jar"
+            jar.parent.mkdir()
+            jar.write_bytes(b"jar")
+            os.utime(source, (100, 100))
+            os.utime(pom, (100, 100))
+            signature = backend / "target" / "launcher-source.signature"
+            signature.write_text(launcher.backend_source_signature(root), encoding="ascii")
+            self.assertFalse(launcher.backend_needs_package(root))
+
+            source.write_text("class App { int version = 2; }", encoding="utf-8")
+            self.assertTrue(launcher.backend_needs_package(root))
+
+    def test_backend_jar_ignores_non_executable_artifacts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "backend" / "target"
+            target.mkdir(parents=True)
+            executable = target / "web_ai-1.0.jar"
+            executable.touch()
+            (target / "web_ai-1.0-sources.jar").touch()
+            (target / "web_ai-1.0-plain.jar").touch()
+
+            self.assertEqual(launcher.backend_jar(Path(temp)), executable)
+
 
 if __name__ == "__main__":
     unittest.main()

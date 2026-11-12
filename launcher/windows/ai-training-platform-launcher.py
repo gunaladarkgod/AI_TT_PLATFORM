@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-import glob
 import http.client
+import hashlib
 import os
 import queue
 import shutil
@@ -95,6 +95,41 @@ def database_authentication_error(log_path: Path, start_offset: int = 0) -> bool
     except OSError:
         return False
     return "Access denied for user" in tail and "java.sql.SQLException" in tail
+
+
+def backend_jar(root: Path = ROOT) -> Path | None:
+    jars = [path for path in (root / "backend" / "target").glob("*.jar")
+            if not path.name.endswith(("-sources.jar", "-javadoc.jar", "-plain.jar"))]
+    return max(jars, key=lambda path: path.stat().st_mtime) if jars else None
+
+
+def backend_source_signature(root: Path = ROOT) -> str:
+    backend = root / "backend"
+    sources = [backend / "pom.xml"]
+    source_dir = backend / "src" / "main"
+    if source_dir.is_dir():
+        sources.extend(path for path in source_dir.rglob("*") if path.is_file())
+    signature = hashlib.sha256()
+    for path in sorted(sources):
+        if not path.is_file():
+            continue
+        signature.update(path.relative_to(root).as_posix().encode("utf-8"))
+        signature.update(b"\0")
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                signature.update(chunk)
+        signature.update(b"\n")
+    return signature.hexdigest()
+
+
+def backend_needs_package(root: Path = ROOT) -> bool:
+    if backend_jar(root) is None:
+        return True
+    signature_path = root / "backend" / "target" / "launcher-source.signature"
+    try:
+        return signature_path.read_text(encoding="ascii").strip() != backend_source_signature(root)
+    except OSError:
+        return True
 
 
 def frontend_needs_build() -> bool:
@@ -306,7 +341,7 @@ class Launcher(tk.Tk):
                     self._emit_state(backend, "failed", "端口 8081 被占用，但后端无响应")
                     log_failure(backend.key, backend.log_path, "端口 8081 被占用")
                     return
-                command, missing = self._backend_command()
+                command, missing = self._prepare_backend()
                 if missing:
                     self._emit_state(backend, "failed", missing)
                     self.events.put(("message", missing))
@@ -382,22 +417,67 @@ class Launcher(tk.Tk):
         append_log("backend startup blocked: MySQL rejected configured credentials")
         return True
 
-    def _backend_command(self) -> tuple[list[str] | str | None, str]:
-        jars = [Path(path) for path in glob.glob(str(ROOT / "backend" / "target" / "*.jar"))
-                if not Path(path).name.endswith(("-sources.jar", "-javadoc.jar", "-plain.jar"))]
+    def _prepare_backend(self) -> tuple[list[str] | None, str]:
         java = find_command("java.exe", "java")
         if not java:
             return None, "未找到 Java，请安装 JDK 17 并配置 JAVA_HOME/PATH"
-        if jars:
-            jar = max(jars, key=lambda path: path.stat().st_mtime)
+
+        jar = backend_jar()
+        if backend_needs_package():
+            maven = find_command("mvn.cmd", "mvn.bat", "mvn")
+            if not maven:
+                if jar:
+                    return None, "后端源码已更新，但未找到 Maven；请安装 Maven 后重新启动"
+                return None, "未找到 Maven，且 backend/target 中没有可运行 JAR"
+            if not self._package_backend(maven):
+                return None, "后端打包失败，请查看 logs/launcher/backend-build.log"
+            jar = backend_jar()
+            if jar is None:
+                return None, "Maven 已完成但没有生成可运行 JAR"
+        if jar:
             return [java, "-jar", str(jar)], ""
-        maven = find_command("mvn.cmd", "mvn.bat", "mvn")
-        if not maven:
-            return None, "未找到 Maven，且 backend/target 中没有可运行 JAR"
-        args = ["-f", str(ROOT / "backend" / "pom.xml"), "spring-boot:run"]
-        if maven.lower().endswith((".cmd", ".bat")):
-            return windows_command(maven, *args), ""
-        return [maven, *args], ""
+        return None, "backend/target 中没有可运行 JAR"
+
+    def _package_backend(self, maven: str) -> bool:
+        log_path = LOG_DIR / "backend-build.log"
+        source_signature = backend_source_signature()
+        self.events.put(("message", "首次启动或后端源码有更新，正在打包后端…"))
+        append_log("backend package started")
+        args = ["-f", str(ROOT / "backend" / "pom.xml"), "-Dmaven.test.skip=true", "package"]
+        command = windows_command(maven, *args) if maven.lower().endswith((".cmd", ".bat")) else [maven, *args]
+        try:
+            with log_path.open("a", encoding="utf-8") as stream:
+                self.build_process = subprocess.Popen(command, cwd=ROOT / "backend",
+                    stdin=subprocess.DEVNULL, stdout=stream, stderr=subprocess.STDOUT,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW)
+            deadline = time.monotonic() + BUILD_TIMEOUT
+            while self.build_process.poll() is None and time.monotonic() < deadline:
+                if self.cancel_start.is_set():
+                    self._terminate_process_tree(self.build_process)
+                    return False
+                time.sleep(0.2)
+            if self.build_process.poll() is None:
+                self._terminate_process_tree(self.build_process)
+                log_failure("backend package", log_path, "打包超时")
+                self.events.put(("message", "后端打包超时，请查看日志"))
+                return False
+            if self.build_process.returncode != 0:
+                log_failure("backend package", log_path, f"打包失败（退出码 {self.build_process.returncode}）")
+                self.events.put(("message", "后端打包失败，请查看日志"))
+                return False
+            signature_path = ROOT / "backend" / "target" / "launcher-source.signature"
+            try:
+                signature_path.write_text(source_signature, encoding="ascii")
+            except OSError as exc:
+                append_log(f"backend build signature could not be saved: {exc}")
+            append_log("backend package completed")
+            return True
+        except OSError as exc:
+            log_failure("backend package", log_path, str(exc))
+            self.events.put(("message", f"后端打包失败：{exc}"))
+            return False
+        finally:
+            self.build_process = None
 
     def _prepare_frontend(self) -> bool:
         if not frontend_needs_build():
