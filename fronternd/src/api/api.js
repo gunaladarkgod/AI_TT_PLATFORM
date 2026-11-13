@@ -40,6 +40,28 @@ export class WorkspaceComponentService {
     }
 }
 
+/** 独立 B/C 仓库的登记、本机状态和受控下载。 */
+export class AlgorithmComponentService {
+    static listBaselines(direction) {
+        return request('/api/baseline-components', direction ? { direction } : {}, 'get', null, 'json');
+    }
+    static listAlgorithms(direction) {
+        return request('/api/algorithm-components', direction ? { direction } : {}, 'get', null, 'json');
+    }
+    static installBaseline(id) {
+        return request('/api/baseline-components/install', { id }, 'post', 'application/json', 'json');
+    }
+    static installAlgorithm(id) {
+        return request('/api/algorithm-components/install', { id }, 'post', 'application/json', 'json');
+    }
+    static removeBaseline(id) {
+        return request('/api/baseline-components/remove', { id }, 'post', 'application/json', 'json');
+    }
+    static removeAlgorithm(id) {
+        return request('/api/algorithm-components/remove', { id }, 'post', 'application/json', 'json');
+    }
+}
+
 /**用户管理接口 */
 export class UserService {
     static async profile() { return request('/auth/profile', {}, 'get', null, 'json'); }

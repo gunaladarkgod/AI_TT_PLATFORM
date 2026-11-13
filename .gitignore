@@ -50,6 +50,7 @@ runner/.conda_runner/
 research/.runtime_cache/
 engines/mmdet_run/myfiles/modelcfg/
 runs/
+local-components/
 wandb/
 mlruns/
 datasets/

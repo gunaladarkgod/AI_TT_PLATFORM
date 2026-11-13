@@ -75,6 +75,32 @@
 
       <section class="registry-section">
         <div class="section-heading">
+          <h3>本机 B/C 组件</h3>
+          <span>只下载需要的基线或独立算法；下载地址来自登记文件</span>
+        </div>
+        <el-alert v-if="componentError" :title="componentError" type="warning" :closable="false" show-icon />
+        <el-table v-loading="componentLoading" :data="[...baselineComponents, ...algorithmComponents]" stripe border size="small" row-key="id">
+          <el-table-column label="类型" width="100"><template #default="{ row }">{{ row.kind === 'baseline' ? 'B 基线' : 'C 算法' }}</template></el-table-column>
+          <el-table-column prop="name" label="名称" min-width="220" />
+          <el-table-column prop="direction" label="方向" width="130" />
+          <el-table-column label="本机状态" min-width="180">
+            <template #default="{ row }">
+              <el-tag size="small" :type="componentStatusType(row.localStatus)">{{ componentStatusLabel(row.localStatus) }}</el-tag>
+              <div v-if="row.blockers?.length" class="component-blocker">{{ row.blockers.join('；') }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="150">
+            <template #default="{ row }">
+              <el-button v-if="row.localStatus === 'not-downloaded'" size="small" :loading="componentTask.componentId === row.id" @click="installComponent(row)">下载</el-button>
+              <el-button v-else-if="row.localStatus !== 'invalid'" size="small" type="danger" plain :loading="componentTask.componentId === row.id" @click="removeComponent(row)">移除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div v-if="componentTask.status === 'running'" class="component-task">{{ componentTask.message }}</div>
+      </section>
+
+      <section class="registry-section">
+        <div class="section-heading">
           <h3>算法登记</h3>
           <span>登记信息用于识别兼容条件；源码访问仍由独立算法仓库控制</span>
         </div>
@@ -106,18 +132,70 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
-import { ResearchRegistryService } from '@/api/api'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { ElMessageBox } from 'element-plus'
+import { AlgorithmComponentService, ResearchRegistryService } from '@/api/api'
 
 const loading = ref(true)
 const registry = ref({ directions: [], algorithms: [], conventions: [], registry: {} })
 const errorMessage = ref('')
 const errorDetails = ref('')
+const componentLoading = ref(false)
+const componentError = ref('')
+const baselineComponents = ref([])
+const algorithmComponents = ref([])
+const componentTask = ref({})
+let componentTimer
 
 const statusLabels = { draft: '草稿', review: '评审中', published: '已发布' }
 const statusLabel = (status) => statusLabels[status] || status || '未知'
 const statusType = (status) => ({ draft: 'info', review: 'warning', published: 'success' }[status] || 'danger')
 const compatibilityText = (items = []) => (items || []).map(item => `${item.engine} ${item.versions?.join('/') || ''}`).join('、') || '—'
+const componentStatusLabel = status => ({ 'not-downloaded': '未下载', downloaded: '已下载', invalid: '不可用' }[status] || '未知')
+const componentStatusType = status => ({ 'not-downloaded': 'warning', downloaded: 'success', invalid: 'danger' }[status] || 'info')
+
+const loadComponents = async () => {
+  componentLoading.value = true
+  componentError.value = ''
+  try {
+    const [baseline, algorithm] = await Promise.all([
+      AlgorithmComponentService.listBaselines(), AlgorithmComponentService.listAlgorithms(),
+    ])
+    if (baseline?.code !== 0 || algorithm?.code !== 0) throw new Error(baseline?.msg || algorithm?.msg || '组件状态读取失败')
+    baselineComponents.value = baseline.data?.components || []
+    algorithmComponents.value = algorithm.data?.components || []
+    componentTask.value = baseline.data?.task?.status === 'running' ? baseline.data.task : algorithm.data?.task || {}
+    if (componentTask.value.status === 'running') {
+      clearTimeout(componentTimer)
+      componentTimer = setTimeout(loadComponents, 1500)
+    }
+  } catch (error) {
+    componentError.value = error?.message || '组件状态读取失败'
+  } finally { componentLoading.value = false }
+}
+
+const installComponent = async row => {
+  const response = row.kind === 'baseline'
+    ? await AlgorithmComponentService.installBaseline(row.id)
+    : await AlgorithmComponentService.installAlgorithm(row.id)
+  if (response?.code !== 0) { componentError.value = response?.msg || '下载启动失败'; return }
+  componentTask.value = response.data || {}
+  clearTimeout(componentTimer)
+  componentTimer = setTimeout(loadComponents, 300)
+}
+
+const removeComponent = async row => {
+  try {
+    await ElMessageBox.confirm(`确定移除本机的“${row.name}”吗？远程仓库不会受影响。`, '移除组件', { type: 'warning' })
+    const response = row.kind === 'baseline'
+      ? await AlgorithmComponentService.removeBaseline(row.id)
+      : await AlgorithmComponentService.removeAlgorithm(row.id)
+    if (response?.code !== 0) { componentError.value = response?.msg || '移除启动失败'; return }
+    componentTask.value = response.data || {}
+    clearTimeout(componentTimer)
+    componentTimer = setTimeout(loadComponents, 300)
+  } catch (error) { if (error !== 'cancel' && error !== 'close') componentError.value = error?.message || '移除已取消' }
+}
 
 onMounted(async () => {
   try {
@@ -135,8 +213,11 @@ onMounted(async () => {
     errorDetails.value = (error?.data?.errors || []).join('；')
   } finally {
     loading.value = false
+    loadComponents()
   }
 })
+
+onBeforeUnmount(() => clearTimeout(componentTimer))
 </script>
 
 <style scoped>
@@ -156,6 +237,7 @@ onMounted(async () => {
 .registry-meta { display: grid; grid-template-columns: 78px 1fr; gap: 8px; margin-top: 8px; font-size: 13px; }
 .registry-meta b { color: var(--el-text-color-primary); }
 .registry-meta span { color: var(--el-text-color-secondary); }
+.component-blocker, .component-task { margin-top: 5px; color: var(--el-text-color-secondary); font-size: 12px; }
 a { color: var(--el-color-primary); }
 .convention-content { margin: 0; padding: 12px; background: var(--el-fill-color-light); color: var(--el-text-color-regular); white-space: pre-wrap; font: inherit; line-height: 1.6; }
 @media (max-width: 700px) { .section-heading { display: block; } .section-heading span { display: block; margin-top: 5px; } .registry-intro { display: block; } .registry-intro .el-tag { margin-top: 10px; } }

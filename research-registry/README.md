@@ -29,19 +29,28 @@
 算法登记文件位于 `algorithms/`，至少包含：
 
 - `schema_version: 1`、`id`、`name`、`direction`、`description`
-- `kind`：`baseline` 或 `improvement`
+- `kind`：`baseline`、`improvement` 或 `standalone-algorithm`
 - `status`：`draft`、`review` 或 `published`
 - `repository.url`、`repository.default_ref`、`repository.stable_ref`
 - `platform.min_version`
 - `engine.id`、`engine.version`：引擎 ID 为 `mmdet`、`ultralytics`、`custom` 或 `paper`
 - `data_format`：`coco`、`yolo` 或 `custom`
-- `algorithm_manifest`：登记对应的算法清单相对路径
+- `algorithm_manifest`：登记对应的算法清单相对路径；独立 C 算法还应提供 `derived_manifest`
 
 `id` 使用 `方向/方案简称`，仅允许小写字母、数字和连字符。仓库地址仅作展示和后续受控接入的元信息，当前接口不会把它交给 Git 执行。
 
 ## 接口与状态
 
-登录后访问 `GET /api/research-registry`。成功时返回 `registry`、`directions`、`algorithms`、`conventions`；登记目录缺失、YAML 无效、字段缺失、重复 ID、未知引擎、非法路径或公约文件读取失败时，响应 `data.errors` 会列出原因。页面显示的状态含义如下：
+登录后访问 `GET /api/research-registry`。成功时返回 `registry`、`directions`、`algorithms`、`conventions`；登记目录缺失、YAML 无效、字段缺失、重复 ID、未知引擎、非法路径或公约文件读取失败时，响应 `data.errors` 会列出原因。研究基线页面还提供管理员专用的 B/C 仓库按需下载接口：
+
+- `GET /api/baseline-components`：读取登记的 B 基线和本机状态。
+- `GET /api/algorithm-components`：读取登记的 C 算法和本机状态。
+- `POST /api/baseline-components/install`、`POST /api/algorithm-components/install`：按登记 ID 克隆对应 GitHub 仓库。
+- `POST /api/baseline-components/remove`、`POST /api/algorithm-components/remove`：移除对应的本机副本，不影响远程仓库。
+
+下载写入被 `.gitignore` 忽略的 `local-components/`，不会把外部 B/C 源码提交进 A 仓库。仓库已下载和可训练是两个状态：若仓库缺少 `algorithm.yaml` 或 C 的 `derived-from.yaml`，页面会保留本机代码并显示待补清单；只有登记状态为 `published` 且清单齐全时才标记为可训练。所有下载和移除操作要求平台管理员权限。
+
+页面显示的登记状态含义如下：
 
 | 状态 | 含义 |
 | --- | --- |
