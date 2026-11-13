@@ -2,7 +2,7 @@
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-APP="$ROOT/启动AI训练平台.app"
+APP="$ROOT/launcher/macos/启动AI训练平台.app"
 DIST="$ROOT/launcher/macos/dist"
 DMG="$DIST/启动AI训练平台-macOS.dmg"
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/ai-training-launcher-dmg.XXXXXX")"

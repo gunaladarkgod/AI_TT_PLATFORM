@@ -40,7 +40,7 @@ B：AI_TT_BASELINE_SMALL_OBJECT_YOLO11
 
 ## 快速启动（跨平台图形启动器）
 
-项目提供图形启动器。macOS 使用原生 `启动AI训练平台.app`，Linux 使用 `启动AI训练平台.sh`。Windows 首次在 `launcher/windows/` 双击 `build_exe.bat` 生成 EXE 和桌面快捷方式，之后从桌面快捷方式打开图形界面；详细步骤见 [Windows 启动器](launcher/windows/README.md)。
+所有图形启动器统一放在 [launcher/](launcher/README.md)，项目根目录不再放置启动文件。macOS 打开 `launcher/macos/启动AI训练平台.app`；Linux 使用应用菜单入口，或执行 `launcher/linux/启动AI训练平台.sh`。Windows 首次在 `launcher/windows/` 双击 `build_exe.bat` 生成 EXE 和桌面快捷方式，之后从桌面快捷方式打开图形界面；详细步骤见 [Windows 启动器](launcher/windows/README.md)。
 
 macOS 分发包可从仓库分支下载 `launcher/macos/dist/启动AI训练平台-macOS.dmg`。打开 DMG 后运行其中的 App；首次启动时选择本地 `AI_TT_PLATFORM` 项目根目录，后续会记住该位置。
 
@@ -106,6 +106,7 @@ Runner 启动成功后监听 `http://127.0.0.1:8009/health`。`runner/` 统一�
 backend/       # Spring Boot 后端、数据库迁移与业务接口
 fronternd/     # Vue 3 前端
 runner/        # 统一训练调度、日志和配置服务
+launcher/      # 各系统图形启动器、启动入口与打包脚本
 engines/       # 可扩展的训练引擎目录
   mmdet_run/   # MMDetection、模板与任务生成配置
   yolo_run/    # 官方 Ultralytics 依赖版本与说明（由统一 Runner 调度）

@@ -22,7 +22,7 @@ from tkinter import END, BOTH, LEFT, RIGHT, X, BooleanVar, StringVar, Tk, messag
 from tkinter import ttk
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 BACKEND_DIR = ROOT / "backend"
 FRONTEND_DIR = ROOT / "fronternd"
 ENV_FILE = BACKEND_DIR / ".env.local"

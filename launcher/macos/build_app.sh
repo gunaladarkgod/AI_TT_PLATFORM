@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-APP="$ROOT/启动AI训练平台.app"
+APP="$ROOT/launcher/macos/启动AI训练平台.app"
 mkdir -p "$APP/Contents/MacOS"
 rm -f "$APP/Contents/MacOS/AITrainingLauncher"
 if [ -d /Applications/Xcode.app/Contents/Developer ]; then

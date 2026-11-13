@@ -19,6 +19,8 @@ MySQL（端口 `3306`）只做状态检查，不由启动器停止。每个由�
 
 之后从系统应用菜单打开“AI 训练平台启动器”，点击“启动全部”，再点击“打开平台”即可，日常启动和停止都不需要终端。运行环境需要 JDK 17、Maven（若 `backend/target/` 已有可执行 JAR 则不需要）、Node.js、npm、已安装的前端依赖、Python 3.8+、Tkinter 和 `xdg-open`；Runner 的 Python 依赖由仓库现有 `start_runner.sh` 按项目配置处理。首次准备这些开发依赖和数据库仍需按项目部署文档完成。
 
+也可在文件管理器中执行本目录的 `启动AI训练平台.sh`，它与应用菜单入口均调用 `launch.sh`，使用同一新版图形启动器。项目根目录不再提供启动脚本。
+
 ### 首次安装 Runner requirements（Ubuntu/Debian）
 
 在项目根目录执行一次：
