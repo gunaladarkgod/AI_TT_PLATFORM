@@ -88,9 +88,12 @@ public class AlgorithmComponentService {
         List<String> blockers = new ArrayList<>();
         boolean downloaded = Files.isDirectory(path) && Files.isDirectory(path.resolve(".git"));
         if (!downloaded) blockers.add("本机尚未下载该组件");
-        String manifest = "baseline".equals(kind) ? "algorithm.yaml" : "algorithm.yaml";
+        String manifest = manifestName(item, "algorithm_manifest", "algorithm.yaml");
         if (Files.isDirectory(path) && !Files.isRegularFile(path.resolve(manifest))) blockers.add("缺少 " + manifest);
-        if ("algorithm".equals(kind) && Files.isDirectory(path) && !Files.isRegularFile(path.resolve("derived-from.yaml"))) blockers.add("缺少 derived-from.yaml");
+        if ("algorithm".equals(kind)) {
+            String derivedManifest = manifestName(item, "derived_manifest", "derived-from.yaml");
+            if (Files.isDirectory(path) && !Files.isRegularFile(path.resolve(derivedManifest))) blockers.add("缺少 " + derivedManifest);
+        }
         boolean valid = downloaded && blockers.stream().noneMatch("本机尚未下载该组件"::equals)
                 && blockers.stream().noneMatch(blocker -> blocker.startsWith("缺少 "));
         Map<String, Object> result = new LinkedHashMap<>();
@@ -140,6 +143,11 @@ public class AlgorithmComponentService {
     private String runGit(int seconds, String... args) throws Exception { List<String> command = new ArrayList<>(List.of("git", "-c", "credential.interactive=false")); command.addAll(List.of(args)); Process process = new ProcessBuilder(command).directory(root.toFile()).redirectError(ProcessBuilder.Redirect.DISCARD).start(); process.getOutputStream().close(); if (!process.waitFor(seconds, TimeUnit.SECONDS)) { process.destroyForcibly(); throw new IllegalArgumentException("Git 操作超时"); } if (process.exitValue() != 0) throw new IllegalArgumentException("Git 操作失败，请检查网络和仓库权限"); return new String(process.getInputStream().readAllBytes()); }
     private String repositoryUrl(Map<String, Object> item) { String url = string(map(item.get("repository")).get("url")); if (!url.startsWith("https://github.com/") || url.contains("<") || url.contains("@")) throw new IllegalArgumentException("登记仓库地址无效"); return url; }
     private String repositoryRef(Map<String, Object> item) { Map<String, Object> repo = map(item.get("repository")); return Optional.ofNullable(string(repo.get("stable_ref"))).filter(s -> !s.isBlank()).orElseGet(() -> Optional.ofNullable(string(repo.get("default_ref"))).filter(s -> !s.isBlank()).orElse(string(repo.get("ref")))); }
+    private String manifestName(Map<String, Object> item, String field, String fallback) {
+        String value = string(item.get(field));
+        if (value.isBlank() || value.startsWith("/") || value.contains("..")) return fallback;
+        return value.replace('\\', '/');
+    }
     private static Map<String, Object> map(Object value) { if (!(value instanceof Map<?, ?> raw)) return Map.of(); Map<String, Object> result = new LinkedHashMap<>(); raw.forEach((key, val) -> result.put(String.valueOf(key), val)); return result; }
     private static String string(Object value) { return value == null ? "" : String.valueOf(value).trim(); }
     @PreDestroy public void close() { executor.shutdownNow(); }
