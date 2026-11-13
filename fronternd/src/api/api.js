@@ -62,6 +62,19 @@ export class AlgorithmComponentService {
     }
 }
 
+/** 用户上传的本地算法包登记。 */
+export class CustomAlgorithmService {
+    static list(direction) {
+        return request('/api/custom-algorithms', direction ? { direction } : {}, 'get', null, 'json');
+    }
+    static upload(formData, onProgress) {
+        return uploadRequest('/api/custom-algorithms/upload', formData, onProgress);
+    }
+    static remove(id) {
+        return request('/api/custom-algorithms/remove', { id }, 'post', 'application/json', 'json');
+    }
+}
+
 /**用户管理接口 */
 export class UserService {
     static async profile() { return request('/auth/profile', {}, 'get', null, 'json'); }
