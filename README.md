@@ -2,7 +2,7 @@
 
 面向目标检测数据集管理、实例数据集生成与统一训练调度的一体化本地平台。当前支持 MMDetection、官方 Ultralytics 和外部自定义训练命令。
 
-Linux 桌面环境可使用 [图形启动器](launcher/linux/README.md) 从应用菜单启动后端和 Runner，并通过后端打开构建好的前端网页。
+Windows、macOS 和 Linux 均提供图形启动器。Linux 使用 [独立启动器](launcher/linux/README.md)，Windows 版本说明见 [Windows 启动器](launcher/windows/README.md)。
 
 平台核心提供前后端、统一 Runner、任务队列和数据集处理；`research/` 保存研究方向、可复现基线和可叠加改进包。引擎属于平台核心，基线引用引擎，改进包只能叠加到指定基线。
 
@@ -40,11 +40,11 @@ B：AI_TT_BASELINE_SMALL_OBJECT_YOLO11
 
 ## 快速启动（跨平台图形启动器）
 
-项目根目录提供图形启动器。macOS 使用原生 `启动AI训练平台.app`，Windows 使用 `启动AI训练平台.bat`，Linux 使用 `启动AI训练平台.sh`，直接双击对应入口即可，不需要手动输入启动命令。
+项目提供图形启动器。macOS 使用原生 `启动AI训练平台.app`，Linux 使用 `启动AI训练平台.sh`。Windows 首次在 `launcher/windows/` 双击 `build_exe.bat` 生成 EXE 和桌面快捷方式，之后从桌面快捷方式打开图形界面；详细步骤见 [Windows 启动器](launcher/windows/README.md)。
 
 macOS 分发包可从仓库分支下载 `launcher/macos/dist/启动AI训练平台-macOS.dmg`。打开 DMG 后运行其中的 App；首次启动时选择本地 `AI_TT_PLATFORM` 项目根目录，后续会记住该位置。
 
-启动器会在窗口中检查 JDK、Maven、Node.js、MySQL，后台启动 Spring Boot、Python Runner 和 Vite，并在服务就绪后打开浏览器。macOS 原生启动器直接管理三个服务；Windows/Linux 启动器由后端自动拉起 Runner。日志写入 `logs/launcher/`，停止按钮只会停止本次启动器创建的进程。
+启动器会检查 MySQL、后端和 Runner 状态。Windows/Linux 会在首次运行或源码更新时构建前端，再由后端提供网页；Spring Boot 根据配置自动拉起 Runner。macOS 原生启动器可直接管理后端、Runner 和 Vite。日志写入 `logs/launcher/`，停止操作只影响启动器创建的后端进程。
 
 ### 1. 准备环境
 
@@ -54,7 +54,7 @@ macOS 分发包可从仓库分支下载 `launcher/macos/dist/启动AI训练平�
 - 可选：Redis 6+。未安装 Redis 时可使用内存降级模式。
 - 每个训练任务需要对应引擎的 Python 环境；Runner 使用独立的基础环境。使用 MMDetection 配置功能时，Runner 环境还需安装 `runner/requirements-mmdet.txt`。
 
-首次启动如果 `fronternd/node_modules` 不存在，启动器会自动安装前端依赖；安装过程显示在启动日志中。
+首次启动如果 `fronternd/node_modules` 不存在，Windows/Linux 启动器会自动安装前端依赖；安装过程写入启动日志。
 
 下面的命令仅用于开发维护或故障排查，日常启动不需要打开终端。
 
