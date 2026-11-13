@@ -62,6 +62,21 @@ class AlgorithmComponentServiceTest {
                 direction: small-object
                 status: draft
                 repository: {url: https://github.com/example/tdsc.git, default_ref: main}
+                derived_from: {baseline: {id: small-object/yolo11}}
+                platform: {min_version: null}
+                engine: {id: ultralytics, version: 8.4.165}
+                data_format: yolo
+                algorithm_manifest: algorithm.yaml
+                description: test
+                """);
+        file("research-registry/algorithms/small-object-improvement.yaml", """
+                schema_version: 1
+                id: small-object/legacy-improvement
+                kind: improvement
+                name: 旧改进包
+                direction: small-object
+                status: draft
+                repository: {url: https://github.com/example/legacy.git, default_ref: main}
                 platform: {min_version: null}
                 engine: {id: ultralytics, version: 8.4.165}
                 data_format: yolo
@@ -84,6 +99,8 @@ class AlgorithmComponentServiceTest {
             Map<?, ?> algorithm = (Map<?, ?>) ((List<?>) algorithms.get("components")).get(0);
             assertEquals("downloaded", baseline.get("localStatus"));
             assertEquals("downloaded", algorithm.get("localStatus"));
+            assertEquals("small-object/yolo11", algorithm.get("baselineId"));
+            assertEquals(1, ((List<?>) algorithms.get("components")).size());
             assertFalse((Boolean) algorithm.get("trainingReady"));
             assertTrue(((List<?>) algorithm.get("blockers")).contains("缺少 algorithm.yaml"));
             assertTrue(((List<?>) algorithm.get("blockers")).contains("缺少 derived-from.yaml"));

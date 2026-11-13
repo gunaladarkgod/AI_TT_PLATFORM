@@ -74,6 +74,7 @@ public class AlgorithmComponentService {
             Object raw = loaded.get("algorithms");
             if (raw instanceof Collection<?> values) for (Object value : values) {
                 Map<String, Object> item = map(value);
+                if (!"standalone-algorithm".equals(item.get("kind"))) continue;
                 if (direction == null || direction.isBlank() || direction.equals(item.get("direction"))) result.add(item);
             }
         } else throw new IllegalArgumentException("组件类型必须是 baseline 或 algorithm");
@@ -101,6 +102,8 @@ public class AlgorithmComponentService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", id); result.put("name", item.get("name")); result.put("direction", item.get("direction"));
         result.put("kind", kind); result.put("registrationStatus", item.get("status"));
+        result.put("code", item.get("code"));
+        result.put("baselineId", baselineId(item));
         result.put("localStatus", downloaded ? "downloaded" : "not-downloaded");
         result.put("path", root.relativize(path).toString().replace(FileSystems.getDefault().getSeparator(), "/"));
         result.put("trainingReady", "algorithm".equals(kind) && valid && "published".equals(item.get("status")));
@@ -121,30 +124,39 @@ public class AlgorithmComponentService {
 
     private void cloneRepository(String kind, String id, String url, String ref, Path target) {
         try {
-            stage("正在下载 " + id + "，版本 " + ref);
+            stageProgress("正在连接远程仓库", 10);
+            stageProgress("正在下载 " + id + "，版本 " + ref, 30);
             runGit(1200, "clone", "--depth", "1", "--branch", ref, url, target.toString());
-            stage("下载完成，正在检查清单");
+            stageProgress("仓库对象已下载，正在检查清单", 80);
             Map<String, Object> result = component(kind, find(kind, id));
             String message = Boolean.TRUE.equals(result.get("trainingReady"))
                     ? "组件已下载并可用于训练"
                     : "组件已下载，但平台训练清单尚待补齐";
             finish("succeeded", message);
-        } catch (Exception e) { stage(e.getMessage() == null ? "下载失败" : e.getMessage()); finish("failed", "下载失败"); }
+        } catch (Exception e) { stageProgress(e.getMessage() == null ? "下载失败" : e.getMessage(), 0); finish("failed", "下载失败"); }
     }
 
     private void removeDirectory(Path target) {
-        try (var files = Files.walk(target)) { files.sorted(Comparator.reverseOrder()).forEach(path -> { try { Files.deleteIfExists(path); } catch (IOException e) { throw new UncheckedIOException(e); } }); finish("succeeded", "本机组件已移除"); }
-        catch (Exception e) { stage("移除失败：" + e.getMessage()); finish("failed", "移除失败"); }
+        try {
+            stageProgress("正在删除本机组件文件", 50);
+            try (var files = Files.walk(target)) { files.sorted(Comparator.reverseOrder()).forEach(path -> { try { Files.deleteIfExists(path); } catch (IOException e) { throw new UncheckedIOException(e); } }); }
+            finish("succeeded", "本机组件已移除");
+        } catch (Exception e) { stageProgress("移除失败：" + e.getMessage(), 0); finish("failed", "移除失败"); }
     }
 
-    private void begin(String kind, String id, String operation) { task = new LinkedHashMap<>(Map.of("id", UUID.randomUUID().toString(), "componentId", id, "kind", kind, "operation", operation, "status", "running", "message", "准备中")); logs.clear(); }
-    private synchronized void stage(String message) { if (task != null) { task.put("message", message); logs.add(message); } }
-    private synchronized void finish(String status, String message) { if (task != null) { task.put("status", status); task.put("message", message); } }
+    private void begin(String kind, String id, String operation) { task = new LinkedHashMap<>(Map.of("id", UUID.randomUUID().toString(), "componentId", id, "kind", kind, "operation", operation, "status", "running", "progress", 0, "message", "准备中")); logs.clear(); }
+    private synchronized void stageProgress(String message, int progress) { if (task != null) { task.put("message", message); task.put("progress", progress); logs.add(message); } }
+    private synchronized void finish(String status, String message) { if (task != null) { task.put("status", status); task.put("message", message); task.put("progress", "succeeded".equals(status) ? 100 : task.getOrDefault("progress", 0)); } }
     public synchronized Map<String, Object> snapshot() { if (task == null) return Map.of(); Map<String, Object> copy = new LinkedHashMap<>(task); copy.put("logs", List.copyOf(logs)); return copy; }
     private boolean gitAvailable() { try { return runGit(5, "--version").startsWith("git version"); } catch (Exception e) { return false; } }
     private String runGit(int seconds, String... args) throws Exception { List<String> command = new ArrayList<>(List.of("git", "-c", "credential.interactive=false")); command.addAll(List.of(args)); Process process = new ProcessBuilder(command).directory(root.toFile()).redirectError(ProcessBuilder.Redirect.DISCARD).start(); process.getOutputStream().close(); if (!process.waitFor(seconds, TimeUnit.SECONDS)) { process.destroyForcibly(); throw new IllegalArgumentException("Git 操作超时"); } if (process.exitValue() != 0) throw new IllegalArgumentException("Git 操作失败，请检查网络和仓库权限"); return new String(process.getInputStream().readAllBytes()); }
     private String repositoryUrl(Map<String, Object> item) { String url = string(map(item.get("repository")).get("url")); if (!url.startsWith("https://github.com/") || url.contains("<") || url.contains("@")) throw new IllegalArgumentException("登记仓库地址无效"); return url; }
     private String repositoryRef(Map<String, Object> item) { Map<String, Object> repo = map(item.get("repository")); return Optional.ofNullable(string(repo.get("stable_ref"))).filter(s -> !s.isBlank()).orElseGet(() -> Optional.ofNullable(string(repo.get("default_ref"))).filter(s -> !s.isBlank()).orElse(string(repo.get("ref")))); }
+    private String baselineId(Map<String, Object> item) {
+        Map<String, Object> derivedFrom = map(item.get("derived_from"));
+        Map<String, Object> baseline = map(derivedFrom.get("baseline"));
+        return string(baseline.get("id"));
+    }
     private String manifestName(Map<String, Object> item, String field, String fallback) {
         String value = string(item.get(field));
         if (value.isBlank() || value.startsWith("/") || value.contains("..")) return fallback;

@@ -1,5 +1,6 @@
 schema_version: 1
 id: small-object/tdsc
+code: C1
 kind: standalone-algorithm
 name: YOLO11 TDSC 小目标算法
 direction: small-object

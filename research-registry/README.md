@@ -44,9 +44,11 @@
 登录后访问 `GET /api/research-registry`。成功时返回 `registry`、`directions`、`algorithms`、`conventions`；登记目录缺失、YAML 无效、字段缺失、重复 ID、未知引擎、非法路径或公约文件读取失败时，响应 `data.errors` 会列出原因。研究基线页面还提供维护角色专用的 B/C 仓库按需下载接口：
 
 - `GET /api/baseline-components`：读取登记的 B 基线和本机状态。
-- `GET /api/algorithm-components`：读取登记的 C 算法和本机状态。
+- `GET /api/algorithm-components`：读取登记的独立 C 算法和本机状态，并返回其 `baselineId` 关联的 B 基线。
 - `POST /api/baseline-components/install`、`POST /api/algorithm-components/install`：按登记 ID 克隆对应 GitHub 仓库。
 - `POST /api/baseline-components/remove`、`POST /api/algorithm-components/remove`：移除对应的本机副本，不影响远程仓库。
+
+下载任务会返回 `progress`、`message` 和 `logs`；页面按“连接仓库、下载对象、检查清单、完成”刷新阶段进度。这个百分比表示任务阶段，不代表远程仓库的精确字节百分比。
 
 下载写入被 `.gitignore` 忽略的 `local-components/`，不会把外部 B/C 源码提交进 A 仓库。仓库已下载和可训练是两个状态：若仓库缺少 `algorithm.yaml` 或 C 的 `derived-from.yaml`，页面会保留本机代码并显示待补清单；只有登记状态为 `published` 且清单齐全时才标记为可训练。下载和移除操作要求平台管理员、基线维护者或改进开发者权限，普通实验用户只能查看状态。
 

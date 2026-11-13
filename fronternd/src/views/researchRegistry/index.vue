@@ -75,28 +75,68 @@
 
       <section class="registry-section">
         <div class="section-heading">
-          <h3>本机 B/C 组件</h3>
-          <span>只下载需要的基线或独立算法；下载地址来自登记文件</span>
+          <h3>B 基线与 C 算法</h3>
+          <span>每个基线单独管理；C 算法只显示在它派生的基线下面</span>
         </div>
         <el-alert v-if="componentError" :title="componentError" type="warning" :closable="false" show-icon />
-        <el-table v-loading="componentLoading" :data="[...baselineComponents, ...algorithmComponents]" stripe border size="small" row-key="id">
-          <el-table-column label="类型" width="100"><template #default="{ row }">{{ row.kind === 'baseline' ? 'B 基线' : 'C 算法' }}</template></el-table-column>
-          <el-table-column prop="name" label="名称" min-width="220" />
-          <el-table-column prop="direction" label="方向" width="130" />
-          <el-table-column label="本机状态" min-width="180">
-            <template #default="{ row }">
-              <el-tag size="small" :type="componentStatusType(row.localStatus)">{{ componentStatusLabel(row.localStatus) }}</el-tag>
-              <div v-if="row.blockers?.length" class="component-blocker">{{ row.blockers.join('；') }}</div>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="150">
-            <template #default="{ row }">
-              <el-button v-if="row.localStatus === 'not-downloaded'" size="small" :loading="componentTask.componentId === row.id" @click="installComponent(row)">下载</el-button>
-              <el-button v-else-if="row.localStatus !== 'invalid'" size="small" type="danger" plain :loading="componentTask.componentId === row.id" @click="removeComponent(row)">移除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-        <div v-if="componentTask.status === 'running'" class="component-task">{{ componentTask.message }}</div>
+        <div v-loading="componentLoading" class="baseline-groups">
+          <div v-for="group in baselineGroups" :key="group.id" class="baseline-group">
+            <div class="baseline-group-heading">
+              <div>
+                <span class="baseline-code">{{ group.code || directionCode(group.direction) }}</span>
+                <strong>{{ group.name }}</strong>
+              </div>
+              <span class="baseline-group-direction">{{ group.direction }}</span>
+            </div>
+            <el-table
+              :data="rowsForGroup(group)"
+              stripe
+              border
+              size="small"
+              row-key="id"
+              class="component-table"
+              :row-class-name="componentRowClass"
+            >
+              <el-table-column label="组件" min-width="330">
+                <template #default="{ row }">
+                  <div v-if="row.kind === 'baseline'" class="baseline-row-title">基线下载 · {{ row.name }}</div>
+                  <div v-else class="algorithm-row-title">{{ row.code || 'C 算法' }} · {{ row.name }}</div>
+                  <div class="component-id">{{ row.id }}</div>
+                </template>
+              </el-table-column>
+              <el-table-column label="仓库" min-width="270" show-overflow-tooltip>
+                <template #default="{ row }"><a :href="row.repository" target="_blank" rel="noopener">{{ row.repository || '未登记' }}</a></template>
+              </el-table-column>
+              <el-table-column label="本机状态" min-width="190">
+                <template #default="{ row }">
+                  <el-tag size="small" :type="componentStatusType(row.localStatus)">{{ componentStatusLabel(row.localStatus) }}</el-tag>
+                  <div v-if="row.blockers?.length" class="component-blocker">{{ row.blockers.join('；') }}</div>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="150">
+                <template #default="{ row }">
+                  <el-button v-if="row.localStatus === 'not-downloaded'" size="small" :loading="componentTask.componentId === row.id && componentTask.status === 'running'" @click="installComponent(row)">下载</el-button>
+                  <el-button v-else size="small" type="danger" plain :loading="componentTask.componentId === row.id && componentTask.status === 'running'" @click="removeComponent(row)">移除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+          <div v-if="unboundAlgorithms.length" class="baseline-group">
+            <div class="baseline-group-heading"><div><span class="baseline-code">C</span><strong>未关联基线的算法</strong></div></div>
+            <el-table :data="unboundAlgorithms" stripe border size="small" class="component-table" :row-class-name="componentRowClass">
+              <el-table-column label="组件" min-width="330"><template #default="{ row }"><div class="algorithm-row-title">{{ row.code || 'C 算法' }} · {{ row.name }}</div><div class="component-id">{{ row.id }}</div></template></el-table-column>
+              <el-table-column label="状态" min-width="190"><template #default="{ row }"><el-tag size="small" :type="componentStatusType(row.localStatus)">{{ componentStatusLabel(row.localStatus) }}</el-tag><div v-if="row.blockers?.length" class="component-blocker">{{ row.blockers.join('；') }}</div></template></el-table-column>
+              <el-table-column label="操作" width="150"><template #default="{ row }"><el-button v-if="row.localStatus === 'not-downloaded'" size="small" @click="installComponent(row)">下载</el-button><el-button v-else size="small" type="danger" plain @click="removeComponent(row)">移除</el-button></template></el-table-column>
+            </el-table>
+          </div>
+        </div>
+        <div v-if="componentTask.status" class="component-task">
+          <div class="component-task-heading"><strong>{{ componentTask.message }}</strong><el-tag size="small" :type="taskStatusType">{{ taskStatusLabel }}</el-tag></div>
+          <el-progress :percentage="Number(componentTask.progress || 0)" :status="taskProgressStatus" :stroke-width="12" />
+          <el-collapse v-if="componentTask.logs?.length" class="component-logs">
+            <el-collapse-item title="查看任务日志" name="component-logs"><div v-for="(log, index) in componentTask.logs" :key="`${index}-${log}`">{{ log }}</div></el-collapse-item>
+          </el-collapse>
+        </div>
       </section>
 
       <section class="registry-section">
@@ -132,7 +172,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { AlgorithmComponentService, ResearchRegistryService } from '@/api/api'
 
@@ -153,6 +193,23 @@ const statusType = (status) => ({ draft: 'info', review: 'warning', published: '
 const compatibilityText = (items = []) => (items || []).map(item => `${item.engine} ${item.versions?.join('/') || ''}`).join('、') || '—'
 const componentStatusLabel = status => ({ 'not-downloaded': '未下载', downloaded: '已下载', invalid: '不可用' }[status] || '未知')
 const componentStatusType = status => ({ 'not-downloaded': 'warning', downloaded: 'success', invalid: 'danger' }[status] || 'info')
+const directionCode = direction => registry.value.directions?.find(item => item.id === direction)?.code || direction || 'B'
+const baselineGroups = computed(() => {
+  const groups = baselineComponents.value.map(baseline => ({
+    ...baseline,
+    algorithms: algorithmComponents.value.filter(algorithm => algorithm.baselineId === baseline.id),
+  }))
+  return groups
+})
+const unboundAlgorithms = computed(() => {
+  const baselineIds = new Set(baselineComponents.value.map(item => item.id))
+  return algorithmComponents.value.filter(item => !item.baselineId || !baselineIds.has(item.baselineId))
+})
+const rowsForGroup = group => [group, ...group.algorithms]
+const componentRowClass = ({ row }) => row.kind === 'baseline' ? 'baseline-row' : 'algorithm-row'
+const taskStatusLabel = computed(() => ({ running: '进行中', succeeded: '已完成', failed: '失败' }[componentTask.value.status] || '未开始'))
+const taskStatusType = computed(() => ({ running: 'warning', succeeded: 'success', failed: 'danger' }[componentTask.value.status] || 'info'))
+const taskProgressStatus = computed(() => componentTask.value.status === 'failed' ? 'exception' : componentTask.value.status === 'succeeded' ? 'success' : undefined)
 
 const loadComponents = async () => {
   componentLoading.value = true
@@ -175,13 +232,15 @@ const loadComponents = async () => {
 }
 
 const installComponent = async row => {
-  const response = row.kind === 'baseline'
-    ? await AlgorithmComponentService.installBaseline(row.id)
-    : await AlgorithmComponentService.installAlgorithm(row.id)
-  if (response?.code !== 0) { componentError.value = response?.msg || '下载启动失败'; return }
-  componentTask.value = response.data || {}
-  clearTimeout(componentTimer)
-  componentTimer = setTimeout(loadComponents, 300)
+  try {
+    const response = row.kind === 'baseline'
+      ? await AlgorithmComponentService.installBaseline(row.id)
+      : await AlgorithmComponentService.installAlgorithm(row.id)
+    if (response?.code !== 0) { componentError.value = response?.msg || '下载启动失败'; return }
+    componentTask.value = response.data || {}
+    clearTimeout(componentTimer)
+    componentTimer = setTimeout(loadComponents, 300)
+  } catch (error) { componentError.value = error?.msg || error?.message || '下载启动失败' }
 }
 
 const removeComponent = async row => {
@@ -237,7 +296,22 @@ onBeforeUnmount(() => clearTimeout(componentTimer))
 .registry-meta { display: grid; grid-template-columns: 78px 1fr; gap: 8px; margin-top: 8px; font-size: 13px; }
 .registry-meta b { color: var(--el-text-color-primary); }
 .registry-meta span { color: var(--el-text-color-secondary); }
+.baseline-groups { display: grid; gap: 18px; }
+.baseline-group { overflow: hidden; border: 1px solid var(--el-border-color); border-radius: 6px; background: var(--el-bg-color); }
+.baseline-group-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; background: var(--el-fill-color-light); }
+.baseline-group-heading > div { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.baseline-code { color: var(--el-color-primary); font-size: 17px; font-weight: 800; }
+.baseline-group-heading strong { color: var(--el-text-color-primary); font-size: 16px; }
+.baseline-group-direction { color: var(--el-text-color-secondary); font-size: 12px; }
+.baseline-row-title, .algorithm-row-title { color: var(--el-text-color-primary); }
+.baseline-row-title { font-size: 15px; font-weight: 800; }
+.algorithm-row-title { font-weight: 600; }
+.component-id { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; }
 .component-blocker, .component-task { margin-top: 5px; color: var(--el-text-color-secondary); font-size: 12px; }
+.component-task { padding: 14px 16px; border: 1px solid var(--el-border-color); border-radius: 6px; background: var(--el-fill-color-lighter); }
+.component-task-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.component-logs { margin-top: 10px; }
+.component-logs :deep(.el-collapse-item__content) { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.7; }
 a { color: var(--el-color-primary); }
 .convention-content { margin: 0; padding: 12px; background: var(--el-fill-color-light); color: var(--el-text-color-regular); white-space: pre-wrap; font: inherit; line-height: 1.6; }
 @media (max-width: 700px) { .section-heading { display: block; } .section-heading span { display: block; margin-top: 5px; } .registry-intro { display: block; } .registry-intro .el-tag { margin-top: 10px; } }
