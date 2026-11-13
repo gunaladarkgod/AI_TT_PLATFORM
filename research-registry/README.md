@@ -37,11 +37,11 @@
 - `data_format`：`coco`、`yolo` 或 `custom`
 - `algorithm_manifest`：登记对应的算法清单相对路径；独立 C 算法还应提供 `derived_manifest`
 
-`id` 使用 `方向/方案简称`，仅允许小写字母、数字和连字符。仓库地址仅作展示和后续受控接入的元信息，当前接口不会把它交给 Git 执行。
+`id` 使用 `方向/方案简称`，仅允许小写字母、数字和连字符。仓库地址由 A 平台登记并经过 HTTPS GitHub 地址校验，受控下载接口只按登记 ID 执行浅克隆，不接受客户端传入任意本地路径或仓库地址。
 
 ## 接口与状态
 
-登录后访问 `GET /api/research-registry`。成功时返回 `registry`、`directions`、`algorithms`、`conventions`；登记目录缺失、YAML 无效、字段缺失、重复 ID、未知引擎、非法路径或公约文件读取失败时，响应 `data.errors` 会列出原因。研究基线页面还提供管理员专用的 B/C 仓库按需下载接口：
+登录后访问 `GET /api/research-registry`。成功时返回 `registry`、`directions`、`algorithms`、`conventions`；登记目录缺失、YAML 无效、字段缺失、重复 ID、未知引擎、非法路径或公约文件读取失败时，响应 `data.errors` 会列出原因。研究基线页面还提供维护角色专用的 B/C 仓库按需下载接口：
 
 - `GET /api/baseline-components`：读取登记的 B 基线和本机状态。
 - `GET /api/algorithm-components`：读取登记的 C 算法和本机状态。
