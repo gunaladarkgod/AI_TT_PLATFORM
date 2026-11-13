@@ -48,7 +48,7 @@
 - `POST /api/baseline-components/install`、`POST /api/algorithm-components/install`：按登记 ID 克隆对应 GitHub 仓库。
 - `POST /api/baseline-components/remove`、`POST /api/algorithm-components/remove`：移除对应的本机副本，不影响远程仓库。
 
-下载写入被 `.gitignore` 忽略的 `local-components/`，不会把外部 B/C 源码提交进 A 仓库。仓库已下载和可训练是两个状态：若仓库缺少 `algorithm.yaml` 或 C 的 `derived-from.yaml`，页面会保留本机代码并显示待补清单；只有登记状态为 `published` 且清单齐全时才标记为可训练。所有下载和移除操作要求平台管理员权限。
+下载写入被 `.gitignore` 忽略的 `local-components/`，不会把外部 B/C 源码提交进 A 仓库。仓库已下载和可训练是两个状态：若仓库缺少 `algorithm.yaml` 或 C 的 `derived-from.yaml`，页面会保留本机代码并显示待补清单；只有登记状态为 `published` 且清单齐全时才标记为可训练。下载和移除操作要求平台管理员、基线维护者或改进开发者权限，普通实验用户只能查看状态。
 
 页面显示的登记状态含义如下：
 

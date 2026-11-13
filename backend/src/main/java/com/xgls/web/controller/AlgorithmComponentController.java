@@ -25,7 +25,7 @@ public class AlgorithmComponentController {
     public AjaxResult remove(@PathVariable String kind, @RequestBody Map<String, String> body, HttpServletRequest request) { return mutate(kind, body, request, false); }
     private AjaxResult mutate(String kind, Map<String, String> body, HttpServletRequest request, boolean install) {
         User user = AuthenticatedUserUtil.current(request, redis, users);
-        if (!AuthenticatedUserUtil.isPlatformAdmin(user)) return AjaxResult.error("组件下载和移除需要平台管理员权限");
+        if (!AuthenticatedUserUtil.canManageResearchComponents(user)) return AjaxResult.error("组件下载和移除需要平台、基线或改进维护权限");
         try { return AjaxResult.success(install ? service.install(kind, body.get("id")) : service.remove(kind, body.get("id"))); }
         catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
     }
