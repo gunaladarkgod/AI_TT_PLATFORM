@@ -2,6 +2,7 @@ package com.xgls.web.service;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,6 +13,19 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class AlgorithmComponentServiceTest {
     @TempDir Path temp;
+
+    @Test
+    void springCreatesServiceWithRegistryDependency() throws Exception {
+        registry();
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(ResearchRegistryService.class, () -> new ResearchRegistryService(temp));
+            context.register(AlgorithmComponentService.class);
+            context.refresh();
+
+            Map<String, Object> result = context.getBean(AlgorithmComponentService.class).list("baseline", null);
+            assertEquals(1, ((List<?>) result.get("components")).size());
+        }
+    }
 
     private void file(String relative, String content) throws Exception {
         Path path = temp.resolve(relative);

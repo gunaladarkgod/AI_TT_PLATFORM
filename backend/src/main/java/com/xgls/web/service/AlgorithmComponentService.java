@@ -2,6 +2,7 @@ package com.xgls.web.service;
 
 import com.xgls.web.utils.WorkspacePathUtil;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -19,6 +20,7 @@ public class AlgorithmComponentService {
     private Map<String, Object> task;
     private final List<String> logs = new ArrayList<>();
 
+    @Autowired
     public AlgorithmComponentService(ResearchRegistryService registry) {
         this(WorkspacePathUtil.workspaceRoot(), registry);
     }
