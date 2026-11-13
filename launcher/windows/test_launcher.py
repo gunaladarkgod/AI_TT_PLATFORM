@@ -36,7 +36,7 @@ class LauncherHelperTests(unittest.TestCase):
             source.write_text("source", encoding="utf-8")
             index = frontend / "dist" / "index.html"
             with patch.object(launcher, "ROOT", root), patch.object(launcher, "FRONTEND_DIR", frontend), \
-                    patch.object(launcher, "FRONTEND_INDEX", index):
+                    patch.object(launcher, "FRONTEND_INDEX", index), patch.object(launcher, "FRONTEND_DOCUMENTS", ()):
                 self.assertTrue(launcher.frontend_needs_build())
                 index.parent.mkdir()
                 index.write_text("built", encoding="utf-8")
@@ -44,6 +44,32 @@ class LauncherHelperTests(unittest.TestCase):
                 os.utime(index, (110, 110))
                 self.assertFalse(launcher.frontend_needs_build())
                 os.utime(source, (120, 120))
+                self.assertTrue(launcher.frontend_needs_build())
+
+    def test_frontend_build_tracks_embedded_docs_but_not_unrelated_docs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            frontend = root / "fronternd"
+            index = frontend / "dist" / "index.html"
+            index.parent.mkdir(parents=True)
+            index.write_text("built", encoding="utf-8")
+            docs = root / "docs" / "v1.0"
+            docs.mkdir(parents=True)
+            embedded_doc = docs / "技术说明文档.md"
+            embedded_doc.write_text("embedded", encoding="utf-8")
+            unrelated_doc = docs / "选择性克隆指南.md"
+            unrelated_doc.write_text("unrelated", encoding="utf-8")
+            os.utime(index, (120, 120))
+            os.utime(embedded_doc, (100, 100))
+            os.utime(unrelated_doc, (100, 100))
+            watched_docs = tuple(docs / name for name in (
+                "使用说明文档v1.0.md", "技术说明文档.md", "GitHub协作流程.md", "算法集成规范.md"))
+
+            with patch.object(launcher, "ROOT", root), patch.object(launcher, "FRONTEND_DIR", frontend), \
+                    patch.object(launcher, "FRONTEND_INDEX", index), patch.object(launcher, "FRONTEND_DOCUMENTS", watched_docs):
+                os.utime(unrelated_doc, (130, 130))
+                self.assertFalse(launcher.frontend_needs_build())
+                os.utime(embedded_doc, (140, 140))
                 self.assertTrue(launcher.frontend_needs_build())
 
     def test_cmd_wrapper_quotes_paths_with_spaces(self):

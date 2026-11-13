@@ -42,6 +42,12 @@ def find_workspace() -> Path:
 ROOT = find_workspace()
 FRONTEND_DIR = ROOT / "fronternd"
 FRONTEND_INDEX = FRONTEND_DIR / "dist" / "index.html"
+FRONTEND_DOCUMENTS = tuple(ROOT / "docs" / "v1.0" / name for name in (
+    "使用说明文档v1.0.md",
+    "技术说明文档.md",
+    "GitHub协作流程.md",
+    "算法集成规范.md",
+))
 LOG_DIR = ROOT / "logs" / "launcher"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -138,9 +144,10 @@ def frontend_needs_build() -> bool:
     built_at = FRONTEND_INDEX.stat().st_mtime
     sources = [FRONTEND_DIR / name for name in
                ("index.html", "vite.config.js", "package.json", "package-lock.json")]
-    for directory in (FRONTEND_DIR / "src", FRONTEND_DIR / "public", ROOT / "docs" / "v1.0"):
+    for directory in (FRONTEND_DIR / "src", FRONTEND_DIR / "public"):
         if directory.is_dir():
             sources.extend(path for path in directory.rglob("*") if path.is_file())
+    sources.extend(FRONTEND_DOCUMENTS)
     return any(path.is_file() and path.stat().st_mtime > built_at for path in sources)
 
 
@@ -496,7 +503,8 @@ class Launcher(tk.Tk):
             try:
                 log_path.parent.mkdir(parents=True, exist_ok=True)
                 with log_path.open("a", encoding="utf-8") as stream:
-                    command = windows_command(npm, "install") if npm.lower().endswith((".cmd", ".bat")) else [npm, "install"]
+                    install_args = ["install", "--no-audit", "--no-fund", "--prefer-offline"]
+                    command = windows_command(npm, *install_args) if npm.lower().endswith((".cmd", ".bat")) else [npm, *install_args]
                     self.build_process = subprocess.Popen(command, cwd=FRONTEND_DIR,
                         stdin=subprocess.DEVNULL, stdout=stream, stderr=subprocess.STDOUT,
                         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW)
