@@ -47,6 +47,7 @@ launcher/windows/build/
 launcher/windows/build-fixed/
 launcher/windows/dist/
 launcher/windows/*.spec
+launcher/windows/启动AI训练平台.exe
 engines/mmdet_run/mmdet_runner_srv/.conda_runner/
 runner/.conda_runner/
 

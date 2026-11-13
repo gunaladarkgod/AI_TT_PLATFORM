@@ -1,7 +1,7 @@
 @echo off
 setlocal
 set "ROOT=%~dp0..\.."
-set "EXE=%~dp0dist\启动AI训练平台.exe"
+set "EXE=%~dp0启动AI训练平台.exe"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0create_desktop_shortcut.ps1" -ExecutablePath "%EXE%" -WorkspaceRoot "%ROOT%"
 if errorlevel 1 (
   echo.

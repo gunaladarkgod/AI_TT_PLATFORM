@@ -1,8 +1,8 @@
 # Windows 启动器
 
-首次生成程序时，在 Windows 上双击 `build_exe.bat`。脚本会创建独立的打包环境、安装 PyInstaller、生成 `dist/启动AI训练平台.exe`，并在桌面创建快捷方式。之后直接双击桌面快捷方式或该 EXE，即可打开图形界面；不需要安装 Python，也不需要打开终端。根目录的 `启动AI训练平台.bat` 保留为兼容入口。
+首次生成程序时，在 Windows 上双击 `build_exe.bat`。脚本会创建独立的打包环境、安装 PyInstaller、在本目录生成 `启动AI训练平台.exe`，并在桌面创建快捷方式。之后直接双击桌面快捷方式或该 EXE，即可打开图形界面；不需要安装 Python，也不需要打开终端。根目录的 `启动AI训练平台.bat` 保留为兼容入口。
 
-EXE 必须放在项目仓库内的 `launcher/windows/dist/`，快捷方式会自动把项目根目录设为工作目录。启动器仍需要读取当前仓库中的前后端源码和配置，因此不能把 EXE 单独移出仓库使用。
+EXE 必须放在项目仓库内的 `launcher/windows/`，快捷方式会自动把项目根目录设为工作目录。启动器仍需要读取当前仓库中的前后端源码和配置，因此不能把 EXE 单独移出仓库使用。`.build-venv/` 是 PyInstaller 打包环境；`.build/` 是可随时重新生成的临时缓存。
 
 窗口提供 MySQL、后端和 Runner 状态，以及启动、停止、打开日志、数据库配置和打开平台操作。首次设置或修改 MySQL 账号时，点击“数据库配置”，在打开的 `backend/.env.local` 中填写 `DB_USERNAME` 与 `DB_PASSWORD`，保存后停止并重新启动后端。该本机配置不会提交到 Git。
 
