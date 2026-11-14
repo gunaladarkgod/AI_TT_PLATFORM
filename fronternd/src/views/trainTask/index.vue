@@ -4656,7 +4656,7 @@ const refreshComponentOptions = async () => {
       ultralyticsStack.parameters = []
       ElMessage.warning('所选算法已移除，请重新选择')
     }
-  } catch (error) { ElMessage.warning(error.message || '读取算法失败') }
+  } catch (error) { ElMessage.warning(error?.msg || error?.message || error?.response?.data?.msg || '读取算法失败') }
 }
 const applyUltraStackDefaults = (parameters = [], preserveCurrent = true) => {
   const next = {}
