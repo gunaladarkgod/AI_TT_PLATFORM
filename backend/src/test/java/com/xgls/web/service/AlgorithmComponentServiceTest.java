@@ -2,10 +2,12 @@ package com.xgls.web.service;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Assumptions;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.DosFileAttributeView;
 import java.util.List;
 import java.util.Map;
 
@@ -107,5 +109,59 @@ class AlgorithmComponentServiceTest {
         } finally {
             service.close();
         }
+    }
+
+    @Test
+    void reportsAndRemovesAnIncompleteLocalAlgorithmCheckout() throws Exception {
+        registry();
+        Path target = temp.resolve("local-components/algorithms/small-object/tdsc");
+        Files.createDirectories(target.resolve("src"));
+        Files.writeString(target.resolve("src/algorithm.py"), "partial checkout");
+
+        AlgorithmComponentService service = new AlgorithmComponentService(temp, new ResearchRegistryService(temp));
+        try {
+            Map<?, ?> component = (Map<?, ?>) ((List<?>) service.list("algorithm", null).get("components")).get(0);
+            assertEquals("partial", component.get("localStatus"));
+            assertFalse((Boolean) component.get("trainingReady"));
+
+            service.remove("algorithm", "small-object/tdsc");
+            awaitTask(service);
+
+            assertEquals("succeeded", service.snapshot().get("status"));
+            assertFalse(Files.exists(target));
+        } finally {
+            service.close();
+        }
+    }
+
+    @Test
+    void removesReadOnlyGitPackFilesWhenDosAttributesAreSupported() throws Exception {
+        registry();
+        Path target = temp.resolve("local-components/algorithms/small-object/tdsc");
+        Files.createDirectories(target.resolve(".git/objects/pack"));
+        Path packFile = target.resolve(".git/objects/pack/pack-test.idx");
+        Files.writeString(packFile, "read only pack index");
+        DosFileAttributeView dos = Files.getFileAttributeView(packFile, DosFileAttributeView.class);
+        Assumptions.assumeTrue(dos != null, "filesystem does not expose DOS attributes");
+        dos.setReadOnly(true);
+
+        AlgorithmComponentService service = new AlgorithmComponentService(temp, new ResearchRegistryService(temp));
+        try {
+            service.remove("algorithm", "small-object/tdsc");
+            awaitTask(service);
+
+            assertEquals("succeeded", service.snapshot().get("status"));
+            assertFalse(Files.exists(target));
+        } finally {
+            service.close();
+        }
+    }
+
+    private void awaitTask(AlgorithmComponentService service) throws InterruptedException {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+        while ("running".equals(service.snapshot().get("status")) && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        assertNotEquals("running", service.snapshot().get("status"), "component removal timed out");
     }
 }

@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.*;
+import java.nio.file.attribute.DosFileAttributeView;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -89,6 +90,7 @@ public class AlgorithmComponentService {
         String id = string(item.get("id"));
         Path path = target(kind, id);
         List<String> blockers = new ArrayList<>();
+        boolean localPathExists = Files.exists(path, LinkOption.NOFOLLOW_LINKS);
         boolean downloaded = Files.isDirectory(path) && Files.isDirectory(path.resolve(".git"));
         if (!downloaded) blockers.add("本机尚未下载该组件");
         String manifest = manifestName(item, "algorithm_manifest", "algorithm.yaml");
@@ -104,7 +106,7 @@ public class AlgorithmComponentService {
         result.put("kind", kind); result.put("registrationStatus", item.get("status"));
         result.put("code", item.get("code"));
         result.put("baselineId", baselineId(item));
-        result.put("localStatus", downloaded ? "downloaded" : "not-downloaded");
+        result.put("localStatus", downloaded ? "downloaded" : localPathExists ? "partial" : "not-downloaded");
         result.put("path", root.relativize(path).toString().replace(FileSystems.getDefault().getSeparator(), "/"));
         result.put("trainingReady", "algorithm".equals(kind) && valid && "published".equals(item.get("status")));
         result.put("blockers", blockers);
@@ -138,10 +140,28 @@ public class AlgorithmComponentService {
 
     private void removeDirectory(Path target) {
         try {
+            Path componentRoot = root.resolve("local-components").toAbsolutePath().normalize();
+            Path normalizedTarget = target.toAbsolutePath().normalize();
+            if (normalizedTarget.equals(componentRoot) || !normalizedTarget.startsWith(componentRoot)) {
+                throw new IOException("组件目录超出本机组件范围");
+            }
+            stageProgress("正在清理组件文件只读属性", 20);
+            clearReadOnlyAttributes(normalizedTarget);
             stageProgress("正在删除本机组件文件", 50);
-            try (var files = Files.walk(target)) { files.sorted(Comparator.reverseOrder()).forEach(path -> { try { Files.deleteIfExists(path); } catch (IOException e) { throw new UncheckedIOException(e); } }); }
+            try (var files = Files.walk(normalizedTarget)) { files.sorted(Comparator.reverseOrder()).forEach(path -> { try { Files.deleteIfExists(path); } catch (IOException e) { throw new UncheckedIOException(e); } }); }
             finish("succeeded", "本机组件已移除");
         } catch (Exception e) { stageProgress("移除失败：" + e.getMessage(), 0); finish("failed", "移除失败"); }
+    }
+
+    private void clearReadOnlyAttributes(Path target) throws IOException {
+        if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) throw new IOException("组件目录不存在");
+        try (var paths = Files.walk(target)) {
+            for (Path path : paths.toList()) {
+                DosFileAttributeView dos = Files.getFileAttributeView(
+                        path, DosFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+                if (dos != null && dos.readAttributes().isReadOnly()) dos.setReadOnly(false);
+            }
+        }
     }
 
     private void begin(String kind, String id, String operation) { task = new LinkedHashMap<>(Map.of("id", UUID.randomUUID().toString(), "componentId", id, "kind", kind, "operation", operation, "status", "running", "progress", 0, "message", "准备中")); logs.clear(); }
