@@ -212,6 +212,10 @@ export class TrainLabelService {
 }
 /**训练任务管理 */
 export class TrainTaskService {
+    static componentOptions(direction) {
+        return request('/trainTask/component-options', { direction }, 'get', null, 'json');
+    }
+
     static async queryList(params) {
         return request('/trainTask/list', params, 'post');
     }

@@ -289,7 +289,7 @@
               <el-input v-model="addForm.name" :disabled="isSee" />
             </div>
           </div>
-          <div class="task-overview-item">
+          <div v-if="!componentTraining" class="task-overview-item">
             <div class="task-overview-label required-label">训练引擎</div>
             <div class="task-overview-content">
               <el-select v-model="trainingEngine" :disabled="isSee" @change="handleTrainingEngineChange">
@@ -346,7 +346,7 @@
               <el-input v-model="addForm.name" :disabled="isSee" />
             </div>
           </div>
-          <div class="task-overview-item">
+          <div v-if="!componentTraining" class="task-overview-item">
             <div class="task-overview-label required-label">训练引擎</div>
             <div class="task-overview-content">
               <el-select v-model="trainingEngine" :disabled="isSee" @change="handleTrainingEngineChange">
@@ -1379,7 +1379,7 @@
         <el-alert v-if="isMMDetSelected" class="single-config-tip" type="info" :closable="false" show-icon
           title="所有参数均从一个完整模板读取，保存后只生成 modelcfg/{任务名称}/config.py" />
         <el-alert v-else-if="isUltralyticsSelected" class="single-config-tip" type="info" :closable="false" show-icon
-          title="官方 Ultralytics 由统一 Runner 调度。训练环境由本任务保存的 Python 决定，不会修改 Runner 或 Conda 环境。" />
+          :title="componentTraining ? '统一 Runner 使用所选 B/C 仓库源码训练，训练环境由本任务保存的 Python 决定。' : '官方 Ultralytics 由统一 Runner 调度。'" />
         <el-alert v-else class="single-config-tip" type="info" :closable="false" show-icon
           title="自定义任务使用 Runner fixed 模式，按上方选择的训练 Python、执行目录和命令行直接运行。" />
         <div v-if="isUltralyticsSelected" class="ultralytics-task-panel">
@@ -1395,14 +1395,19 @@
                 </el-form-item>
                 <el-form-item label="算法基线" required>
                   <el-select v-model="ultralyticsForm.baselineId" :disabled="isSee || ultraBaselinesLoading"
-                    placeholder="仅显示 Ultralytics + YOLO 格式基线" @change="handleUltraBaselineChange">
-                    <el-option v-for="item in ultralyticsBaselines" :key="item.id" :label="item.name" :value="item.id">
+                    :placeholder="componentTraining ? '选择已下载的 B/C 方案' : '选择算法基线'" @change="handleUltraBaselineChange">
+                    <el-option v-for="item in ultralyticsBaselines" :key="item.id" :label="item.name" :value="item.id" :disabled="item.valid === false" :title="(item.blockers || []).join('；')">
                       <span>{{ item.name }}</span>
                       <span style="float:right;color:var(--el-text-color-secondary);font-size:12px">{{ item.engine_version }}</span>
                     </el-option>
                   </el-select>
                 </el-form-item>
-                <el-form-item label="叠加改进包">
+                <div v-if="componentTraining" class="el-form-item__tip">
+                  <el-button link type="primary" @click="refreshComponentOptions">刷新已下载方案</el-button>
+                  <span v-if="!ultraBaselinesLoading && !ultralyticsBaselines.length">当前方向没有已下载方案，请到研究基线公约下载。</span>
+                  <span v-if="selectedUltraBaseline?.blockers?.length">{{ selectedUltraBaseline.blockers.join('；') }}</span>
+                </div>
+                <el-form-item v-if="!componentTraining" label="叠加改进包">
                   <div class="ultralytics-improvement-list">
                     <el-checkbox-group v-model="ultralyticsForm.improvementIds"
                       :disabled="isSee || ultraImprovementsLoading || !ultralyticsForm.baselineId"
@@ -1438,9 +1443,9 @@
             </el-col>
             <el-col :span="12">
               <div class="mmdet-file-block">
-                <span class="mmdet-file-title">官方 Ultralytics 参数</span>
-                <el-form-item label="预训练模型" required>
-                  <el-input v-model="ultralyticsForm.model" :disabled="isSee" placeholder="例如：yolo11n.pt" />
+                <span class="mmdet-file-title">训练参数</span>
+                <el-form-item :label="componentTraining ? '模型配置／权重' : '预训练模型'" required>
+                  <el-input v-model="ultralyticsForm.model" :disabled="isSee || componentTraining" placeholder="例如：yolo11n.pt" />
                 </el-form-item>
                 <el-form-item label="环境检查">
                   <el-space>
@@ -2962,7 +2967,8 @@ const fetchConfigTemplates = () => {
 /**新建模式 */
 const showAddModal = () => {
   isSee.value = false
-  trainingEngine.value = 'mmdet'
+  componentTraining.value = true
+  trainingEngine.value = 'ultralytics'
   resetFixedRunnerParameters()
   resetUltralyticsForm()
   //算法模版初始化
@@ -2981,6 +2987,8 @@ const showAddModal = () => {
   addForm.use_self_weights = false
   addForm.old_weights = null
   addVisible.value = true
+  loadResearchDirections()
+  fetchMmdetInstanceDatasets()
   is_create.value = true
   is_add.value = false
   cur_task_id.value = 0
@@ -3015,7 +3023,7 @@ const showAddModal = () => {
 
   const mmdetAlg = algList.value.find((item) => item.name === 'mmdet')
   const firstAlg = algList.value[0]
-  addForm.type = mmdetAlg ? String(mmdetAlg.id) : (firstAlg ? String(firstAlg.id) : null)
+  addForm.type = componentTraining.value ? 'ultralytics' : (mmdetAlg ? String(mmdetAlg.id) : (firstAlg ? String(firstAlg.id) : null))
 
   nextTick(() => {
     if (isMMDetSelected.value) {
@@ -3039,6 +3047,7 @@ const showAddModal = () => {
 const showEditModal = (row) => {
   editTaskMeta.value = { ...row }
   trainingPythonPath.value = ''
+  componentTraining.value = false
   trainingEngine.value = row.type === 'ultralytics' ? 'ultralytics' : (row.type === 'custom' ? 'custom' : 'mmdet')
   isSee.value = row.run_name   //设置是否编辑
   //算法模版初始化
@@ -4488,6 +4497,7 @@ const resetFixedRunnerParameters = () => {
   fixedRunnerParameter.work_root = 'artifacts/custom'
 }
 const trainingPythonPath = ref('')
+const componentTraining = ref(false)
 const trainingEngine = ref('mmdet')
 const researchDirections = ref([])
 const ultralyticsBaselines = ref([])
@@ -4588,6 +4598,11 @@ const resetUltralyticsForm = () => {
 }
 
 const loadResearchDirections = async () => {
+  if (componentTraining.value) {
+    researchDirections.value = [{ id: 'small-object', name: '小目标检测' }, { id: 'knowledge-distillation', name: '知识蒸馏' }]
+    return
+  }
+
   researchLoading.value = true
   try {
     const res = await ResearchCatalogService.directions()
@@ -4611,10 +4626,12 @@ const handleUltraDirectionChange = async () => {
   ultralyticsStack.parameters = []
   if (!ultralyticsForm.direction) return
   ultraBaselinesLoading.value = true
+  const requestedDirection = ultralyticsForm.direction
   try {
-    const res = await ResearchCatalogService.baselines({ direction: ultralyticsForm.direction })
+    const res = componentTraining.value ? await TrainTaskService.componentOptions(ultralyticsForm.direction) : await ResearchCatalogService.baselines({ direction: ultralyticsForm.direction })
+    if (requestedDirection !== ultralyticsForm.direction) return
     ultralyticsBaselines.value = res.code === 0
-      ? (res.data || []).filter(item => item.valid !== false && item.engine === 'ultralytics' && item.data_format === 'yolo')
+      ? (res.data || []).filter(item => componentTraining.value || (item.valid !== false && item.engine === 'ultralytics' && item.data_format === 'yolo'))
       : []
   } catch (_) {
     ultralyticsBaselines.value = []
@@ -4623,6 +4640,24 @@ const handleUltraDirectionChange = async () => {
   }
 }
 
+let componentRefreshSequence = 0
+const refreshComponentOptions = async () => {
+  if (!addVisible.value || !componentTraining.value || !ultralyticsForm.direction) return
+  const direction = ultralyticsForm.direction
+  const sequence = ++componentRefreshSequence
+  try {
+    const res = await TrainTaskService.componentOptions(direction)
+    if (sequence !== componentRefreshSequence || direction !== ultralyticsForm.direction) return
+    if (res.code !== 0) throw new Error(res.msg || '读取算法失败')
+    ultralyticsBaselines.value = res.data || []
+    if (ultralyticsForm.baselineId && !selectedUltraBaseline.value) {
+      ultralyticsForm.baselineId = ''
+      ultralyticsForm.parameters = {}
+      ultralyticsStack.parameters = []
+      ElMessage.warning('所选算法已移除，请重新选择')
+    }
+  } catch (error) { ElMessage.warning(error.message || '读取算法失败') }
+}
 const applyUltraStackDefaults = (parameters = [], preserveCurrent = true) => {
   const next = {}
   for (const item of parameters) {
@@ -4637,6 +4672,15 @@ const applyUltraStackDefaults = (parameters = [], preserveCurrent = true) => {
 
 const resolveUltraStack = async ({ preserveCurrent = true, notifyOnFailure = false } = {}) => {
   if (!ultralyticsForm.baselineId) return false
+  if (componentTraining.value) {
+    const item = selectedUltraBaseline.value
+    ultralyticsStack.valid = !!item?.valid
+    ultralyticsStack.errors = item?.blockers || ['请选择已下载的可用算法']
+    ultralyticsStack.parameters = item?.parameters || []
+    applyUltraStackDefaults(ultralyticsStack.parameters, preserveCurrent)
+    if (!item?.valid && notifyOnFailure) ElMessage.warning(ultralyticsStack.errors.join('；'))
+    return !!item?.valid
+  }
   try {
     const res = await ResearchCatalogService.resolveStack({
       baselineId: ultralyticsForm.baselineId,
@@ -4663,7 +4707,7 @@ const resolveUltraStack = async ({ preserveCurrent = true, notifyOnFailure = fal
 
 const loadUltraImprovements = async () => {
   ultralyticsImprovements.value = []
-  if (!ultralyticsForm.baselineId) return
+  if (componentTraining.value || !ultralyticsForm.baselineId) return
   ultraImprovementsLoading.value = true
   try {
     const res = await ResearchCatalogService.improvements({ baselineId: ultralyticsForm.baselineId })
@@ -4678,6 +4722,8 @@ const loadUltraImprovements = async () => {
 }
 
 const handleUltraBaselineChange = async () => {
+  ultralyticsEnvironment.ok = false
+  ultralyticsEnvironment.text = ''
   ultralyticsForm.improvementIds = []
   ultralyticsForm.parameters = {}
   lastValidUltraImprovementIds.value = []
@@ -4707,6 +4753,7 @@ const checkUltralyticsEnvironment = async () => {
   try {
     const res = await TrainTaskService.checkUltralyticsEnvironment({
       training_python_path: String(trainingPythonPath.value).trim(),
+      component_id: componentTraining.value ? ultralyticsForm.baselineId : undefined,
     })
     ultralyticsEnvironment.ok = res.code === 0
     ultralyticsEnvironment.text = res.code === 0
@@ -5134,6 +5181,7 @@ const saveUltralyticsRecord = async () => {
   }
   const params = {
     engine: 'ultralytics',
+    component_training: componentTraining.value,
     taskName: addForm.name,
     taskId: is_create.value ? null : cur_task_id.value,
     taskType: 'ultralytics',
@@ -5167,6 +5215,7 @@ const saveUltralyticsRecord = async () => {
 }
 
 const applyStoredUltralyticsParams = async (p) => {
+  componentTraining.value = !!p.component_training
   trainingEngine.value = 'ultralytics'
   ultralyticsForm.direction = p.research_direction || ''
   ultralyticsForm.dataset = p.dataset || ''
@@ -5918,6 +5967,7 @@ const wsConnect = () => {
 };
 
 onMounted(() => {
+  window.addEventListener('focus', refreshComponentOptions)
   wsConnect();
   refreshRunnerHealth();
   runnerHealthTimer = setInterval(refreshRunnerHealth, 30000);
@@ -5930,6 +5980,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('focus', refreshComponentOptions)
   if (trainElapsedTimer) {
     clearInterval(trainElapsedTimer)
     trainElapsedTimer = null

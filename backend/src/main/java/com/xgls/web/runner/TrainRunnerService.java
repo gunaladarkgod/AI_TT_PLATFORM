@@ -269,11 +269,15 @@ public class TrainRunnerService {
 
     /** 由统一 Runner 用任务指定的解释器检测官方 Ultralytics 依赖，不启动训练。 */
     public JSONObject checkUltralyticsEnvironment(String trainingPythonPath) {
+        return checkUltralyticsEnvironment(trainingPythonPath, null);
+    }
+    public JSONObject checkUltralyticsEnvironment(String trainingPythonPath, JSONObject component) {
         if (StrUtil.isBlank(trainingPythonPath)) {
             throw new IllegalArgumentException("请选择训练 Python 解释器");
         }
         JSONObject payload = new JSONObject();
         payload.set("training_python_path", trainingPythonPath.trim());
+        if (component != null) { payload.set("component_training", true); payload.set("component_id", component.getStr("id")); payload.set("component_kind", component.getStr("kind")); payload.set("component_commit", component.getStr("component_commit")); payload.set("adapter_digest", component.getStr("adapter_digest")); }
         try {
             String json = payload.toString();
             HttpClient client = HttpClient.newBuilder()
@@ -282,7 +286,7 @@ public class TrainRunnerService {
                     .build();
             HttpRequest request = HttpRequest.newBuilder(runnerUri("/api/runner/engines/ultralytics/check"))
                     .version(HttpClient.Version.HTTP_1_1)
-                    .timeout(Duration.ofSeconds(30))
+                    .timeout(Duration.ofSeconds(55))
                     .header("Content-Type", "application/json; charset=UTF-8")
                     .header("Accept", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofByteArray(json.getBytes(StandardCharsets.UTF_8)))

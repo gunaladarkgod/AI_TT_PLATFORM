@@ -35,12 +35,25 @@ def main() -> None:
     parser.add_argument("--spec", required=True)
     args = parser.parse_args()
     spec = json.loads(Path(args.spec).read_text(encoding="utf-8"))
+    if spec.get("source_root"):
+        import sys
+        from component_training import resolve_component
+        adapter = resolve_component({"component_id": spec["id"], "component_kind": spec["kind"],
+                                     "component_commit": spec["component_commit"], "adapter_digest": spec["adapter_digest"]})
+        sys.path.insert(0, adapter["source_root"])
+    import ultralytics
     from ultralytics import YOLO
+    if spec.get("source_root"):
+        if not Path(ultralytics.__file__).resolve().is_relative_to(Path(adapter["source_root"])):
+            raise RuntimeError("Wrong component source loaded")
+        print(f"[component] id={spec['id']} commit={spec['component_commit']} source={ultralytics.__file__}", flush=True)
 
     work_dir = Path(spec["work_dir"]).resolve()
     work_dir.parent.mkdir(parents=True, exist_ok=True)
     data_yaml = resolve_dataset_yaml(spec["data"], work_dir)
     model = YOLO(spec["model"])
+    if spec.get("pretrained"):
+        model.load(spec["pretrained"])
     model.train(data=str(data_yaml), project=str(work_dir.parent), name=work_dir.name,
                 exist_ok=True, **spec.get("parameters", {}))
     weights_dir = work_dir / "weights"

@@ -304,11 +304,22 @@ public class TrainTaskController {
     @Autowired
     private ResearchCatalogService researchCatalogService;
 
+    @Autowired
+    private ComponentTrainingService componentTrainingService;
+
+    @GetMapping("component-options")
+    public AjaxResult componentOptions(@RequestParam(required = false) String direction) {
+        if (SessionUtil.getCurUser() == null) return AjaxResult.error("请先登录");
+        try { return AjaxResult.success(componentTrainingService.list(direction)); }
+        catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
+    }
+
+
     @Operation(summary = "检查 Ultralytics 训练环境", description = "使用任务指定的 Python 检查 ultralytics 版本，不启动训练")
     @PostMapping("ultralytics/environment/check")
-    public AjaxResult checkUltralyticsEnvironment(@RequestParam("training_python_path") String trainingPythonPath) {
+    public AjaxResult checkUltralyticsEnvironment(@RequestParam("training_python_path") String trainingPythonPath, @RequestParam(required = false) String component_id) {
         try {
-            return AjaxResult.success(trainRunnerService.checkUltralyticsEnvironment(trainingPythonPath));
+            return AjaxResult.success(trainRunnerService.checkUltralyticsEnvironment(trainingPythonPath, component_id == null || component_id.isBlank() ? null : componentTrainingService.require(component_id, null)));
         } catch (Exception e) {
             return AjaxResult.error(e.getMessage());
         }
@@ -778,7 +789,9 @@ public class TrainTaskController {
             return AjaxResult.error("请选择研究方向和对应的 Ultralytics 基线");
         }
 
-        Map<String, Object> baseline = researchCatalogService.detail(baselineId);
+        boolean componentTask = params.getBool("component_training", false);
+        JSONObject adapter = componentTask ? componentTrainingService.require(baselineId, direction) : null;
+        Map<String, Object> baseline = componentTask ? adapter : researchCatalogService.detail(baselineId);
         if (baseline == null || !Boolean.TRUE.equals(baseline.get("valid"))) {
             return AjaxResult.error("研究基线不存在或清单无效：" + baselineId);
         }
@@ -786,7 +799,19 @@ public class TrainTaskController {
             return AjaxResult.error("所选研究方向与基线不匹配，或该基线不使用 Ultralytics 引擎");
         }
         List<String> improvementIds = jsonStringList(params.get("ultralytics_improvement_ids"));
-        Map<String, Object> stack = researchCatalogService.resolveStack(baselineId, improvementIds);
+        if (componentTask) improvementIds = List.of();
+        Map<String, Object> stack = componentTask ? new HashMap<>(Map.of("valid", true, "parameters", adapter.get("parameters")))
+                : researchCatalogService.resolveStack(baselineId, improvementIds);
+        if (componentTask) {
+            componentTrainingService.validateParameters(adapter, params);
+            params.set("component_id", adapter.getStr("id"));
+            params.set("component_kind", adapter.getStr("kind"));
+            params.set("component_commit", adapter.getStr("component_commit"));
+            params.set("adapter_digest", adapter.getStr("adapter_digest"));
+            params.set("ultralytics_model", adapter.getStr("model"));
+        } else if (params.containsKey("component_id")) {
+            return AjaxResult.error("组件任务标识不一致");
+        }
         if (!Boolean.TRUE.equals(stack.get("valid"))) {
             return AjaxResult.error("改进包组合不可用：" + String.join("；", jsonStringList(stack.get("errors"))));
         }

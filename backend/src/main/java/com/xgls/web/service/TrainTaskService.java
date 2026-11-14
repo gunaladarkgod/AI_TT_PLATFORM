@@ -448,6 +448,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
             copyIfPresent(params, out, "research_direction");
             copyIfPresent(params, out, "research_baseline");
             copyIfPresent(params, out, "training_python_path");
+            for (String key : List.of("component_training", "component_id", "component_kind", "component_commit", "adapter_digest", "dataset")) copyIfPresent(params, out, key);
             copyIfPresent(params, out, "ultralytics_model");
             copyIfPresent(params, out, "ultralytics_data");
             copyIfPresent(params, out, "runner_work_root");

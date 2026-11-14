@@ -14,6 +14,17 @@ import java.util.concurrent.*;
 /** Manages registered B/C repositories in the ignored local-components directory. */
 @Service
 public class AlgorithmComponentService {
+    @Autowired(required = false)
+    private TrainTaskService trainingTasks;
+    private void assertNotInUse(String kind, String id) {
+        if (trainingTasks == null) return;
+        for (var task : trainingTasks.list()) {
+            if (task.getStatus() == null || !java.util.Set.of(2, 3).contains(task.getStatus())) continue;
+            var options = trainingTasks.runnerOptionsForTask(task.getId());
+            if (id.equals(options.getStr("component_id")) && kind.equals(options.getStr("component_kind")))
+                throw new IllegalArgumentException("组件正被排队或运行任务使用，请先取消或停止任务：" + task.getName());
+        }
+    }
     private final Path root;
     private final ResearchRegistryService registry;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -53,10 +64,11 @@ public class AlgorithmComponentService {
     public synchronized Map<String, Object> remove(String kind, String id) {
         if (find(kind, id) == null) throw new IllegalArgumentException("未登记的组件：" + id);
         if (task != null && "running".equals(task.get("status"))) throw new IllegalArgumentException("已有组件任务正在执行");
+        assertNotInUse(kind, id);
         Path target = target(kind, id);
         if (!Files.exists(target)) throw new IllegalArgumentException("本机尚未下载该组件");
         begin(kind, id, "remove");
-        executor.submit(() -> removeDirectory(target));
+        executor.submit(() -> { try { assertNotInUse(kind, id); removeDirectory(target); } catch (IllegalArgumentException e) { finish("failed", e.getMessage()); } });
         return snapshot();
     }
 
