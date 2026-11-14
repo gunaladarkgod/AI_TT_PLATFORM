@@ -69,7 +69,9 @@ def main() -> None:
     import ultralytics
     from ultralytics import YOLO
     if spec.get("source_root"):
-        if not Path(ultralytics.__file__).resolve().is_relative_to(Path(adapter["source_root"])):
+        try:
+            Path(ultralytics.__file__).resolve().relative_to(Path(adapter["source_root"]).resolve())
+        except ValueError:
             raise RuntimeError("Wrong component source loaded")
         print(f"[component] id={spec['id']} commit={spec['component_commit']} source={ultralytics.__file__}", flush=True)
 
