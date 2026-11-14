@@ -986,7 +986,7 @@ public class TrainRunnerService {
                 }
             }
             RunnerTrainResponse resp = callRunner(runId, runnerOptions);
-            if (resp.isOk()) {
+            if (resp.isOk() || !resp.isRetryable()) {
                 return resp;
             }
             lastError = resp;
@@ -1018,7 +1018,12 @@ public class TrainRunnerService {
             return parseResponse(resp.statusCode(), resp.body());
         } catch (Exception e) {
             log.error("call python runner failed, runId={}", runId, e);
-            return RunnerTrainResponse.transportError(e.getMessage());
+            RunnerTrainResponse failure = RunnerTrainResponse.transportError(e.getMessage());
+            // Retry only failures establishing a connection. A read timeout or any
+            // server response may follow an already-started training process.
+            failure.setRetryable(e instanceof java.net.ConnectException || e instanceof java.net.http.HttpConnectTimeoutException);
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            return failure;
         }
     }
 
@@ -1028,7 +1033,7 @@ public class TrainRunnerService {
         result.setRawBody(body);
         try {
             JSONObject jo = JSONUtil.parseObj(body);
-            result.setOk(jo.getBool("ok", statusCode >= 200 && statusCode < 300));
+            result.setOk(statusCode >= 200 && statusCode < 300 && jo.getBool("ok", false));
             result.setError(jo.getStr("error"));
             result.setWorkDir(jo.getStr("work_dir"));
             result.setLogPath(jo.getStr("log"));
@@ -1038,7 +1043,7 @@ public class TrainRunnerService {
             }
             result.setResultsTxt(resultsTxt);
         } catch (Exception ex) {
-            result.setOk(statusCode >= 200 && statusCode < 300);
+            result.setOk(false);
             result.setError("invalid runner response: " + ex.getMessage());
         }
         return result;

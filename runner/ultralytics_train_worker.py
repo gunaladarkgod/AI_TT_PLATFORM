@@ -3,6 +3,30 @@ import json
 from pathlib import Path
 
 
+def install_unicode_checkpoint_io():
+    """Keep PyTorch's ZIP writer on Python file objects, including Unicode roots.
+
+    Installed before importing Ultralytics so its cached torch.save reference also
+    uses the wrapper. Limited to this training subprocess; never swallows errors.
+    """
+    import os
+    import functools
+    import torch
+    original = torch.save
+    if getattr(original, "_platform_unicode_safe", False):
+        return
+
+    @functools.wraps(original)
+    def save(obj, f, *args, **kwargs):
+        if isinstance(f, (str, os.PathLike)):
+            with open(f, "wb") as stream:
+                return original(obj, stream, *args, **kwargs)
+        return original(obj, f, *args, **kwargs)
+
+    save._platform_unicode_safe = True
+    torch.save = save
+
+
 def resolve_dataset_yaml(source: str, work_dir: Path) -> Path:
     """Anchor dataset paths to the original YAML, regardless of the worker's CWD."""
     import yaml
@@ -41,6 +65,7 @@ def main() -> None:
         adapter = resolve_component({"component_id": spec["id"], "component_kind": spec["kind"],
                                      "component_commit": spec["component_commit"], "adapter_digest": spec["adapter_digest"]})
         sys.path.insert(0, adapter["source_root"])
+    install_unicode_checkpoint_io()
     import ultralytics
     from ultralytics import YOLO
     if spec.get("source_root"):

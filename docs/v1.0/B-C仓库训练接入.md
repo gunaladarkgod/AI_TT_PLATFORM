@@ -28,3 +28,13 @@
 - 更新 Java/Python 后由运行人员重新加载后端及 Runner，再从网页验收任务创建、发布、停止和结果查询。
 
 本次隔离冒烟验证使用合成图片、CPU、1 轮、随机初始化的 YOLO11s 权重，B/C 都执行真实训练并生成 best.pt/last.pt。它验证源码接入和训练产物，不是正式数据集评测，也不代表网页、数据库结果登记已完成端到端验收。证据位于本机 `artifacts/component_training_smoke/{baseline,tdsc}/smoke.log`，不纳入提交。
+
+## Windows 中文路径与失败重试
+
+训练 Worker 在导入 Ultralytics 前安装进程内的 PyTorch 保存适配：对字符串或 Path 权重路径先用 Python 二进制文件流打开，再交给原始 `torch.save`。保留中文项目路径、中文任务目录和文件名，不移动用户产物，不改第三方安装源码，不掩盖真实缺失目录或权限错误。历史官方任务与新 B/C 任务共用该 Worker。
+
+同步训练请求只有在连接建立失败（ConnectException / HttpConnectTimeoutException）时才允许重试。Runner 返回训练失败、普通 HTTP 错误、非 JSON 或缺少成功标志的响应，均不重放整场训练；读取超时也不能证明服务端尚未启动，因此不自动重试。
+
+2026-11-14 验证：任务 Python 在中文根目录和中文权重文件名下保存/加载成功；YOLO11s 与 P234-TDSC 各在中文任务及中文合成数据目录完成 1 轮 CPU 训练并生成 best/last。此前任务 18 的三份 best.pt 均可加载，保留原产物，不将失败任务直接改写为成功。新验证产物在 `artifacts/中文路径回归_20261114_160917/`，不提交源码。
+
+更新后由运行人员重新加载后端及 Runner。此前三份运行规格缺少组件标识且加载了 site-packages 中的 Ultralytics：要使用新 B/C 流程，应重新创建任务并选择对应方案，检查日志中的 componentId/componentCommit 及 `[component] source=`；不能仅因模型名称相同就认为加载了仓库源码。任务参数传递已增加自动回归测试。

@@ -70,4 +70,20 @@ class TrainTaskServiceTest {
         verify(service, never()).saveCocoResultFromRunner(eq(task), any(cn.hutool.json.JSONObject.class));
         assertEquals(response.summary(), result);
     }
+    @Test void componentIdentityIsForwardedToRunner() {
+        TrainTaskService service = spy(new TrainTaskService());
+        TrainTask task = new TrainTask(); task.setId(18); task.setType("ultralytics");
+        org.mockito.Mockito.doReturn(task).when(service).getById(18);
+        var mapper = org.mockito.Mockito.mock(com.xgls.web.mapper.TrainExtMapper.class);
+        var ext = new com.xgls.web.entity.TrainExt();
+        ext.setParams("{\"engine\":\"ultralytics\",\"component_training\":true,\"component_id\":\"small-object/yolo11\",\"component_kind\":\"baseline\",\"component_commit\":\"sha\",\"adapter_digest\":\"digest\"}");
+        org.mockito.Mockito.when(mapper.selectById(18)).thenReturn(ext);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"trainExtMapper",mapper);
+        var options = service.runnerOptionsForTask(18);
+        assertTrue(options.getBool("component_training"));
+        assertEquals("small-object/yolo11", options.getStr("component_id"));
+        assertEquals("sha", options.getStr("component_commit"));
+        assertEquals("digest", options.getStr("adapter_digest"));
+    }
+
 }

@@ -392,7 +392,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
     private void startEngineTrain(TrainTask task, String engineId, JSONObject options) {
         Integer id = task.getId();
         TrainingEngineAdapter adapter = engineAdapters.require(engineId);
-        log.info("[startTrain] engine={}, taskId={}, runId={}", engineId, id, task.getName());
+        log.info("[startTrain] engine={}, taskId={}, runId={}, componentId={}, componentCommit={}", engineId, id, task.getName(), options.getStr("component_id"), options.getStr("component_commit"));
 
         updateStartStatus(id, null);
         boolean ok = false;

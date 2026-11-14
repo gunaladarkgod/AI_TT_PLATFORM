@@ -5,6 +5,7 @@ import lombok.Data;
 @Data
 public class RunnerTrainResponse {
     private boolean ok;
+    private boolean retryable;
     private Integer statusCode;
     private String error;
     private String workDir;
