@@ -282,7 +282,7 @@
     :close-on-click-modal="false">
     <el-form size="small" label-width="130" label-position="left">
       <div v-if="is_create" class="task-overview task-create-overview">
-        <div class="task-overview-row task-overview-primary">
+        <div class="task-overview-row task-overview-primary" :class="{ 'task-component-primary': componentTraining }">
           <div class="task-overview-item task-name-item">
             <div class="task-overview-label required-label">任务名称</div>
             <div class="task-overview-content">
@@ -339,7 +339,7 @@
         </div>
       </div>
       <div v-if="!is_create && editTaskMeta" class="task-overview">
-        <div class="task-overview-row task-overview-primary">
+        <div class="task-overview-row task-overview-primary" :class="{ 'task-component-primary': componentTraining }">
           <div class="task-overview-item task-name-item">
             <div class="task-overview-label required-label">任务名称</div>
             <div class="task-overview-content">
@@ -6189,6 +6189,10 @@ const labelsHandleClose = (val) => {
   min-width: 0;
 }
 
+.task-overview-primary.task-component-primary {
+  grid-template-columns: minmax(360px, 1fr) minmax(520px, 1.35fr);
+}
+
 .task-overview-runtime {
   grid-template-columns: minmax(170px, .72fr) minmax(170px, .72fr) minmax(270px, 1fr) minmax(270px, 1fr);
 }
@@ -6312,6 +6316,10 @@ const labelsHandleClose = (val) => {
   .task-overview-primary .task-name-item,
   .task-overview-runtime .task-time-item {
     min-width: 0;
+  }
+
+  .task-overview-primary.task-component-primary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
