@@ -6186,11 +6186,7 @@ const labelsHandleClose = (val) => {
 }
 
 .task-overview-primary .task-name-item {
-  min-width: 360px;
-}
-
-.task-overview-primary .task-python-item {
-  grid-column: -2 / -1;
+  min-width: 0;
 }
 
 .task-overview-runtime {
