@@ -6189,6 +6189,10 @@ const labelsHandleClose = (val) => {
   min-width: 360px;
 }
 
+.task-overview-primary .task-python-item {
+  grid-column: -2 / -1;
+}
+
 .task-overview-runtime {
   grid-template-columns: minmax(170px, .72fr) minmax(170px, .72fr) minmax(270px, 1fr) minmax(270px, 1fr);
 }
