@@ -226,7 +226,7 @@ onBeforeUnmount(() => clearTimeout(componentTimer))
 .registry-section { margin-top: 24px; }
 .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .engine-list { display: flex; flex-wrap: wrap; gap: 8px; }
-.direction-tables { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.direction-tables { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .direction-table { overflow: hidden; border: 1px solid var(--el-border-color); border-radius: 6px; background: var(--el-bg-color); }
 .direction-table-heading { min-height: 88px; padding: 16px; background: var(--el-fill-color-light); }
 .direction-table-heading h4 { margin: 0; color: var(--el-text-color-primary); font-size: 19px; }
@@ -240,6 +240,5 @@ onBeforeUnmount(() => clearTimeout(componentTimer))
 .component-logs { margin-top: 10px; }
 .component-logs :deep(.el-collapse-item__content) { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.7; }
 .el-upload__tip { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
-@media (max-width: 1050px) { .direction-tables { grid-template-columns: 1fr; } }
 @media (max-width: 700px) { .section-heading { display: block; } .section-heading span { display: block; margin-top: 5px; } .registry-intro { display: block; } .registry-intro .el-tag { margin-top: 10px; } }
 </style>
