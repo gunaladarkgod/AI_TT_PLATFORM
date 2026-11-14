@@ -41,6 +41,10 @@ __pycache__/
 .venv/
 venv/
 env/
+launcher/windows/.build-venv/
+launcher/windows/build/
+launcher/windows/dist/
+launcher/windows/*.spec
 engines/mmdet_run/mmdet_runner_srv/.conda_runner/
 runner/.conda_runner/
 
@@ -71,5 +75,5 @@ backend/env.clearml.local
 backend/.env.local
 # 本机自动同步与工具配置
 .codex/
-# macOS 启动器的本地编译可执行文件
-启动AI训练平台.app/Contents/MacOS/AITrainingPlatformLauncher
+# macOS 启动器的本地构建产物
+launcher/macos/启动AI训练平台.app/

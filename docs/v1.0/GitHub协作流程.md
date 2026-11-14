@@ -274,6 +274,7 @@ git push origin --delete fix/123-result-open-path
 | `backend/` | Spring Boot 后端、数据库迁移、业务接口 | 提交源码与迁移脚本；不提交 `target/` |
 | `fronternd/` | Vue 3 + Vite 前端 | 提交源码与配置；不提交 `node_modules/`、`dist/` |
 | `runner/` | 统一 Python Runner、调度与配置服务 | 提交源码和依赖清单；不提交环境与日志 |
+| `launcher/` | macOS、Linux、Windows 图形启动器、全部启动入口与打包脚本 | 提交源码、脚本和文档；不提交本机 App、EXE、打包环境或构建缓存 |
 | `engines/mmdet_run/` | MMDetection、训练模板与生成配置目录 | 提交引擎源码与模板；不提交运行日志和生成配置 |
 | `engines/yolo_run/` | 官方 Ultralytics 依赖版本与说明 | 提交版本约束与说明；由统一 Runner 调度，不提交数据、权重和运行输出 |
 | `data/` | 中间实例数据集、最终实例数据集、预处理脚本等本地数据 | 运行数据，不提交 |
