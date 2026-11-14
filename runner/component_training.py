@@ -9,6 +9,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def is_within(path, parent):
+    """Return whether path is inside parent, including parent itself (Python 3.8 compatible)."""
+    try:
+        Path(path).resolve().relative_to(Path(parent).resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def revision(path):
     try:
         return subprocess.check_output(["git", "-c", f"safe.directory={path.as_posix()}", "rev-parse", "HEAD"], cwd=path, text=True, timeout=10, stderr=subprocess.DEVNULL).strip()
@@ -27,7 +36,7 @@ def resolve_component(payload, root=ROOT):
     base = (root / "local-components").resolve()
     folder = "baselines" if adapter["kind"] == "baseline" else "algorithms"
     path = (base / folder / adapter["id"]).resolve()
-    if not path.is_relative_to(base) or not (path / ".git").is_dir() or not (path / "ultralytics/__init__.py").is_file():
+    if not is_within(path, base) or not (path / ".git").is_dir() or not (path / "ultralytics/__init__.py").is_file():
         raise ValueError("Training component missing or invalid")
     if revision(path) != payload.get("component_commit"):
         raise ValueError("Component version changed; edit and save the task again")
@@ -36,7 +45,7 @@ def resolve_component(payload, root=ROOT):
     adapter["source_root"] = str(path)
     if adapter["model"].endswith(".yaml"):
         model = (path / adapter["model"]).resolve()
-        if not model.is_relative_to(path) or not model.is_file():
+        if not is_within(model, path) or not model.is_file():
             raise ValueError("Component model config missing")
         adapter["model"] = str(model)
     return adapter
@@ -74,7 +83,7 @@ def check_source(python, adapter):
     if checked.returncode:
         raise ValueError("Task Python cannot load component: " + checked.stderr[-1600:])
     info = json.loads(checked.stdout.strip().splitlines()[-1])
-    if info["version"] != adapter["engine_version"] or not Path(info["source"]).resolve().is_relative_to(Path(adapter["source_root"])):
+    if info["version"] != adapter["engine_version"] or not is_within(info["source"], adapter["source_root"]):
         raise ValueError("Loaded algorithm source/version does not match selected component")
     return info
 

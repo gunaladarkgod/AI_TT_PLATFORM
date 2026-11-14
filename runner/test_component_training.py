@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from component_training import resolve_component, validated_parameters, check_source, ROOT
+from component_training import resolve_component, validated_parameters, check_source, is_within, ROOT
 
 class ComponentTrainingTest(unittest.TestCase):
     def setUp(self):
@@ -36,7 +36,7 @@ class ComponentTrainingTest(unittest.TestCase):
     def test_pin_model_and_independent_algorithm(self, run, revision):
         run.return_value.returncode = 0
         selected = resolve_component(self.payload, self.root)
-        self.assertTrue(Path(selected['model']).is_relative_to(self.path))
+        self.assertTrue(is_within(selected['model'], self.path))
         self.assertFalse((self.root / 'local-components/baselines').exists())
         with self.assertRaises(ValueError):
             resolve_component(dict(self.payload, component_commit='old'), self.root)
@@ -53,6 +53,6 @@ class ComponentTrainingTest(unittest.TestCase):
         selected = dict(self.adapters[1], source_root=str(self.path))
         info = check_source(sys.executable, selected)
         self.assertEqual('8.4.165', info['version'])
-        self.assertTrue(Path(info['source']).is_relative_to(self.path))
+        self.assertTrue(is_within(info['source'], self.path))
         selected['engine_version'] = 'wrong'
         with self.assertRaises(ValueError): check_source(sys.executable, selected)
