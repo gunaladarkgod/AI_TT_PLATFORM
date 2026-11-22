@@ -45,7 +45,7 @@ export const TOP_NAV_LAYOUT = Object.freeze([
     component: 'resultQuery/index.vue',
   },
   {
-    label: '研究基线公约',
+    label: '组件管理',
     route: 'researchRegistry',
     component: 'researchRegistry/index.vue',
   },

@@ -6,16 +6,11 @@
     <template v-else>
       <div class="registry-intro">
         <div>
-          <h2>研究基线公约</h2>
+          <h2>组件管理</h2>
           <p>先查看研究方向和基线，再登记或上传自己的算法。</p>
         </div>
         <el-tag type="info">仓库状态</el-tag>
       </div>
-
-      <section v-if="registry.registry?.platform_engines?.supported?.length" class="registry-section">
-        <div class="section-heading"><h3>支持的训练引擎</h3><span>平台统一提供训练环境和调度能力</span></div>
-        <div class="engine-list"><el-tag v-for="engine in registry.registry.platform_engines.supported" :key="engine.id" effect="plain">{{ engine.name }} · {{ engine.versions.join(' / ') }}</el-tag></div>
-      </section>
 
       <section class="registry-section">
         <div class="section-heading"><h3>研究方向</h3><span>基线仓库状态和下载入口</span></div>
@@ -225,7 +220,6 @@ onBeforeUnmount(() => clearTimeout(componentTimer))
 .registry-intro p { margin: 8px 0 0; }
 .registry-section { margin-top: 24px; }
 .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
-.engine-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .direction-tables { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .direction-table { overflow: hidden; border: 1px solid var(--el-border-color); border-radius: 6px; background: var(--el-bg-color); }
 .direction-table-heading { min-height: 88px; padding: 16px; background: var(--el-fill-color-light); }

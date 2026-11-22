@@ -1404,7 +1404,7 @@
                 </el-form-item>
                 <div v-if="componentTraining" class="el-form-item__tip">
                   <el-button link type="primary" @click="refreshComponentOptions">刷新已下载方案</el-button>
-                  <span v-if="!ultraBaselinesLoading && !ultralyticsBaselines.length">当前方向没有已下载方案，请到研究基线公约下载。</span>
+                  <span v-if="!ultraBaselinesLoading && !ultralyticsBaselines.length">当前方向没有已下载方案，请到组件管理下载。</span>
                   <span v-if="selectedUltraBaseline?.blockers?.length">{{ selectedUltraBaseline.blockers.join('；') }}</span>
                 </div>
                 <el-form-item v-if="!componentTraining" label="叠加改进包">
