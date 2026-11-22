@@ -13,51 +13,41 @@
       </div>
 
       <section class="registry-section">
-        <div class="section-heading"><h3>研究方向</h3><span>基线仓库状态和下载入口</span></div>
+        <div class="section-heading"><h3>研究方向</h3><span>展开基线查看关联算法，或上传自己的算法</span></div>
         <el-alert v-if="componentError" :title="componentError" type="warning" :closable="false" show-icon />
         <div v-loading="componentLoading" class="direction-tables">
           <article v-for="table in directionTables" :key="table.id" class="direction-table">
-            <header class="direction-table-heading"><h4>{{ table.title }}</h4><span>{{ directionDescription(table.id) }}</span></header>
-            <el-table :data="baselineRows(table)" stripe border size="small" row-key="id" class="repository-table">
-              <el-table-column prop="name" label="基线" min-width="135" />
-              <el-table-column label="仓库" min-width="220" show-overflow-tooltip>
+            <header class="direction-table-heading">
+              <div><h4>{{ table.title }}</h4><span>{{ directionDescription(table.id) }}</span></div>
+              <el-button type="primary" size="small" @click="openUpload(table.id)">上传自定义算法</el-button>
+            </header>
+            <el-table :data="table.rows" stripe border size="small" row-key="treeKey" :expand-row-keys="expandedRows" :tree-props="{ children: 'children' }" class="repository-table" @expand-change="onExpandChange">
+              <el-table-column label="基线 / 算法" min-width="260">
                 <template #default="{ row }">
-                  <template v-if="row.repository"><a :href="row.repository" target="_blank" rel="noopener">{{ row.repository }}</a><div v-if="isIncomplete(row)" class="pending-text">开发中/待登记</div></template>
-                  <span v-else class="pending-text">开发中/待登记</span>
+                  <span>{{ row.name }}</span>
+                  <el-tag size="small" effect="plain" class="tree-label" :type="row.nodeType === 'algorithm' ? 'success' : 'info'">{{ row.nodeType === 'algorithm' ? '算法' : row.nodeType === 'group' ? '待关联' : '基线' }}</el-tag>
+                  <span v-if="row.children?.length" class="algorithm-count">{{ row.children.length }} 个算法</span>
                 </template>
               </el-table-column>
-              <el-table-column label="状态" min-width="145">
-                <template #default="{ row }"><el-tag size="small" :type="rowStatusType(row)">{{ rowStatusLabel(row) }}</el-tag></template>
-              </el-table-column>
-              <el-table-column label="操作" width="112">
-                <template #default="{ row }">
-                  <template v-if="!row.placeholder"><el-button v-if="row.localStatus === 'not-downloaded'" size="small" :loading="isTaskRunning(row.id)" @click="installComponent(row)">下载</el-button><el-button v-else size="small" type="danger" plain :loading="isTaskRunning(row.id)" @click="removeComponent(row)">移除</el-button></template>
-                  <span v-else class="pending-text">预留位置</span>
-                </template>
-              </el-table-column>
-            </el-table>
-          </article>
-        </div>
-      </section>
-
-      <section class="registry-section">
-        <div class="section-heading"><h3>算法登记</h3><span>登记已有算法，或上传 ZIP 创建本地算法草稿</span></div>
-        <div class="direction-tables">
-          <article v-for="table in directionTables" :key="`algorithms-${table.id}`" class="direction-table">
-            <header class="direction-table-heading algorithm-heading"><h4>{{ table.title }}</h4><el-button type="primary" size="small" @click="openUpload(table.id)">上传自定义算法</el-button></header>
-            <el-table :data="algorithmRows(table)" stripe border size="small" row-key="id" class="repository-table">
-              <el-table-column prop="name" label="算法" min-width="145" />
               <el-table-column label="仓库" min-width="220" show-overflow-tooltip>
                 <template #default="{ row }">
-                  <template v-if="row.repository && row.repository.startsWith('http')"><a :href="row.repository" target="_blank" rel="noopener">{{ row.repository }}</a><div v-if="isIncomplete(row)" class="pending-text">开发中/待登记</div></template>
+                  <span v-if="row.nodeType === 'group'" class="pending-text">尚未指定基线，或关联的基线未登记</span>
+                  <template v-else-if="row.repository && row.repository.startsWith('http')"><a :href="row.repository" target="_blank" rel="noopener">{{ row.repository }}</a><div v-if="isIncomplete(row)" class="pending-text">开发中/待登记</div></template>
                   <span v-else class="pending-text">{{ row.repository || '开发中/待登记' }}</span>
                 </template>
               </el-table-column>
-              <el-table-column label="状态" min-width="135"><template #default="{ row }"><el-tag size="small" :type="rowStatusType(row)">{{ rowStatusLabel(row) }}</el-tag></template></el-table-column>
-              <el-table-column label="操作" width="125">
+              <el-table-column label="状态" min-width="135">
+                <template #default="{ row }"><span v-if="row.nodeType === 'group'" class="pending-text">待关联基线</span><el-tag v-else size="small" :type="rowStatusType(row)">{{ rowStatusLabel(row) }}</el-tag></template>
+              </el-table-column>
+              <el-table-column label="操作" width="210">
                 <template #default="{ row }">
-                  <template v-if="row.custom"><el-button size="small" type="danger" plain @click="removeCustom(row)">移除</el-button></template>
-                  <template v-else-if="!row.placeholder"><el-button v-if="row.localStatus === 'not-downloaded'" size="small" :loading="isTaskRunning(row.id)" @click="installComponent(row)">下载</el-button><el-button v-else size="small" type="danger" plain :loading="isTaskRunning(row.id)" @click="removeComponent(row)">移除</el-button></template>
+                  <template v-if="row.nodeType === 'group'"><span class="pending-text">—</span></template>
+                  <template v-else-if="row.custom"><el-button size="small" type="danger" plain @click="removeCustom(row)">移除</el-button></template>
+                  <template v-else-if="!row.placeholder">
+                    <el-button v-if="row.localStatus === 'not-downloaded'" size="small" :loading="isTaskRunning(row.id)" @click="installComponent(row)">下载</el-button>
+                    <el-button v-else size="small" type="danger" plain :loading="isTaskRunning(row.id)" @click="removeComponent(row)">移除</el-button>
+                    <el-button v-if="row.nodeType === 'baseline'" size="small" type="primary" plain @click="openUpload(table.id, row.id)">上传算法</el-button>
+                  </template>
                   <span v-else class="pending-text">预留位置</span>
                 </template>
               </el-table-column>
@@ -91,6 +81,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { AlgorithmComponentService, CustomAlgorithmService, ResearchRegistryService } from '@/api/api'
+import { buildComponentTree } from '@/utils/componentTree'
 
 const loading = ref(true)
 const registry = ref({ directions: [], algorithms: [], conventions: [], registry: {} })
@@ -102,6 +93,12 @@ const baselineComponents = ref([])
 const algorithmComponents = ref([])
 const customAlgorithms = ref([])
 const componentTask = ref({})
+const expandedRows = ref([])
+const onExpandChange = (row, expanded) => {
+  expandedRows.value = expanded
+    ? [...new Set([...expandedRows.value, row.treeKey])]
+    : expandedRows.value.filter(key => key !== row.treeKey)
+}
 const uploadDialogVisible = ref(false)
 const uploadDirection = ref('')
 const uploadForm = ref({ baselineId: '', name: '', file: null })
@@ -114,22 +111,14 @@ const directionDefinitions = [
   { id: 'knowledge-distillation', title: '2. 知识蒸馏' },
   { id: 'spatiotemporal', title: '3. 时空融合' },
 ]
-const baselinePlaceholders = ['YOLOv5', 'YOLOv8', 'YOLO11', 'DETR']
-const algorithmPlaceholders = ['算法1', '算法2', '算法3']
 const statusLabels = { draft: '开发中/待登记', review: '评审中', published: '已登记', '待登记': '开发中/待登记', uploaded: '开发中/待登记' }
 const statusLabel = status => statusLabels[status] || status || '未登记'
 const statusType = status => ({ draft: 'warning', review: 'warning', published: 'success', '待登记': 'warning', uploaded: 'warning' }[status] || 'info')
-const componentStatusLabel = status => ({ 'not-downloaded': '未下载', downloaded: '已下载', uploaded: '已上传' }[status] || '未知')
-const componentStatusType = status => ({ 'not-downloaded': 'warning', downloaded: 'success', uploaded: 'success' }[status] || 'info')
 const directionDescription = direction => ({ 'small-object': '面向小尺度目标检测的实验方向', 'knowledge-distillation': '面向知识蒸馏研究的实验方向', spatiotemporal: '面向视频、序列和时空关联建模的实验方向' }[direction] || '该研究方向的仓库登记信息')
 const directionTables = computed(() => directionDefinitions.map(definition => ({
   ...definition,
-  direction: registry.value.directions?.find(item => item.id === definition.id),
-  baselines: baselineComponents.value.filter(item => item.direction === definition.id),
-  algorithms: [...algorithmComponents.value, ...customAlgorithms.value].filter(item => item.direction === definition.id),
+  rows: buildComponentTree(definition.id, baselineComponents.value, [...algorithmComponents.value, ...customAlgorithms.value]),
 })))
-const baselineRows = table => [...table.baselines, ...baselinePlaceholders.filter(name => !table.baselines.some(row => row.name?.toLowerCase().includes(name.toLowerCase()))).map((name, index) => ({ id: `${table.id}/placeholder-${index}`, name, direction: table.id, placeholder: true, registrationStatus: '待登记', localStatus: 'not-downloaded' }))]
-const algorithmRows = table => table.algorithms.length ? [...table.algorithms, ...algorithmPlaceholders.slice(table.algorithms.length).map((name, index) => ({ id: `${table.id}/algorithm-placeholder-${index}`, name, direction: table.id, placeholder: true, registrationStatus: '待登记' }))] : algorithmPlaceholders.map((name, index) => ({ id: `${table.id}/algorithm-placeholder-${index}`, name, direction: table.id, placeholder: true, registrationStatus: '待登记' }))
 const isIncomplete = row => row.placeholder || row.registrationStatus === 'draft' || row.registrationStatus === '待登记' || row.registrationStatus === 'uploaded'
 const rowStatusLabel = row => row.placeholder ? '开发中/待登记' : row.localStatus === 'downloaded' ? 'active' : row.localStatus === 'partial' ? '下载不完整' : row.custom ? '已上传/待登记' : row.registrationStatus === 'draft' ? '开发中/待登记' : statusLabel(row.registrationStatus)
 const rowStatusType = row => row.localStatus === 'partial' ? 'danger' : row.localStatus === 'downloaded' || row.localStatus === 'uploaded' ? 'success' : row.placeholder || isIncomplete(row) ? 'warning' : statusType(row.registrationStatus)
@@ -182,7 +171,7 @@ const removeCustom = async row => {
   } catch (error) { if (error !== 'cancel' && error !== 'close') componentError.value = error?.message || '移除已取消' }
 }
 
-const openUpload = direction => { uploadDirection.value = direction; uploadForm.value = { baselineId: '', name: '', file: null }; uploadTask.value = { status: 'idle', progress: 0, message: '' }; uploadError.value = ''; uploadDialogVisible.value = true }
+const openUpload = (direction, baselineId = '') => { uploadDirection.value = direction; uploadForm.value = { baselineId, name: '', file: null }; uploadTask.value = { status: 'idle', progress: 0, message: '' }; uploadError.value = ''; uploadDialogVisible.value = true }
 const handleUploadFile = file => { uploadForm.value.file = file.raw || null }
 const clearUploadFile = () => { uploadForm.value.file = null }
 const submitUpload = async () => {
@@ -222,10 +211,11 @@ onBeforeUnmount(() => clearTimeout(componentTimer))
 .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .direction-tables { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .direction-table { overflow: hidden; border: 1px solid var(--el-border-color); border-radius: 6px; background: var(--el-bg-color); }
-.direction-table-heading { min-height: 88px; padding: 16px; background: var(--el-fill-color-light); }
+.direction-table-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 88px; padding: 16px; background: var(--el-fill-color-light); }
 .direction-table-heading h4 { margin: 0; color: var(--el-text-color-primary); font-size: 19px; }
 .direction-table-heading span { display: block; margin-top: 8px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
-.algorithm-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 62px; }
+.tree-label { margin-left: 8px; }
+.algorithm-count { margin-left: 8px; color: var(--el-text-color-secondary); font-size: 12px; }
 .repository-table a { overflow: hidden; color: var(--el-color-primary); text-overflow: ellipsis; white-space: nowrap; }
 .pending-text { color: var(--el-text-color-secondary); font-size: 12px; }
 .component-blocker { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; }
@@ -234,5 +224,5 @@ onBeforeUnmount(() => clearTimeout(componentTimer))
 .component-logs { margin-top: 10px; }
 .component-logs :deep(.el-collapse-item__content) { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.7; }
 .el-upload__tip { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
-@media (max-width: 700px) { .section-heading { display: block; } .section-heading span { display: block; margin-top: 5px; } .registry-intro { display: block; } .registry-intro .el-tag { margin-top: 10px; } }
+@media (max-width: 700px) { .direction-table-heading { align-items: flex-start; flex-direction: column; } .section-heading { display: block; } .section-heading span { display: block; margin-top: 5px; } .registry-intro { display: block; } .registry-intro .el-tag { margin-top: 10px; } }
 </style>
