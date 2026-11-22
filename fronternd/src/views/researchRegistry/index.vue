@@ -32,8 +32,8 @@
               <el-table-column label="仓库" min-width="220" show-overflow-tooltip>
                 <template #default="{ row }">
                   <span v-if="row.nodeType === 'group'" class="pending-text">尚未指定基线，或关联的基线未登记</span>
-                  <template v-else-if="row.repository && row.repository.startsWith('http')"><a :href="row.repository" target="_blank" rel="noopener">{{ row.repository }}</a><div v-if="isIncomplete(row)" class="pending-text">开发中/待登记</div></template>
-                  <span v-else class="pending-text">{{ row.repository || '开发中/待登记' }}</span>
+                  <a v-else-if="row.repository && row.repository.startsWith('http')" :href="row.repository" target="_blank" rel="noopener">{{ row.repository }}</a>
+                  <span v-else class="pending-text">—</span>
                 </template>
               </el-table-column>
               <el-table-column label="状态" min-width="135">
@@ -119,9 +119,12 @@ const directionTables = computed(() => directionDefinitions.map(definition => ({
   ...definition,
   rows: buildComponentTree(definition.id, baselineComponents.value, [...algorithmComponents.value, ...customAlgorithms.value]),
 })))
-const isIncomplete = row => row.placeholder || row.registrationStatus === 'draft' || row.registrationStatus === '待登记' || row.registrationStatus === 'uploaded'
-const rowStatusLabel = row => row.placeholder ? '开发中/待登记' : row.localStatus === 'downloaded' ? 'active' : row.localStatus === 'partial' ? '下载不完整' : row.custom ? '已上传/待登记' : row.registrationStatus === 'draft' ? '开发中/待登记' : statusLabel(row.registrationStatus)
-const rowStatusType = row => row.localStatus === 'partial' ? 'danger' : row.localStatus === 'downloaded' || row.localStatus === 'uploaded' ? 'success' : row.placeholder || isIncomplete(row) ? 'warning' : statusType(row.registrationStatus)
+const rowStatusLabel = row => row.localStatus === 'downloaded'
+  ? '已下载'
+  : row.placeholder || row.custom || row.registrationStatus === 'uploaded' || row.registrationStatus === '待登记'
+    ? '开发中/待登记'
+    : '未下载'
+const rowStatusType = row => rowStatusLabel(row) === '已下载' ? 'success' : rowStatusLabel(row) === '未下载' ? 'info' : 'warning'
 const isTaskRunning = componentId => componentTask.value.status === 'running' && componentTask.value.componentId === componentId
 const taskStatusLabel = computed(() => ({ running: '进行中', succeeded: '已完成', failed: '失败' }[componentTask.value.status] || '未开始'))
 const taskStatusType = computed(() => ({ running: 'warning', succeeded: 'success', failed: 'danger' }[componentTask.value.status] || 'info'))
