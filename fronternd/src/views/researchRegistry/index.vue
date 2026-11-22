@@ -81,7 +81,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { AlgorithmComponentService, CustomAlgorithmService, ResearchRegistryService } from '@/api/api'
-import { buildComponentTree } from '@/utils/componentTree'
+import { buildComponentTree } from '@/utils/componentTree.js'
 
 const loading = ref(true)
 const registry = ref({ directions: [], algorithms: [], conventions: [], registry: {} })
