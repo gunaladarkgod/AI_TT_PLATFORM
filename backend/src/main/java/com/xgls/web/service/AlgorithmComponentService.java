@@ -169,6 +169,9 @@ public class AlgorithmComponentService {
         if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) throw new IOException("组件目录不存在");
         try (var paths = Files.walk(target)) {
             for (Path path : paths.toList()) {
+                // Linux exposes a DOS view for links, but reading it with NOFOLLOW_LINKS
+                // fails. Delete the link itself later; never change its target's attributes.
+                if (Files.isSymbolicLink(path)) continue;
                 DosFileAttributeView dos = Files.getFileAttributeView(
                         path, DosFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
                 if (dos != null && dos.readAttributes().isReadOnly()) dos.setReadOnly(false);

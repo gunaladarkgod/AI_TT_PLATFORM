@@ -157,6 +157,40 @@ class AlgorithmComponentServiceTest {
         }
     }
 
+    @Test
+    void removesSymbolicLinksWithoutTouchingExternalTargets() throws Exception {
+        registry();
+        Path target = temp.resolve("local-components/algorithms/small-object/tdsc");
+        Files.createDirectories(target.resolve("docs"));
+        Path external = Files.createDirectory(temp.resolve("external"));
+        Path externalFile = Files.writeString(external.resolve("notes.txt"), "keep external file");
+        Files.writeString(target.resolve("AGENTS.md"), "internal target");
+        try {
+            Files.createSymbolicLink(target.resolve("CLAUDE.md"), Path.of("AGENTS.md"));
+            Files.createSymbolicLink(target.resolve("docs/CLAUDE.md"), Path.of("missing.md"));
+            Files.createSymbolicLink(target.resolve("external-file"), externalFile);
+            Files.createSymbolicLink(target.resolve("external-directory"), external);
+        } catch (UnsupportedOperationException | java.io.IOException | SecurityException e) {
+            Assumptions.assumeTrue(false, "symbolic links unavailable: " + e.getMessage());
+        }
+        DosFileAttributeView dos = Files.getFileAttributeView(externalFile, DosFileAttributeView.class);
+        if (dos != null) dos.setReadOnly(true);
+
+        AlgorithmComponentService service = new AlgorithmComponentService(temp, new ResearchRegistryService(temp));
+        try {
+            service.remove("algorithm", "small-object/tdsc");
+            awaitTask(service);
+
+            assertEquals("succeeded", service.snapshot().get("status"), service.snapshot().toString());
+            assertFalse(Files.exists(target));
+            assertEquals("keep external file", Files.readString(externalFile));
+            if (dos != null) assertTrue(dos.readAttributes().isReadOnly(), "external attributes must be preserved");
+        } finally {
+            service.close();
+            if (dos != null) dos.setReadOnly(false);
+        }
+    }
+
     private void awaitTask(AlgorithmComponentService service) throws InterruptedException {
         long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
         while ("running".equals(service.snapshot().get("status")) && System.nanoTime() < deadline) {
