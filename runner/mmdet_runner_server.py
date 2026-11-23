@@ -299,6 +299,9 @@ def build_fixed_execution(
 
 def build_ultralytics_execution(payload: Dict[str, Any], work_dir: Path) -> Tuple[List[str], str, str]:
     """Use the Python selected when the task was created; Runner never owns the engine environment."""
+    if payload.get("component_training"):
+        from component_training import build_execution
+        return build_execution(payload, work_dir)
     if str(payload.get("data_format") or "").strip().lower() != "yolo":
         raise ValueError("ultralytics requires data_format=yolo")
     python_path = Path(str(payload.get("training_python_path") or "")).expanduser()
@@ -416,6 +419,14 @@ def read_inference_result(output_dir: Path) -> Dict[str, Any]:
 @app.post("/api/runner/engines/ultralytics/check")
 def check_ultralytics_environment(payload: Dict[str, Any] = Body(...)):
     """Check only the Python selected for a future task; never creates an environment."""
+    if payload.get("component_training"):
+        try:
+            from component_training import resolve_component, check_source
+            adapter = resolve_component(payload)
+            info = check_source(str(payload.get("training_python_path") or ""), adapter)
+            return JSONResponse(content=api_response(True, 0, "Component environment is ready", **info))
+        except (ValueError, OSError, subprocess.TimeoutExpired) as e:
+            return JSONResponse(content=api_response(False, 400, "Component environment unavailable", error=str(e)), status_code=400)
     python_path = Path(str(payload.get("training_python_path") or "")).expanduser()
     if not python_path.is_file():
         return JSONResponse(

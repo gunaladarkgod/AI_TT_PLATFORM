@@ -44,6 +44,11 @@ export const TOP_NAV_LAYOUT = Object.freeze([
     route: 'resultQuery',
     component: 'resultQuery/index.vue',
   },
+  {
+    label: '组件管理',
+    route: 'researchRegistry',
+    component: 'researchRegistry/index.vue',
+  },
 ])
 
 /**

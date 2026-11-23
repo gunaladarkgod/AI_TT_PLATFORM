@@ -1,62 +1,76 @@
 package com.xgls.web.controller;
 
 import com.xgls.web.base.AjaxResult;
-import com.xgls.web.service.AlgorithmComponentService;
-import com.xgls.web.service.RedisService;
-import com.xgls.web.service.UserService;
+import com.xgls.web.entity.User;
+import com.xgls.web.service.*;
 import com.xgls.web.utils.AuthenticatedUserUtil;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
-
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import java.util.Map;
 
-/** APIs for independently versioned C algorithm repositories, not legacy sparse components. */
 @RestController
-@RequestMapping("/api/algorithm-components")
 public class AlgorithmComponentController {
-    private final AlgorithmComponentService components;
+    private final AlgorithmComponentService service;
+    private final CustomAlgorithmService custom;
     private final RedisService redis;
     private final UserService users;
 
-    public AlgorithmComponentController(AlgorithmComponentService components, RedisService redis, UserService users) {
-        this.components = components;
-        this.redis = redis;
-        this.users = users;
+    @Autowired
+    public AlgorithmComponentController(AlgorithmComponentService service, CustomAlgorithmService custom, RedisService redis, UserService users) {
+        this.service = service; this.custom = custom; this.redis = redis; this.users = users;
     }
 
-    @GetMapping
-    public AjaxResult list(@RequestParam(required = false) String direction, HttpServletRequest request) {
+    /** Keeps direct construction used by older integrations source-compatible. */
+    public AlgorithmComponentController(AlgorithmComponentService service, RedisService redis, UserService users) {
+        this(service, new CustomAlgorithmService(), redis, users);
+    }
+    @GetMapping("/api/{kind}-components")
+    public AjaxResult list(@PathVariable String kind, @RequestParam(required = false) String direction, HttpServletRequest request) {
         if (AuthenticatedUserUtil.current(request, redis, users) == null) return AjaxResult.error("请先登录");
-        return AjaxResult.success(components.list(direction));
+        try { return AjaxResult.success(service.list(kind, direction)); } catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
     }
+    @PostMapping("/api/{kind}-components/install")
+    public AjaxResult install(@PathVariable String kind, @RequestBody Map<String, String> body, HttpServletRequest request) { return mutate(kind, body, request, true); }
+    @PostMapping("/api/{kind}-components/remove")
+    public AjaxResult remove(@PathVariable String kind, @RequestBody Map<String, String> body, HttpServletRequest request) { return mutate(kind, body, request, false); }
 
-    @GetMapping("/training-profile")
+    @GetMapping("/api/algorithm-components/training-profile")
     public AjaxResult trainingProfile(@RequestParam String id, HttpServletRequest request) {
         if (AuthenticatedUserUtil.current(request, redis, users) == null) return AjaxResult.error("请先登录");
-        try { return AjaxResult.success(components.trainingProfile(id)); }
+        try { return AjaxResult.success(service.profile("algorithm", id)); }
         catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
     }
 
-    @PostMapping("/install")
-    public AjaxResult install(@RequestBody Map<String, String> body, HttpServletRequest request) {
-        if (!AuthenticatedUserUtil.isPlatformAdmin(AuthenticatedUserUtil.current(request, redis, users))) {
-            return AjaxResult.error("下载算法源码会修改本机组件目录，请由平台管理员执行");
-        }
-        try { return AjaxResult.success(components.startInstall(body.get("id"))); }
+    @GetMapping("/api/custom-algorithms")
+    public AjaxResult customAlgorithms(@RequestParam(required = false) String direction, HttpServletRequest request) {
+        if (AuthenticatedUserUtil.current(request, redis, users) == null) return AjaxResult.error("请先登录");
+        try { return AjaxResult.success(custom.list(direction)); } catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
+    }
+
+    @PostMapping(value = "/api/custom-algorithms/upload", consumes = "multipart/form-data")
+    public AjaxResult uploadCustomAlgorithm(@RequestParam String direction, @RequestParam(required = false, defaultValue = "") String baselineId,
+                                            @RequestParam String name, @RequestPart("file") MultipartFile file,
+                                            HttpServletRequest request) {
+        User user = AuthenticatedUserUtil.current(request, redis, users);
+        if (!AuthenticatedUserUtil.canManageResearchComponents(user)) return AjaxResult.error("算法上传需要平台、基线或改进维护权限");
+        try { return AjaxResult.success(custom.upload(direction, baselineId, name, file)); }
         catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
     }
 
-    @PostMapping("/remove")
-    public AjaxResult remove(@RequestBody Map<String, String> body, HttpServletRequest request) {
-        if (!AuthenticatedUserUtil.isPlatformAdmin(AuthenticatedUserUtil.current(request, redis, users))) {
-            return AjaxResult.error("移除本机算法源码会修改本机组件目录，请由平台管理员执行");
-        }
-        try { return AjaxResult.success(components.startRemove(body.get("id"))); }
+    @PostMapping("/api/custom-algorithms/remove")
+    public AjaxResult removeCustomAlgorithm(@RequestBody Map<String, String> body, HttpServletRequest request) {
+        User user = AuthenticatedUserUtil.current(request, redis, users);
+        if (!AuthenticatedUserUtil.canManageResearchComponents(user)) return AjaxResult.error("算法移除需要平台、基线或改进维护权限");
+        try { custom.remove(body.get("id")); return AjaxResult.success(); }
+        catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
+    }
+
+    private AjaxResult mutate(String kind, Map<String, String> body, HttpServletRequest request, boolean install) {
+        User user = AuthenticatedUserUtil.current(request, redis, users);
+        if (!AuthenticatedUserUtil.canManageResearchComponents(user)) return AjaxResult.error("组件下载和移除需要平台、基线或改进维护权限");
+        try { return AjaxResult.success(install ? service.install(kind, body.get("id")) : service.remove(kind, body.get("id"))); }
         catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
     }
 }

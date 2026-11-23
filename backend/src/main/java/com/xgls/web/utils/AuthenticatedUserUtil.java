@@ -25,4 +25,13 @@ public final class AuthenticatedUserUtil {
     public static boolean isPlatformAdmin(User user) {
         return user != null && CodeMap.USER_TYPE_SYS.equals(user.getType());
     }
+
+    /** B/C repository operations are available to platform, baseline and improvement maintainers. */
+    public static boolean canManageResearchComponents(User user) {
+        if (user == null) return false;
+        Integer type = user.getType();
+        return CodeMap.USER_TYPE_SYS.equals(type)
+                || CodeMap.USER_TYPE_ADMIN.equals(type)
+                || CodeMap.USER_TYPE_IMPROVEMENT.equals(type);
+    }
 }

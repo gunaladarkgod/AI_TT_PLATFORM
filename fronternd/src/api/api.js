@@ -20,6 +20,13 @@ export class DocumentationService {
     }
 }
 
+/** 项目内研究基线登记与公约，只读。 */
+export class ResearchRegistryService {
+    static async get() {
+        return request('/api/research-registry', {}, 'get', null, 'json');
+    }
+}
+
 /** 本机组件检测与后台下载。 */
 export class WorkspaceComponentService {
     static async list(engine = 'ultralytics') {
@@ -30,6 +37,41 @@ export class WorkspaceComponentService {
     }
     static async remove(id, engine) {
         return request('/api/workspace/components/remove', { id, engine }, 'post', 'application/json', 'json');
+    }
+}
+
+/** 独立 B/C 仓库的登记、本机状态和受控下载。 */
+export class AlgorithmComponentService {
+    static listBaselines(direction) {
+        return request('/api/baseline-components', direction ? { direction } : {}, 'get', null, 'json');
+    }
+    static listAlgorithms(direction) {
+        return request('/api/algorithm-components', direction ? { direction } : {}, 'get', null, 'json');
+    }
+    static installBaseline(id) {
+        return request('/api/baseline-components/install', { id }, 'post', 'application/json', 'json');
+    }
+    static installAlgorithm(id) {
+        return request('/api/algorithm-components/install', { id }, 'post', 'application/json', 'json');
+    }
+    static removeBaseline(id) {
+        return request('/api/baseline-components/remove', { id }, 'post', 'application/json', 'json');
+    }
+    static removeAlgorithm(id) {
+        return request('/api/algorithm-components/remove', { id }, 'post', 'application/json', 'json');
+    }
+}
+
+/** 用户上传的本地算法包登记。 */
+export class CustomAlgorithmService {
+    static list(direction) {
+        return request('/api/custom-algorithms', direction ? { direction } : {}, 'get', null, 'json');
+    }
+    static upload(formData, onProgress) {
+        return uploadRequest('/api/custom-algorithms/upload', formData, onProgress);
+    }
+    static remove(id) {
+        return request('/api/custom-algorithms/remove', { id }, 'post', 'application/json', 'json');
     }
 }
 
@@ -170,6 +212,10 @@ export class TrainLabelService {
 }
 /**训练任务管理 */
 export class TrainTaskService {
+    static componentOptions(direction) {
+        return request('/trainTask/component-options', { direction }, 'get', null, 'json');
+    }
+
     static async queryList(params) {
         return request('/trainTask/list', params, 'post');
     }

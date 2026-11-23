@@ -2,166 +2,166 @@ package com.xgls.web.service;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Assumptions;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.DosFileAttributeView;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class AlgorithmComponentServiceTest {
-    @TempDir Path root;
+    @TempDir Path temp;
 
     @Test
-    void listsRegisteredExternalAlgorithmAndExplainsWhyItCannotTrain() throws Exception {
-        registry("small-object/tdsc", "draft");
-        try (var service = new CloseableService(root)) {
-            Map<String, Object> item = only(service.service.list(null));
-            assertEquals("not-downloaded", item.get("localStatus"));
-            assertFalse((Boolean) item.get("trainingReady"));
-            assertTrue(((List<?>) item.get("blockers")).toString().contains("尚未下载"));
-            assertTrue((Boolean) item.get("installAllowed"));
-            assertEquals("not-connected", service.service.trainingProfile("small-object/tdsc").get("runnerIntegration"));
+    void springCreatesServiceWithRegistryDependency() throws Exception {
+        registry();
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(ResearchRegistryService.class, () -> new ResearchRegistryService(temp));
+            context.register(AlgorithmComponentService.class);
+            context.refresh();
+
+            Map<String, Object> result = context.getBean(AlgorithmComponentService.class).list("baseline", null);
+            assertEquals(1, ((List<?>) result.get("components")).size());
         }
     }
 
-    @Test
-    void validatesInstalledManifestBeforeMarkingComponentDownloaded() throws Exception {
-        registry("small-object/tdsc", "published");
-        Path installed = root.resolve("local-components/algorithms/small-object/tdsc");
-        Files.createDirectories(installed);
-        Files.writeString(installed.resolve("algorithm.yaml"), """
+    private void file(String relative, String content) throws Exception {
+        Path path = temp.resolve(relative);
+        Files.createDirectories(path.getParent());
+        Files.writeString(path, content);
+    }
+
+    private void registry() throws Exception {
+        file("research-registry/registry.yaml", """
+                schema_version: 1
+                name: test
+                baselines:
+                  - id: small-object/yolo11
+                    direction: small-object
+                    name: YOLO11
+                    status: draft
+                    repository: {url: https://github.com/example/yolo.git, ref: main}
+                conventions: []
+                """);
+        file("research-registry/directions/small-object.yaml", """
+                schema_version: 1
+                id: small-object
+                name: 小目标
+                status: active
+                data_formats: [yolo]
+                metrics: [mAP]
+                engine_compatibility: []
+                """);
+        file("research-registry/algorithms/small-object-tdsc.yaml", """
+                schema_version: 1
                 id: small-object/tdsc
-                engine:
-                  id: ultralytics
-                data_format: yolo
-                entry:
-                  train: train.py
-                """);
-        Files.writeString(installed.resolve("derived-from.yaml"), """
-                baseline:
-                  repository: https://example.invalid/baseline.git
-                  ref: main
-                  commit: abcdef1
-                """);
-        Files.writeString(installed.resolve("train.py"), "# fixture\n");
-        git(installed, "init");
-        git(installed, "config", "user.email", "test@example.invalid");
-        git(installed, "config", "user.name", "Test");
-        git(installed, "add", ".");
-        git(installed, "commit", "-m", "fixture");
-        try (var service = new CloseableService(root)) {
-            Map<String, Object> item = only(service.service.list("small-object"));
-            assertEquals("downloaded", item.get("localStatus"), item.toString());
-            assertTrue((Boolean) item.get("trainingReady"));
-            assertFalse(String.valueOf(item.get("sourceCommit")).isBlank());
-        }
-    }
-
-    @Test
-    void rejectsUnsafeOrUnregisteredIdsBeforeAnyGitOperation() throws Exception {
-        registry("small-object/tdsc", "draft");
-        try (var service = new CloseableService(root)) {
-            assertThrows(IllegalArgumentException.class, () -> service.service.startInstall("../../outside"));
-            assertThrows(IllegalArgumentException.class, () -> service.service.trainingProfile("small-object/unknown"));
-        }
-    }
-
-    @Test
-    void keepsBaselineDownloadsAndValidationSeparateFromCAlgorithms() throws Exception {
-        baselineRegistry("small-object/yolo11-baseline", "draft");
-        try (var service = new CloseableService(root)) {
-            Map<String, Object> item = only(service.service.listBaselines("small-object"));
-            assertEquals("baseline", item.get("kind"));
-            assertEquals("not-downloaded", item.get("localStatus"));
-            assertFalse((Boolean) item.get("baselineValidationReady"));
-            assertTrue(((List<?>) item.get("blockers")).toString().contains("基线 B"));
-            assertEquals("not-connected", service.service.baselineValidationProfile("small-object/yolo11-baseline").get("runnerIntegration"));
-            assertThrows(IllegalArgumentException.class, () -> service.service.startInstall("small-object/yolo11-baseline"));
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> only(Map<String, Object> response) {
-        return (Map<String, Object>) ((List<?>) response.get("components")).get(0);
-    }
-
-    private void registry(String id, String status) throws Exception {
-        Path dir = root.resolve("research-registry/algorithms");
-        Files.createDirectories(dir);
-        Path directions = root.resolve("research-registry/directions");
-        Files.createDirectories(directions);
-        Files.writeString(directions.resolve("small-object.yaml"), "schema_version: 1\nid: small-object\nname: test\n");
-        Files.writeString(dir.resolve("tdsc.yaml"), """
-                schema_version: 1
-                id: %s
-                name: TDSC
                 kind: standalone-algorithm
+                name: TDSC
                 direction: small-object
-                status: %s
-                engine:
-                  id: ultralytics
-                  version: test
+                status: draft
+                repository: {url: https://github.com/example/tdsc.git, default_ref: main}
+                derived_from: {baseline: {id: small-object/yolo11}}
+                platform: {min_version: null}
+                engine: {id: ultralytics, version: 8.4.165}
                 data_format: yolo
-                source:
-                  type: external-git
-                  repository: https://example.invalid/tdsc.git
-                  default_ref: main
-                  stable_ref: null
-                  manifest: algorithm.yaml
-                  derived_manifest: derived-from.yaml
-                derived_from:
-                  baseline:
-                    repository: https://example.invalid/baseline.git
-                    ref: main
-                    commit: abcdef1
+                algorithm_manifest: algorithm.yaml
                 description: test
-                """.formatted(id, status));
-    }
-
-    private void baselineRegistry(String id, String status) throws Exception {
-        Path dir = root.resolve("research-registry/algorithms");
-        Files.createDirectories(dir);
-        Path directions = root.resolve("research-registry/directions");
-        Files.createDirectories(directions);
-        Files.writeString(directions.resolve("small-object.yaml"), "schema_version: 1\nid: small-object\nname: test\n");
-        Files.writeString(dir.resolve("baseline.yaml"), """
+                """);
+        file("research-registry/algorithms/small-object-improvement.yaml", """
                 schema_version: 1
-                id: %s
-                name: YOLO11 baseline
-                kind: baseline
+                id: small-object/legacy-improvement
+                kind: improvement
+                name: 旧改进包
                 direction: small-object
-                status: %s
-                engine:
-                  id: ultralytics
-                  version: test
+                status: draft
+                repository: {url: https://github.com/example/legacy.git, default_ref: main}
+                platform: {min_version: null}
+                engine: {id: ultralytics, version: 8.4.165}
                 data_format: yolo
-                source:
-                  type: external-git
-                  repository: https://example.invalid/baseline.git
-                  default_ref: main
-                  stable_ref: null
-                  manifest: algorithm.yaml
+                algorithm_manifest: algorithm.yaml
                 description: test
-                """.formatted(id, status));
+                """);
     }
 
-    private void git(Path directory, String... args) throws Exception {
-        String[] command = new String[args.length + 1];
-        command[0] = "git";
-        System.arraycopy(args, 0, command, 1, args.length);
-        Process process = new ProcessBuilder(command).directory(directory.toFile()).redirectErrorStream(true).start();
-        int exit = process.waitFor();
-        assertEquals(0, exit, new String(process.getInputStream().readAllBytes()));
+    @Test
+    void reportsDownloadedRepositoriesSeparatelyFromMissingPlatformManifests() throws Exception {
+        registry();
+        Files.createDirectories(temp.resolve("local-components/baselines/small-object/yolo11/.git"));
+        Files.createDirectories(temp.resolve("local-components/algorithms/small-object/tdsc/.git"));
+        ResearchRegistryService registry = new ResearchRegistryService(temp);
+        AlgorithmComponentService service = new AlgorithmComponentService(temp, registry);
+        try {
+            Map<String, Object> baselines = service.list("baseline", null);
+            Map<String, Object> algorithms = service.list("algorithm", null);
+            Map<?, ?> baseline = (Map<?, ?>) ((List<?>) baselines.get("components")).get(0);
+            Map<?, ?> algorithm = (Map<?, ?>) ((List<?>) algorithms.get("components")).get(0);
+            assertEquals("downloaded", baseline.get("localStatus"));
+            assertEquals("downloaded", algorithm.get("localStatus"));
+            assertEquals("small-object/yolo11", algorithm.get("baselineId"));
+            assertEquals(1, ((List<?>) algorithms.get("components")).size());
+            assertFalse((Boolean) algorithm.get("trainingReady"));
+            assertTrue(((List<?>) algorithm.get("blockers")).contains("缺少 algorithm.yaml"));
+            assertTrue(((List<?>) algorithm.get("blockers")).contains("缺少 derived-from.yaml"));
+        } finally {
+            service.close();
+        }
     }
 
-    private static class CloseableService implements AutoCloseable {
-        final AlgorithmComponentService service;
-        CloseableService(Path root) { service = new AlgorithmComponentService(root); }
-        @Override public void close() { service.close(); }
+    @Test
+    void reportsAndRemovesAnIncompleteLocalAlgorithmCheckout() throws Exception {
+        registry();
+        Path target = temp.resolve("local-components/algorithms/small-object/tdsc");
+        Files.createDirectories(target.resolve("src"));
+        Files.writeString(target.resolve("src/algorithm.py"), "partial checkout");
+
+        AlgorithmComponentService service = new AlgorithmComponentService(temp, new ResearchRegistryService(temp));
+        try {
+            Map<?, ?> component = (Map<?, ?>) ((List<?>) service.list("algorithm", null).get("components")).get(0);
+            assertEquals("partial", component.get("localStatus"));
+            assertFalse((Boolean) component.get("trainingReady"));
+
+            service.remove("algorithm", "small-object/tdsc");
+            awaitTask(service);
+
+            assertEquals("succeeded", service.snapshot().get("status"));
+            assertFalse(Files.exists(target));
+        } finally {
+            service.close();
+        }
+    }
+
+    @Test
+    void removesReadOnlyGitPackFilesWhenDosAttributesAreSupported() throws Exception {
+        registry();
+        Path target = temp.resolve("local-components/algorithms/small-object/tdsc");
+        Files.createDirectories(target.resolve(".git/objects/pack"));
+        Path packFile = target.resolve(".git/objects/pack/pack-test.idx");
+        Files.writeString(packFile, "read only pack index");
+        DosFileAttributeView dos = Files.getFileAttributeView(packFile, DosFileAttributeView.class);
+        Assumptions.assumeTrue(dos != null, "filesystem does not expose DOS attributes");
+        dos.setReadOnly(true);
+
+        AlgorithmComponentService service = new AlgorithmComponentService(temp, new ResearchRegistryService(temp));
+        try {
+            service.remove("algorithm", "small-object/tdsc");
+            awaitTask(service);
+
+            assertEquals("succeeded", service.snapshot().get("status"));
+            assertFalse(Files.exists(target));
+        } finally {
+            service.close();
+        }
+    }
+
+    private void awaitTask(AlgorithmComponentService service) throws InterruptedException {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+        while ("running".equals(service.snapshot().get("status")) && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        assertNotEquals("running", service.snapshot().get("status"), "component removal timed out");
     }
 }

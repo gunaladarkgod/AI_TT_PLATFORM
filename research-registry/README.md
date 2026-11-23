@@ -1,119 +1,63 @@
-# 研究基线公约与算法登记中心
+# 研究基线登记中心
 
-`research-registry/` 是平台核心中受 Git 管理的**只读登记中心**。它描述研究方向、算法方案和兼容条件，不保存外部算法仓库源码，也不依赖数据库中的算法模板记录。
+本目录是 A 层维护的研究方向、基线和算法元信息登记，不保存独立 B/C 仓库的源码。A 同时提供公共平台能力和 YOLO、MMDetection 等引擎的接入、版本约束、环境检查与统一调度；第三方框架源码按需安装，不复制进平台登记目录。
 
-## 当前阶段
+## A/B/C 关系
 
-本目录已开始被后端的受控组件服务读取，用于登记、下载和校验外部 B/C；前端页面和统一 Runner 尚未完成 B/C 的真实训练接入。现有 `research/` 仍是已接入本地研究基线/改进包的运行来源，不能因本目录出现而删除或移动。
+| 层级 | 含义 | 仓库职责 |
+| --- | --- | --- |
+| A | 平台与公共核心组件 | 管理数据集、任务、评测、引擎接入、Runner、登记及受控下载；不保存 B/C 训练源码。 |
+| B1 | 小目标检测方向 | 方向下登记可运行基线；用户选择具体基线后可据此派生 C。 |
+| B2 | 知识蒸馏方向 | 方向下登记可运行基线；知识蒸馏能力必须由基线清单和实现证明，不能仅凭方向名称推断。 |
+| B3 | 时空方向 | 方向下登记可运行基线；具体数据格式和引擎以基线清单为准。 |
+| C | 独立算法仓库 | 用户从一个固定 B 基线派生完整代码，在自己的 C 中修改；运行不依赖 B 的本机目录。 |
 
-登记为 `draft` 仅表示方案信息已记录；不表示算法源码已经迁移、训练环境可用或可以启动训练。
+方向 ID（如 `small-object`）是机器标识，`code`（如 `B1`）是讨论时使用的层级编号。一个方向可以有多个基线，一个基线也可以派生多个 C。方向登记本身不代表该方向已有可运行基线。
 
-## 当前目录
+项目内旧 `research/` 目录仍是现有训练页的兼容机制；登记状态为 `draft` 的方案不能表述为已接入训练。旧训练链路及 `engines/` 在新 B/C 流程验证完成前继续保留。
 
-```text
-research-registry/
-├─ registry.yaml                     # 固定枚举、目录入口和协议版本
-├─ directions/<direction-id>.yaml    # 研究方向登记
-├─ algorithms/<algorithm-id>.yaml    # 一个基线或改进方案的登记
-└─ templates/external-algorithm.yaml # 独立算法仓库登记模板
-```
+## 固定字段
 
-当前目录服务于旧 `research/` 向多仓库架构过渡，因此已有记录仍可能使用 `baseline` 或 `improvement`。它们描述的是现有项目内实现，不应被误认为已经完成外部 B/C 仓库迁移。
+方向文件位于 `directions/`，至少包含：
 
-## 目标目录与内容边界
+- `schema_version: 1`
+- `id`：全局唯一的小写方向 ID，例如 `small-object`
+- `code`：人类可读的层级编号，例如 `B1`、`B2`、`B3`
+- `name`、`description`、`status`：状态为 `active`、`deprecated` 或 `archived`
+- `data_formats`、`metrics`、`engine_compatibility`
 
-完成迁移后，本目录将保存 A 平台的公约、B 基线和 C 算法的索引，建议扩展为：
+算法登记文件位于 `algorithms/`，至少包含：
 
-```text
-research-registry/
-├─ registry.yaml                         # Schema、允许枚举、兼容性与目录入口
-├─ directions/                           # 方向级公共定义
-│  └─ <direction-id>.yaml                # 格式、指标、状态、适用公约
-├─ conventions/                          # 数据、评测、Runner、权限、仓库生命周期规则
-├─ algorithms/                           # B 基线或独立完整 C 的登记
-│  └─ <direction>--<component>.yaml      # 仓库、Tag/提交、引擎、格式、B→C 来源
-└─ templates/                            # 注册 B/C、algorithm.yaml、derived-from.yaml 模板
-```
+- `schema_version: 1`、`id`、`name`、`direction`、`description`
+- `kind`：`baseline`、`improvement` 或 `standalone-algorithm`
+- `status`：`draft`、`review` 或 `published`
+- `repository.url`、`repository.default_ref`、`repository.stable_ref`
+- `platform.min_version`
+- `engine.id`、`engine.version`：引擎 ID 为 `mmdet`、`ultralytics`、`custom` 或 `paper`
+- `data_format`：`coco`、`yolo` 或 `custom`
+- `algorithm_manifest`：登记对应的算法清单相对路径；独立 C 算法还应提供 `derived_manifest`
 
-它不保存 B/C 的源码、数据集、权重、训练日志、虚拟环境或任何 Git 凭据。实际 B/C 代码位于各自的独立私有仓库；被平台管理员下载后，分别位于本机 `local-components/baselines/` 与 `local-components/algorithms/`，两者均受 `.gitignore` 忽略。
+`id` 使用 `方向/方案简称`，仅允许小写字母、数字和连字符。仓库地址由 A 平台登记并经过 HTTPS GitHub 地址校验，受控下载接口只按登记 ID 执行浅克隆，不接受客户端传入任意本地路径或仓库地址。
 
-外部 B 使用 `kind: baseline`；外部 C 使用 `kind: standalone-algorithm`，并增加 `derived_from`（B 的仓库、Tag 与提交）。旧字段和记录在兼容期继续可读，具体迁移步骤见 [开发者 A 任务书](../docs/v1.0/多仓库改造-开发者A-平台登记与受控算法下载.md)。
+## 接口与状态
 
-## 算法登记协议 v1
+登录后访问 `GET /api/research-registry`。成功时返回 `registry`、`directions`、`algorithms`、`conventions`；登记目录缺失、YAML 无效、字段缺失、重复 ID、未知引擎、非法路径或公约文件读取失败时，响应 `data.errors` 会列出原因。研究基线页面还提供维护角色专用的 B/C 仓库按需下载接口：
 
-每个 `algorithms/*.yaml` 必须是一个独立方案记录。迁移期的项目内方案可以是 `baseline` 或 `improvement`；新的独立 C 算法固定使用 `standalone-algorithm`。一次调参、一次训练任务或一次结果记录不能新建算法登记。
+- `GET /api/baseline-components`：读取登记的 B 基线和本机状态。
+- `GET /api/algorithm-components`：读取登记的独立 C 算法和本机状态，并返回其 `baselineId` 关联的 B 基线。
+- `POST /api/baseline-components/install`、`POST /api/algorithm-components/install`：按登记 ID 克隆对应 GitHub 仓库。
+- `POST /api/baseline-components/remove`、`POST /api/algorithm-components/remove`：移除对应的本机副本，不影响远程仓库。
 
-最小字段如下：
+下载任务会返回 `progress`、`message` 和 `logs`；页面按“连接仓库、下载对象、检查清单、完成”刷新阶段进度。这个百分比表示任务阶段，不代表远程仓库的精确字节百分比。
 
-```yaml
-schema_version: 1
-id: small-object/yolo11-baseline
-name: YOLO11 小目标检测基线
-kind: standalone-algorithm
-direction: small-object
-status: draft
-engine:
-  id: ultralytics
-  version: 8.4.115
-data_format: yolo
-source:
-  type: external-git
-  repository: https://github.com/<organization>/AI_TT_ALGO_SMALL_OBJECT_YOLO11_BASELINE.git
-  default_ref: develop
-  stable_ref: null
-  manifest: algorithm.yaml
-  derived_manifest: derived-from.yaml
-derived_from:
-  baseline:
-    repository: https://github.com/<organization>/AI_TT_BASELINE_SMALL_OBJECT_YOLO11.git
-    ref: v1.0.0
-    commit: <40 位提交 ID>
-platform:
-  min_version: null
-description: 说明方案用途、边界和验证状态。
-```
+组件管理按方向展示基线树，独立 C 算法和本地上传算法按 `baselineId` 放在对应基线下，点击基线展开箭头查看；未指定基线或关联基线不在该方向登记中的算法保留在“未关联基线”节点。用户可在方向标题处上传 ZIP 算法包，也可从基线行的“上传算法”入口上传并预选该基线。上传内容保存到被 `.gitignore` 忽略的 `local-components/custom-algorithms/`，并记录研究方向、基线（可暂不选择）和算法名称；上传结果状态为“开发中/待登记”，不会自动修改 `research-registry/` 中的仓库登记文件，也不会自动执行算法代码。
 
-### 字段规则
+下载写入被 `.gitignore` 忽略的 `local-components/`，不会把外部 B/C 源码提交进 A 仓库。仓库已下载和可训练是两个状态：若仓库缺少 `algorithm.yaml` 或 C 的 `derived-from.yaml`，页面会保留本机代码并显示待补清单；只有登记状态为 `published` 且清单齐全时才标记为可训练。下载和移除操作要求平台管理员、基线维护者或改进开发者权限，普通实验用户只能查看状态。
 
-| 字段 | 规则 |
+页面显示的登记状态含义如下：
+
+| 状态 | 含义 |
 | --- | --- |
-| `schema_version` | 当前固定为整数 `1`。不兼容变更必须升级版本。 |
-| `id` | 全局唯一，格式为 `方向/方案简称`；仅允许小写字母、数字和连字符及分隔符 `/`。改进包可使用 `方向/基线/改进`。 |
-| `kind` | 迁移期允许 `baseline` 或 `improvement`；新外部 C 固定为 `standalone-algorithm`。 |
-| `direction` | 必须存在于 `directions/`。 |
-| `status` | 只允许 `draft`、`review`、`published`、`deprecated`、`archived`。只有实际验证通过且完成审查的方案才可标为 `published`。 |
-| `engine.id` | 当前只允许 `mmdet`、`ultralytics`、`custom`、`paper`。`paper` 当前不代表可运行。 |
-| `data_format` | 当前只允许 `coco`、`yolo`、`custom`。 |
-| `source` | 指向项目内过渡来源或独立 Git 算法仓库。登记信息只用于描述和后续受控校验，浏览器与后端不得据此执行任意 Git 命令。 |
-| `source.derived_manifest` | 新外部 C 的 `derived-from.yaml` 相对路径；平台下载后读取并与登记来源逐字段核对。 |
-| `derived_from.baseline` | 新外部 C 的 B 来源，必须有 `repository`、`ref` 和 `commit`。 |
-| `platform.min_version` | 最低兼容的平台 Release Tag；未形成稳定版本时可为 `null`，但不得假装已验证兼容。 |
-| `parent` | `kind: improvement` 时必填，值为父基线的完整 `id`。 |
-
-### 来源类型
-
-过渡期、仍位于本项目 `research/` 中的方案使用：
-
-```yaml
-source:
-  type: in-tree
-  path: research/small-object/ultralytics-yolo11n-v1
-  manifest: algorithm.yaml
-```
-
-独立算法仓库使用 `external-git`，必须同时声明 `repository`、`default_ref`、`stable_ref` 和 `manifest`。其中 `stable_ref` 优先使用 Release Tag 或完整提交；尚未发布稳定版本时可以为 `null`。
-
-所有 `path`、`manifest`、训练入口等相对路径都不得包含 `..`、盘符或绝对路径。仓库地址中不得保存访问令牌、账号密码或 SSH 私钥。
-
-## 与独立算法仓库的关系
-
-独立算法仓库根目录的 `algorithm.yaml` 是算法实现自身的清单；本目录的登记记录是平台侧索引。两者的 `id`、`engine.id`、`engine.version`、`data_format` 必须一致。后续平台接入时，发现不一致应拒绝训练并指出字段差异。
-
-平台侧登记不授予源码访问权限。GitHub 独立仓库的读取/写入权限仍由仓库团队、分支保护和 PR 审查管理。
-
-## 后续阶段
-
-1. 后端只读加载与校验本目录；
-2. 前端新增“研究基线公约”展示页面；
-3. 以 YOLO11 小目标基线验证独立算法仓库接入；
-4. 完成真实训练验证后，再迁移其他基线和改进方案。
+| `draft` | 已登记元信息，仍在开发或验证，不能视为可训练 |
+| `review` | 等待评审和兼容性确认 |
+| `published` | 已通过登记流程，可作为公开研究方案说明；训练可用性仍以引擎和源码验证为准 |

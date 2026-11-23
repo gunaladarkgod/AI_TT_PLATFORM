@@ -1,0 +1,186 @@
+[
+  {
+    "id": "small-object/yolo11",
+    "kind": "baseline",
+    "name": "YOLO11 小目标检测基线（baseline）",
+    "direction": "small-object",
+    "engine": "ultralytics",
+    "engine_version": "8.4.165",
+    "data_format": "yolo",
+    "model": "yolo11s.pt",
+    "pretrained": null,
+    "parameters": [
+      {
+        "key": "epochs",
+        "type": "integer",
+        "default": 100,
+        "min": 1,
+        "max": 10000,
+        "label": "训练轮数",
+        "description": "训练轮数"
+      },
+      {
+        "key": "imgsz",
+        "type": "integer",
+        "default": 640,
+        "min": 32,
+        "max": 4096,
+        "label": "输入尺寸",
+        "description": "输入尺寸"
+      },
+      {
+        "key": "batch",
+        "type": "integer",
+        "default": 8,
+        "min": 1,
+        "max": 1024,
+        "label": "批大小",
+        "description": "批大小"
+      },
+      {
+        "key": "workers",
+        "type": "integer",
+        "default": 8,
+        "min": 0,
+        "max": 64,
+        "label": "数据加载进程数",
+        "description": "数据加载进程数"
+      },
+      {
+        "key": "seed",
+        "type": "integer",
+        "default": 0,
+        "min": 0,
+        "max": 2147483647,
+        "label": "随机种子",
+        "description": "随机种子"
+      },
+      {
+        "key": "max_det",
+        "type": "integer",
+        "default": 902,
+        "min": 1,
+        "max": 10000,
+        "label": "最大检测数",
+        "description": "最大检测数"
+      },
+      {
+        "key": "lr0",
+        "type": "number",
+        "default": 0.01,
+        "min": 1e-07,
+        "max": 1,
+        "label": "初始学习率",
+        "description": "初始学习率",
+        "step": 0.001
+      },
+      {
+        "key": "device",
+        "type": "string",
+        "default": "0",
+        "label": "训练设备",
+        "description": "填写 cpu 或 GPU 编号，例如 0"
+      },
+      {
+        "key": "amp",
+        "type": "boolean",
+        "default": true,
+        "label": "混合精度",
+        "description": "混合精度"
+      }
+    ],
+    "repository": "https://github.com/gunaladarkgod/AI_TT_BASELINE_SMALL_OBJECT_YOLO11.git"
+  },
+  {
+    "id": "small-object/tdsc",
+    "kind": "algorithm",
+    "name": "YOLO11 TDSC 小目标算法",
+    "direction": "small-object",
+    "engine": "ultralytics",
+    "engine_version": "8.4.165",
+    "data_format": "yolo",
+    "model": "ultralytics/cfg/models/11/yolo11s-p234-tdsc.yaml",
+    "pretrained": "yolo11s.pt",
+    "parameters": [
+      {
+        "key": "epochs",
+        "type": "integer",
+        "default": 100,
+        "min": 1,
+        "max": 10000,
+        "label": "训练轮数",
+        "description": "训练轮数"
+      },
+      {
+        "key": "imgsz",
+        "type": "integer",
+        "default": 640,
+        "min": 32,
+        "max": 4096,
+        "label": "输入尺寸",
+        "description": "输入尺寸"
+      },
+      {
+        "key": "batch",
+        "type": "integer",
+        "default": 8,
+        "min": 1,
+        "max": 1024,
+        "label": "批大小",
+        "description": "批大小"
+      },
+      {
+        "key": "workers",
+        "type": "integer",
+        "default": 8,
+        "min": 0,
+        "max": 64,
+        "label": "数据加载进程数",
+        "description": "数据加载进程数"
+      },
+      {
+        "key": "seed",
+        "type": "integer",
+        "default": 0,
+        "min": 0,
+        "max": 2147483647,
+        "label": "随机种子",
+        "description": "随机种子"
+      },
+      {
+        "key": "max_det",
+        "type": "integer",
+        "default": 902,
+        "min": 1,
+        "max": 10000,
+        "label": "最大检测数",
+        "description": "最大检测数"
+      },
+      {
+        "key": "lr0",
+        "type": "number",
+        "default": 0.01,
+        "min": 1e-07,
+        "max": 1,
+        "label": "初始学习率",
+        "description": "初始学习率",
+        "step": 0.001
+      },
+      {
+        "key": "device",
+        "type": "string",
+        "default": "0",
+        "label": "训练设备",
+        "description": "填写 cpu 或 GPU 编号，例如 0"
+      },
+      {
+        "key": "amp",
+        "type": "boolean",
+        "default": true,
+        "label": "混合精度",
+        "description": "混合精度"
+      }
+    ],
+    "repository": "https://github.com/gunaladarkgod/AI_TT_ALGO_SMALL_OBJECT_TDSC.git"
+  }
+]

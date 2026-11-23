@@ -3,6 +3,30 @@ import json
 from pathlib import Path
 
 
+def install_unicode_checkpoint_io():
+    """Keep PyTorch's ZIP writer on Python file objects, including Unicode roots.
+
+    Installed before importing Ultralytics so its cached torch.save reference also
+    uses the wrapper. Limited to this training subprocess; never swallows errors.
+    """
+    import os
+    import functools
+    import torch
+    original = torch.save
+    if getattr(original, "_platform_unicode_safe", False):
+        return
+
+    @functools.wraps(original)
+    def save(obj, f, *args, **kwargs):
+        if isinstance(f, (str, os.PathLike)):
+            with open(f, "wb") as stream:
+                return original(obj, stream, *args, **kwargs)
+        return original(obj, f, *args, **kwargs)
+
+    save._platform_unicode_safe = True
+    torch.save = save
+
+
 def resolve_dataset_yaml(source: str, work_dir: Path) -> Path:
     """Anchor dataset paths to the original YAML, regardless of the worker's CWD."""
     import yaml
@@ -35,12 +59,28 @@ def main() -> None:
     parser.add_argument("--spec", required=True)
     args = parser.parse_args()
     spec = json.loads(Path(args.spec).read_text(encoding="utf-8"))
+    if spec.get("source_root"):
+        import sys
+        from component_training import resolve_component
+        adapter = resolve_component({"component_id": spec["id"], "component_kind": spec["kind"],
+                                     "component_commit": spec["component_commit"], "adapter_digest": spec["adapter_digest"]})
+        sys.path.insert(0, adapter["source_root"])
+    install_unicode_checkpoint_io()
+    import ultralytics
     from ultralytics import YOLO
+    if spec.get("source_root"):
+        try:
+            Path(ultralytics.__file__).resolve().relative_to(Path(adapter["source_root"]).resolve())
+        except ValueError:
+            raise RuntimeError("Wrong component source loaded")
+        print(f"[component] id={spec['id']} commit={spec['component_commit']} source={ultralytics.__file__}", flush=True)
 
     work_dir = Path(spec["work_dir"]).resolve()
     work_dir.parent.mkdir(parents=True, exist_ok=True)
     data_yaml = resolve_dataset_yaml(spec["data"], work_dir)
     model = YOLO(spec["model"])
+    if spec.get("pretrained"):
+        model.load(spec["pretrained"])
     model.train(data=str(data_yaml), project=str(work_dir.parent), name=work_dir.name,
                 exist_ok=True, **spec.get("parameters", {}))
     weights_dir = work_dir / "weights"

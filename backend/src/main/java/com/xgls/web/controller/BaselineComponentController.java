@@ -32,31 +32,31 @@ public class BaselineComponentController {
     @GetMapping
     public AjaxResult list(@RequestParam(required = false) String direction, HttpServletRequest request) {
         if (AuthenticatedUserUtil.current(request, redis, users) == null) return AjaxResult.error("请先登录");
-        return AjaxResult.success(components.listBaselines(direction));
+        return AjaxResult.success(components.list("baseline", direction));
     }
 
     @GetMapping("/validation-profile")
     public AjaxResult validationProfile(@RequestParam String id, HttpServletRequest request) {
         if (AuthenticatedUserUtil.current(request, redis, users) == null) return AjaxResult.error("请先登录");
-        try { return AjaxResult.success(components.baselineValidationProfile(id)); }
+        try { return AjaxResult.success(components.profile("baseline", id)); }
         catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
     }
 
     @PostMapping("/install")
     public AjaxResult install(@RequestBody Map<String, String> body, HttpServletRequest request) {
-        if (!AuthenticatedUserUtil.isPlatformAdmin(AuthenticatedUserUtil.current(request, redis, users))) {
-            return AjaxResult.error("下载基线源码会修改本机组件目录，请由平台管理员执行");
+        if (!AuthenticatedUserUtil.canManageResearchComponents(AuthenticatedUserUtil.current(request, redis, users))) {
+            return AjaxResult.error("下载基线源码会修改本机组件目录，需要组件维护权限");
         }
-        try { return AjaxResult.success(components.startBaselineInstall(body.get("id"))); }
+        try { return AjaxResult.success(components.install("baseline", body.get("id"))); }
         catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
     }
 
     @PostMapping("/remove")
     public AjaxResult remove(@RequestBody Map<String, String> body, HttpServletRequest request) {
-        if (!AuthenticatedUserUtil.isPlatformAdmin(AuthenticatedUserUtil.current(request, redis, users))) {
-            return AjaxResult.error("移除本机基线源码会修改本机组件目录，请由平台管理员执行");
+        if (!AuthenticatedUserUtil.canManageResearchComponents(AuthenticatedUserUtil.current(request, redis, users))) {
+            return AjaxResult.error("移除本机基线源码会修改本机组件目录，需要组件维护权限");
         }
-        try { return AjaxResult.success(components.startBaselineRemove(body.get("id"))); }
+        try { return AjaxResult.success(components.remove("baseline", body.get("id"))); }
         catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
     }
 }
