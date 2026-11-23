@@ -136,6 +136,15 @@ public class AlgorithmComponentService {
         return target;
     }
 
+    public Path localPath(String kind, String id) {
+        if (!Set.of("baseline", "algorithm").contains(kind) || find(kind, id) == null)
+            throw new IllegalArgumentException("未登记的组件");
+        Path path = target(kind, id);
+        if (!Files.isDirectory(path) || !Files.isDirectory(path.resolve(".git")))
+            throw new IllegalArgumentException("本机仓库不存在或下载不完整，请检查状态");
+        return path;
+    }
+
     private void cloneRepository(String kind, String id, String url, String ref, Path target) {
         try {
             stageProgress("正在连接远程仓库", 10);

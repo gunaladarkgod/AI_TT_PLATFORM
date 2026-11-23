@@ -4,11 +4,13 @@ import com.xgls.web.base.AjaxResult;
 import com.xgls.web.entity.User;
 import com.xgls.web.service.*;
 import com.xgls.web.utils.AuthenticatedUserUtil;
+import com.xgls.web.utils.SystemDirectoryOpener;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import java.util.Map;
+import java.io.IOException;
 
 @RestController
 public class AlgorithmComponentController {
@@ -35,6 +37,12 @@ public class AlgorithmComponentController {
     public AjaxResult install(@PathVariable String kind, @RequestBody Map<String, String> body, HttpServletRequest request) { return mutate(kind, body, request, true); }
     @PostMapping("/api/{kind}-components/remove")
     public AjaxResult remove(@PathVariable String kind, @RequestBody Map<String, String> body, HttpServletRequest request) { return mutate(kind, body, request, false); }
+    @PostMapping("/api/{kind}-components/open-path")
+    public AjaxResult openPath(@PathVariable String kind, @RequestBody Map<String, String> body, HttpServletRequest request) {
+        if (AuthenticatedUserUtil.current(request, redis, users) == null) return AjaxResult.error("请先登录");
+        try { return AjaxResult.success(Map.of("path", SystemDirectoryOpener.openDirectory(service.localPath(kind, body.get("id"))).toString())); }
+        catch (IllegalArgumentException | IOException e) { return AjaxResult.error(e.getMessage()); }
+    }
 
     @GetMapping("/api/custom-algorithms")
     public AjaxResult customAlgorithms(@RequestParam(required = false) String direction, HttpServletRequest request) {

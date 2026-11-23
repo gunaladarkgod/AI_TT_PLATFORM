@@ -60,6 +60,9 @@ export class AlgorithmComponentService {
     static removeAlgorithm(id) {
         return request('/api/algorithm-components/remove', { id }, 'post', 'application/json', 'json');
     }
+    static openPath(kind, id) {
+        return request(`/api/${kind}-components/open-path`, { id }, 'post', 'application/json', 'json');
+    }
 }
 
 /** 用户上传的本地算法包登记。 */

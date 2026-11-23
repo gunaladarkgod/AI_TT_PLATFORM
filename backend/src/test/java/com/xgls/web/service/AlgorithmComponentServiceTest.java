@@ -135,6 +135,21 @@ class AlgorithmComponentServiceTest {
     }
 
     @Test
+    void resolvesOnlyRegisteredCompleteLocalRepositoriesForOpenPath() throws Exception {
+        registry();
+        Path target = temp.resolve("local-components/baselines/small-object/yolo11");
+        Files.createDirectories(target.resolve(".git"));
+        AlgorithmComponentService service = new AlgorithmComponentService(temp, new ResearchRegistryService(temp));
+        try {
+            assertEquals(target, service.localPath("baseline", "small-object/yolo11"));
+            assertThrows(IllegalArgumentException.class, () -> service.localPath("algorithm", "small-object/tdsc"));
+            assertThrows(IllegalArgumentException.class, () -> service.localPath("baseline", "../../outside"));
+        } finally {
+            service.close();
+        }
+    }
+
+    @Test
     void removesReadOnlyGitPackFilesWhenDosAttributesAreSupported() throws Exception {
         registry();
         Path target = temp.resolve("local-components/algorithms/small-object/tdsc");
