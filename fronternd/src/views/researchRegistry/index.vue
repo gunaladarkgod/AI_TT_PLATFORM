@@ -39,17 +39,19 @@
               <el-table-column label="状态" min-width="135">
                 <template #default="{ row }"><span v-if="row.nodeType === 'group'" class="pending-text">待关联基线</span><el-tag v-else size="small" :type="rowStatusType(row)">{{ rowStatusLabel(row) }}</el-tag></template>
               </el-table-column>
-              <el-table-column label="操作" width="210">
+              <el-table-column label="操作" width="300">
                 <template #default="{ row }">
                   <template v-if="row.nodeType === 'group'"><span class="pending-text">—</span></template>
                   <template v-else-if="row.custom"><el-button size="small" type="danger" plain @click="removeCustom(row)">移除</el-button></template>
                   <template v-else-if="!row.placeholder">
-                    <el-button v-if="row.localStatus === 'not-downloaded'" size="small" :loading="isTaskRunning(row.id)" @click="installComponent(row)">下载</el-button>
-                    <template v-else>
-                      <el-button size="small" :disabled="row.localStatus !== 'downloaded' || isTaskRunning(row.id)" @click="openComponentPath(row)">打开路径</el-button>
-                      <el-button size="small" type="danger" plain :loading="isTaskRunning(row.id)" @click="removeComponent(row)">{{ row.localStatus === 'partial' ? '清理' : '移除' }}</el-button>
-                    </template>
-                    <el-button v-if="row.nodeType === 'baseline'" size="small" type="primary" plain @click="openUpload(table.id, row.id)">上传算法</el-button>
+                    <div class="component-actions">
+                      <el-button v-if="row.localStatus === 'not-downloaded'" size="small" :loading="isTaskRunning(row.id)" @click="installComponent(row)">下载</el-button>
+                      <template v-else>
+                        <el-button size="small" :disabled="row.localStatus !== 'downloaded' || isTaskRunning(row.id)" @click="openComponentPath(row)">打开路径</el-button>
+                        <el-button size="small" type="danger" plain :loading="isTaskRunning(row.id)" @click="removeComponent(row)">{{ row.localStatus === 'partial' ? '清理' : '移除' }}</el-button>
+                      </template>
+                      <el-button v-if="row.nodeType === 'baseline'" size="small" type="primary" plain @click="openUpload(table.id, row.id)">上传算法</el-button>
+                    </div>
                   </template>
                   <span v-else class="pending-text">预留位置</span>
                 </template>
@@ -235,6 +237,8 @@ onBeforeUnmount(() => clearTimeout(componentTimer))
 .repository-table a { overflow: hidden; color: var(--el-color-primary); text-overflow: ellipsis; white-space: nowrap; }
 .pending-text { color: var(--el-text-color-secondary); font-size: 12px; }
 .component-blocker { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; }
+.component-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.component-actions .el-button { margin-left: 0; }
 .component-task, .upload-progress { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--el-border-color); border-radius: 6px; background: var(--el-fill-color-lighter); }
 .component-task-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .component-logs { margin-top: 10px; }
