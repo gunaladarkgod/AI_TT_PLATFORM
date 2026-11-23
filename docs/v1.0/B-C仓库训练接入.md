@@ -29,6 +29,10 @@
 
 本次隔离冒烟验证使用合成图片、CPU、1 轮、随机初始化的 YOLO11s 权重，B/C 都执行真实训练并生成 best.pt/last.pt。它验证源码接入和训练产物，不是正式数据集评测，也不代表网页、数据库结果登记已完成端到端验收。证据位于本机 `artifacts/component_training_smoke/{baseline,tdsc}/smoke.log`，不纳入提交。
 
+## Linux 组件移除与符号链接
+
+组件仓库可能包含 `CLAUDE.md -> AGENTS.md` 等符号链接。Linux 上即使 Java 提供 DOS 属性视图，使用 `NOFOLLOW_LINKS` 读取符号链接属性仍可能失败，导致移除停在清理只读属性阶段。清理过程跳过符号链接，后续删除仅移除链接本身，不修改或删除链接指向的外部文件和目录。更新此 Java 逻辑后需重新编译并重启后端，再从组件管理界面重试移除。
+
 ## Windows 中文路径与失败重试
 
 训练 Worker 在导入 Ultralytics 前安装进程内的 PyTorch 保存适配：对字符串或 Path 权重路径先用 Python 二进制文件流打开，再交给原始 `torch.save`。保留中文项目路径、中文任务目录和文件名，不移动用户产物，不改第三方安装源码，不掩盖真实缺失目录或权限错误。历史官方任务与新 B/C 任务共用该 Worker。
