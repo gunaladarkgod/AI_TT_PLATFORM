@@ -204,11 +204,13 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
 
         // === 新增：读取 network_name ===
         String networkName = null;
+        String dataset = "coco_small";
         try {
             com.xgls.web.entity.TrainExt ext = trainExtMapper.selectById(task.getId());
             if (ext != null && StrUtil.isNotBlank(ext.getParams()) && JSONUtil.isTypeJSONObject(ext.getParams())) {
                 cn.hutool.json.JSONObject extJo = JSONUtil.parseObj(ext.getParams());
                 networkName = extJo.getStr("network_name");
+                dataset = StrUtil.blankToDefault(extJo.getStr("dataset"), dataset);
             }
         } catch (Exception ignore) {}
 
@@ -217,7 +219,7 @@ public class TrainTaskService extends ServiceImpl<TrainTaskMapper, TrainTask> {
         tr.setTaskName(task.getName());
         tr.setUserName(task.getUsername());
         tr.setModelType(isFixedRunnerTask(task) ? "自定义" : "mmdet");
-        tr.setDataset("coco_small"); // 如需真实数据集名称，可在业务链路中补齐
+        tr.setDataset(dataset);
         LocalDateTime finishedAt = LocalDateTime.now();
         tr.setTime(finishedAt);
         try {

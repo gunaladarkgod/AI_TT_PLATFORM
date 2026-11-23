@@ -131,7 +131,9 @@ public class TrainResultController {
 
         TrainExt ext = trainExtService.getById(task.getId());
         if (ext != null && StrUtil.isNotBlank(ext.getParams()) && JSONUtil.isTypeJSONObject(ext.getParams())) {
-            result.setNetworkName(JSONUtil.parseObj(ext.getParams()).getStr("network_name"));
+            JSONObject params = JSONUtil.parseObj(ext.getParams());
+            result.setNetworkName(params.getStr("network_name"));
+            result.setDataset(StrUtil.blankToDefault(params.getStr("dataset"), result.getDataset()));
         }
         try {
             JSONObject log = trainRunnerService.getLatestTrainLog(task.getName(), 5000);

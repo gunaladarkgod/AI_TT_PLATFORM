@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from component_training import resolve_component, validated_parameters, check_source, is_within, ROOT
+from component_training import resolve_component, validated_parameters, check_source, is_within, local_source_digest, ROOT
 
 class ComponentTrainingTest(unittest.TestCase):
     def setUp(self):
@@ -42,6 +42,25 @@ class ComponentTrainingTest(unittest.TestCase):
             resolve_component(dict(self.payload, component_commit='old'), self.root)
         run.return_value.returncode = 1
         with self.assertRaises(ValueError): resolve_component(self.payload, self.root)
+
+    def test_local_upload_matches_version_and_detects_source_changes(self):
+        local = self.root / "local-components/custom-algorithms/small-object/test-1"
+        source = local / "source"
+        (source / "ultralytics").mkdir(parents=True)
+        (source / "ultralytics/__init__.py").write_text('__version__ = "8.4.165"')
+        model = source / "model.yaml"
+        model.write_text("model")
+        signature = local_source_digest(source)
+        config_bytes = json.dumps(dict(source="source", model="model.yaml", pretrained="",
+                                       engine_version="8.4.165", source_digest=signature)).encode()
+        (local / "training.json").write_bytes(config_bytes)
+        config = (self.root / "research-registry/training-adapters.json").read_bytes()
+        payload = dict(component_kind="custom", component_id="custom/small-object/test-1",
+                       component_commit=signature, adapter_digest=hashlib.sha256(config + config_bytes).hexdigest())
+        self.assertEqual(Path(resolve_component(payload, self.root)["model"]), model)
+        model.write_text("changed")
+        with self.assertRaisesRegex(ValueError, "files changed"):
+            resolve_component(payload, self.root)
 
     def test_parameter_validation(self):
         for invalid in ({'epochs':0}, {'epochs':True}, {'epochs':1.5}, {'lr0':float('nan')}, {'project':'escape'}, {'amp':'yes'}):

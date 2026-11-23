@@ -13,17 +13,38 @@ import java.util.concurrent.TimeUnit;
 public class ComponentTrainingService {
     private final AlgorithmComponentService components;
     private final Path root;
+    private final CustomAlgorithmService custom;
+
     @Autowired
-    public ComponentTrainingService(AlgorithmComponentService components) {
-        this(components, WorkspacePathUtil.workspaceRoot());
+    public ComponentTrainingService(AlgorithmComponentService components, CustomAlgorithmService custom) {
+        this(components, custom, WorkspacePathUtil.workspaceRoot());
     }
+
     ComponentTrainingService(AlgorithmComponentService components, Path root) {
-        this.components = components; this.root = root.toAbsolutePath().normalize();
+        this(components, new CustomAlgorithmService(root), root);
+    }
+
+    private ComponentTrainingService(AlgorithmComponentService components, CustomAlgorithmService custom, Path root) {
+        this.components = components;
+        this.custom = custom;
+        this.root = root.toAbsolutePath().normalize();
     }
     public List<JSONObject> list(String direction) {
         try {
             List<JSONObject> result = new ArrayList<>();
-            var adapters = JSONUtil.parseArray(Files.readString(root.resolve("research-registry/training-adapters.json")));
+            byte[] configuration = Files.readAllBytes(root.resolve("research-registry/training-adapters.json"));
+            var adapters = JSONUtil.parseArray(new String(configuration, java.nio.charset.StandardCharsets.UTF_8));
+            JSONObject localTemplate = null;
+            for (Object item : adapters) {
+                JSONObject adapter = JSONUtil.parseObj(item);
+                if ("small-object/yolo11".equals(adapter.getStr("id")) && "baseline".equals(adapter.getStr("kind"))) {
+                    localTemplate = adapter;
+                    break;
+                }
+            }
+            if (localTemplate != null) {
+                for (var metadata : custom.list(direction)) result.add(custom.trainingOption(metadata, localTemplate, configuration));
+            }
             for (String kind : List.of("baseline", "algorithm")) {
                 Object rows = components.list(kind, direction).get("components");
                 if (!(rows instanceof Collection<?> entries)) continue;
@@ -54,7 +75,7 @@ public class ComponentTrainingService {
                     if (commit.isBlank()) errors.add("无法读取组件版本");
                     adapter.set("component_commit", commit);
                     adapter.set("adapter_digest", java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
-                            .digest(Files.readAllBytes(root.resolve("research-registry/training-adapters.json")))));
+                            .digest(configuration)));
                     adapter.set("valid", errors.isEmpty());
                     adapter.set("blockers", errors);
                     result.add(adapter);

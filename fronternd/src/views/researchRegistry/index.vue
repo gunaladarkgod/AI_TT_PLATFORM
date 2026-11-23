@@ -19,13 +19,14 @@
           <article v-for="table in directionTables" :key="table.id" class="direction-table">
             <header class="direction-table-heading">
               <div><h4>{{ table.title }}</h4><span>{{ directionDescription(table.id) }}</span></div>
-              <el-button type="primary" size="small" @click="openUpload(table.id)">上传自定义算法</el-button>
+              <el-button type="primary" size="small" v-if="canManageComponents" @click="openUpload(table.id)">上传自定义算法</el-button>
             </header>
             <el-table :data="table.rows" stripe border size="small" row-key="treeKey" :expand-row-keys="expandedRows" :tree-props="{ children: 'children' }" class="repository-table" @expand-change="onExpandChange">
               <el-table-column label="基线 / 算法" min-width="260">
                 <template #default="{ row }">
                   <span>{{ row.name }}</span>
                   <el-tag size="small" effect="plain" class="tree-label" :type="row.nodeType === 'algorithm' ? 'success' : 'info'">{{ row.nodeType === 'algorithm' ? '算法' : row.nodeType === 'group' ? '待关联' : '基线' }}</el-tag>
+                  <el-tag v-if="row.custom" size="small" effect="plain" type="warning" class="tree-label">本地算法 · 开发中</el-tag>
                   <span v-if="row.children?.length" class="algorithm-count">{{ row.children.length }} 个算法</span>
                 </template>
               </el-table-column>
@@ -33,6 +34,7 @@
                 <template #default="{ row }">
                   <span v-if="row.nodeType === 'group'" class="pending-text">尚未指定基线，或关联的基线未登记</span>
                   <a v-else-if="row.repository && row.repository.startsWith('http')" :href="row.repository" target="_blank" rel="noopener">{{ row.repository }}</a>
+                  <span v-else-if="row.custom" class="pending-text">本地上传</span>
                   <span v-else class="pending-text">—</span>
                 </template>
               </el-table-column>
@@ -42,7 +44,12 @@
               <el-table-column label="操作" width="210">
                 <template #default="{ row }">
                   <template v-if="row.nodeType === 'group'"><span class="pending-text">—</span></template>
-                  <template v-else-if="row.custom"><el-button size="small" type="danger" plain @click="removeCustom(row)">移除</el-button></template>
+                  <template v-else-if="row.custom">
+                    <template v-if="canManageComponents">
+                      <el-button size="small" @click="openConfiguration(row)">训练配置</el-button>
+                      <el-button size="small" type="danger" plain @click="removeCustom(row)">移除</el-button>
+                    </template>
+                  </template>
                   <template v-else-if="!row.placeholder">
                     <el-button v-if="row.localStatus === 'not-downloaded'" size="small" :loading="isTaskRunning(row.id)" @click="installComponent(row)">下载</el-button>
                     <el-button v-else size="small" type="danger" plain :loading="isTaskRunning(row.id)" @click="removeComponent(row)">移除</el-button>
@@ -62,16 +69,53 @@
         </div>
       </section>
 
-      <el-dialog v-model="uploadDialogVisible" title="上传自定义算法" width="520px" destroy-on-close>
-        <el-form label-width="100px">
-          <el-form-item label="研究方向"><span>{{ uploadDirectionTitle }}</span></el-form-item>
-          <el-form-item label="基线"><el-select v-model="uploadForm.baselineId" placeholder="可暂不选择" clearable style="width: 100%"><el-option label="待登记基线" value="" /><el-option v-for="baseline in uploadBaselines" :key="baseline.id" :label="baseline.name" :value="baseline.id" /></el-select></el-form-item>
-          <el-form-item label="算法名称"><el-input v-model="uploadForm.name" maxlength="80" placeholder="例如：多尺度特征增强" /></el-form-item>
-          <el-form-item label="算法 ZIP"><el-upload :auto-upload="false" :limit="1" accept=".zip" :on-change="handleUploadFile" :on-remove="clearUploadFile"><el-button>选择 ZIP 文件</el-button><template #tip><div class="el-upload__tip">上传源码包，大小不超过 500 MB；平台只保存到本机待登记目录。</div></template></el-upload></el-form-item>
+      <el-dialog v-model="uploadDialogVisible" :title="legacyAlgorithm ? '本地算法训练配置' : '上传自定义算法'"
+        width="640px" destroy-on-close :show-close="!uploadBusy" :close-on-click-modal="false"
+        :close-on-press-escape="!uploadBusy" @close="cancelPendingUpload">
+        <el-form label-width="105px">
+          <el-form-item label="研究方向">{{ uploadDirectionTitle }}</el-form-item>
+          <el-form-item v-if="legacyAlgorithm" label="算法名称">{{ legacyAlgorithm.name }}</el-form-item>
+          <template v-else-if="!uploadChoices && uploadTask.status !== 'succeeded'">
+            <el-form-item label="关联基线">
+              <el-select v-model="uploadForm.baselineId" placeholder="可暂不选择" clearable style="width: 100%" :disabled="uploadBusy">
+                <el-option v-for="baseline in uploadBaselines" :key="baseline.id" :label="baseline.name" :value="baseline.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="算法名称">
+              <el-input v-model="uploadForm.name" maxlength="80" placeholder="例如：多尺度特征增强" :disabled="uploadBusy" />
+            </el-form-item>
+            <el-form-item label="算法 ZIP">
+              <el-upload :auto-upload="false" :limit="1" accept=".zip" :disabled="uploadBusy"
+                :on-change="handleUploadFile" :on-remove="clearUploadFile">
+                <el-button>选择 ZIP 文件</el-button>
+                <template #tip><div class="el-upload__tip">请选择不超过 500 MB 的 Ultralytics 源码 ZIP。</div></template>
+              </el-upload>
+            </el-form-item>
+          </template>
+          <template v-if="uploadChoices">
+            <el-form-item label="模型 YAML" required>
+              <el-select v-model="trainingSelection.model" filterable placeholder="选择模型配置" :disabled="uploadBusy" style="width: 100%">
+                <el-option v-for="model in uploadChoices.models" :key="model" :label="model" :value="model" />
+              </el-select>
+            </el-form-item>
+            <el-form-item v-if="uploadChoices.weights?.length" label="初始权重">
+              <el-select v-model="trainingSelection.weight" filterable clearable placeholder="可选，留空从头训练"
+                :disabled="uploadBusy" style="width: 100%">
+                <el-option v-for="weight in uploadChoices.weights" :key="weight" :label="weight" :value="weight" />
+              </el-select>
+            </el-form-item>
+          </template>
           <el-alert v-if="uploadError" :title="uploadError" type="error" :closable="false" />
-          <div v-if="uploadTask.status !== 'idle'" class="upload-progress"><div class="component-task-heading"><strong>{{ uploadTask.message }}</strong><el-tag size="small" :type="uploadTask.status === 'failed' ? 'danger' : uploadTask.status === 'succeeded' ? 'success' : 'warning'">{{ uploadTask.status === 'running' ? '上传中' : uploadTask.status === 'succeeded' ? '已完成' : '失败' }}</el-tag></div><el-progress :percentage="uploadTask.progress" :status="uploadTask.status === 'failed' ? 'exception' : uploadTask.status === 'succeeded' ? 'success' : undefined" /></div>
+          <div v-if="uploadTask.message" class="upload-progress">
+            <strong>{{ uploadTask.message }}</strong>
+            <el-progress v-if="uploadBusy && !legacyAlgorithm" :percentage="uploadTask.progress" />
+          </div>
         </el-form>
-        <template #footer><el-button @click="uploadDialogVisible = false">关闭</el-button><el-button type="primary" :loading="uploadTask.status === 'running'" @click="submitUpload">开始上传</el-button></template>
+        <template #footer>
+          <el-button :disabled="uploadBusy" @click="uploadDialogVisible = false">关闭</el-button>
+          <el-button v-if="uploadChoices" type="primary" :loading="uploadBusy" @click="confirmTraining">确认训练配置</el-button>
+          <el-button v-else-if="!legacyAlgorithm && uploadTask.status !== 'succeeded'" type="primary" :loading="uploadBusy" @click="submitUpload">开始上传</el-button>
+        </template>
       </el-dialog>
     </template>
   </div>
@@ -82,7 +126,10 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { AlgorithmComponentService, CustomAlgorithmService, ResearchRegistryService } from '@/api/api'
 import { buildComponentTree } from '@/utils/componentTree.js'
+import { useUserStore } from '@/stores'
+import { canMaintain } from '@/config/permissions'
 
+const canManageComponents = computed(() => canMaintain(useUserStore().user))
 const loading = ref(true)
 const registry = ref({ directions: [], algorithms: [], conventions: [], registry: {} })
 const errorMessage = ref('')
@@ -104,6 +151,11 @@ const uploadDirection = ref('')
 const uploadForm = ref({ baselineId: '', name: '', file: null })
 const uploadTask = ref({ status: 'idle', progress: 0, message: '' })
 const uploadError = ref('')
+const uploadChoices = ref(null)
+const legacyAlgorithm = ref(null)
+const trainingSelection = ref({ model: '', weight: '' })
+const uploadBusy = computed(() => uploadTask.value.status === 'running')
+let uploadDialogVersion = 0
 let componentTimer
 
 const directionDefinitions = [
@@ -119,12 +171,14 @@ const directionTables = computed(() => directionDefinitions.map(definition => ({
   ...definition,
   rows: buildComponentTree(definition.id, baselineComponents.value, [...algorithmComponents.value, ...customAlgorithms.value]),
 })))
-const rowStatusLabel = row => row.localStatus === 'downloaded'
-  ? '已下载'
-  : row.placeholder || row.custom || row.registrationStatus === 'uploaded' || row.registrationStatus === '待登记'
-    ? '开发中/待登记'
-    : '未下载'
-const rowStatusType = row => rowStatusLabel(row) === '已下载' ? 'success' : rowStatusLabel(row) === '未下载' ? 'info' : 'warning'
+const rowStatusLabel = row => {
+  if (row.custom) return row.trainingReady ? '可创建训练任务' : '待配置训练'
+  if (row.localStatus === 'downloaded') return '已下载'
+  if (row.placeholder || row.registrationStatus === '待登记') return '开发中/待登记'
+  return '未下载'
+}
+const rowStatusType = row => row.trainingReady || row.localStatus === 'downloaded' ? 'success'
+  : rowStatusLabel(row) === '未下载' ? 'info' : 'warning'
 const isTaskRunning = componentId => componentTask.value.status === 'running' && componentTask.value.componentId === componentId
 const taskStatusLabel = computed(() => ({ running: '进行中', succeeded: '已完成', failed: '失败' }[componentTask.value.status] || '未开始'))
 const taskStatusType = computed(() => ({ running: 'warning', succeeded: 'success', failed: 'danger' }[componentTask.value.status] || 'info'))
@@ -174,22 +228,125 @@ const removeCustom = async row => {
   } catch (error) { if (error !== 'cancel' && error !== 'close') componentError.value = error?.message || '移除已取消' }
 }
 
-const openUpload = (direction, baselineId = '') => { uploadDirection.value = direction; uploadForm.value = { baselineId, name: '', file: null }; uploadTask.value = { status: 'idle', progress: 0, message: '' }; uploadError.value = ''; uploadDialogVisible.value = true }
+const openUpload = (direction, baselineId = '', name = '') => {
+  uploadDialogVersion += 1
+  uploadDirection.value = direction
+  uploadForm.value = { baselineId, name, file: null }
+  uploadTask.value = { status: 'idle', progress: 0, message: '' }
+  uploadError.value = ''
+  uploadChoices.value = null
+  legacyAlgorithm.value = null
+  trainingSelection.value = { model: '', weight: '' }
+  uploadDialogVisible.value = true
+}
+
+const setChoices = data => {
+  uploadChoices.value = data
+  trainingSelection.value = {
+    model: data.model || (data.models.length === 1 ? data.models[0] : ''),
+    weight: data.pretrained || '',
+  }
+}
+
+const openConfiguration = async row => {
+  openUpload(row.direction, row.baselineId, row.name)
+  legacyAlgorithm.value = row
+  uploadTask.value = { status: 'running', progress: 0, message: '正在读取算法配置' }
+  try {
+    const response = await CustomAlgorithmService.inspect(row.id)
+    if (response?.code !== 0) throw new Error(response?.msg || '无法读取算法配置')
+    setChoices(response.data)
+    uploadTask.value = { status: 'idle', progress: 0, message: '' }
+  } catch (error) {
+    showUploadError(error, '无法读取算法配置')
+  }
+}
+
 const handleUploadFile = file => { uploadForm.value.file = file.raw || null }
 const clearUploadFile = () => { uploadForm.value.file = null }
+
+const cancelPendingUpload = async () => {
+  uploadDialogVersion += 1
+  const token = uploadChoices.value?.uploadToken
+  uploadChoices.value = null
+  if (!token) return
+  try {
+    await CustomAlgorithmService.cancel(token)
+  } catch {
+    // The server also expires abandoned upload sessions.
+  }
+}
+
+const showUploadError = (error, fallback) => {
+  uploadTask.value = { status: 'failed', progress: 0, message: '' }
+  uploadError.value = error?.msg || error?.message || fallback
+}
+
+const onPublished = async row => {
+  const parent = baselineComponents.value.some(item => item.id === row.baselineId && item.direction === row.direction)
+    ? 'baseline:' + row.baselineId : 'unlinked:' + row.direction
+  expandedRows.value = [...new Set([...expandedRows.value, parent])]
+  uploadChoices.value = null
+  uploadTask.value = { status: 'succeeded', progress: 100, message: '算法已可在「创建训练任务 → 算法基线」中选择' }
+  customAlgorithms.value = [...customAlgorithms.value.filter(item => item.id !== row.id), row]
+  await loadComponents()
+}
+
 const submitUpload = async () => {
   uploadError.value = ''
-  if (!uploadForm.value.name.trim()) { uploadError.value = '请填写算法名称'; return }
-  if (!uploadForm.value.file) { uploadError.value = '请选择 ZIP 算法包'; return }
+  const { name, file, baselineId } = uploadForm.value
+  if (!name.trim()) { uploadError.value = '请填写算法名称'; return }
+  if (!file) { uploadError.value = '请选择 ZIP 算法包'; return }
+  if (!file.name.toLowerCase().endsWith('.zip') || file.size > 500 * 1024 * 1024) {
+    uploadError.value = '请选择不超过 500 MB 的 ZIP 算法包'
+    return
+  }
+
   const form = new FormData()
-  form.append('direction', uploadDirection.value); form.append('baselineId', uploadForm.value.baselineId || ''); form.append('name', uploadForm.value.name.trim()); form.append('file', uploadForm.value.file)
+  form.append('direction', uploadDirection.value)
+  form.append('baselineId', baselineId || '')
+  form.append('name', name.trim())
+  form.append('file', file)
   uploadTask.value = { status: 'running', progress: 0, message: '正在上传算法包' }
+  const version = uploadDialogVersion
   try {
-    const response = await CustomAlgorithmService.upload(form, event => { if (event.total) uploadTask.value.progress = Math.round(event.loaded * 100 / event.total) })
-    if (response?.code !== 0) { uploadTask.value = { status: 'failed', progress: 0, message: '上传失败' }; uploadError.value = response?.msg || '上传失败'; return }
-    uploadTask.value = { status: 'succeeded', progress: 100, message: '算法包已上传，等待登记' }
-    await loadComponents()
-  } catch (error) { uploadTask.value = { status: 'failed', progress: 0, message: '上传失败' }; uploadError.value = error?.msg || error?.message || '上传失败' }
+    const response = await CustomAlgorithmService.upload(form, event => {
+      if (version !== uploadDialogVersion || !event.total) return
+      uploadTask.value.progress = Math.round(event.loaded * 100 / event.total)
+      if (uploadTask.value.progress === 100) uploadTask.value.message = '正在解压并检查算法包'
+    })
+    if (version !== uploadDialogVersion) {
+      if (response?.data?.uploadToken) await CustomAlgorithmService.cancel(response.data.uploadToken)
+      return
+    }
+    if (response?.code !== 0) throw new Error(response?.msg || '上传失败')
+    if (response.data?.uploadToken) {
+      setChoices(response.data)
+      uploadTask.value = { status: 'idle', progress: 100, message: '' }
+    } else {
+      await onPublished(response.data)
+    }
+  } catch (error) {
+    if (version === uploadDialogVersion) showUploadError(error, '上传失败')
+  }
+}
+
+const confirmTraining = async () => {
+  uploadError.value = ''
+  const { model, weight } = trainingSelection.value
+  if (!model) { uploadError.value = '请选择模型 YAML'; return }
+  const token = uploadChoices.value?.uploadToken
+  uploadTask.value = { status: 'running', progress: 100, message: '正在保存训练配置' }
+  try {
+    const response = token
+      ? await CustomAlgorithmService.complete(token, model, weight)
+      : await CustomAlgorithmService.configure(legacyAlgorithm.value.id, model, weight)
+    if (response?.code !== 0) throw new Error(response?.msg || '无法保存训练配置')
+    await onPublished(response.data)
+  } catch (error) {
+    if (token) await cancelPendingUpload()
+    showUploadError(error, '无法保存训练配置')
+  }
 }
 
 onMounted(async () => {
@@ -200,7 +357,10 @@ onMounted(async () => {
   } catch (error) { registry.value = error?.data || registry.value; errorMessage.value = error?.msg || '研究基线登记读取失败'; errorDetails.value = (error?.data?.errors || []).join('；') }
   finally { loading.value = false; loadComponents() }
 })
-onBeforeUnmount(() => clearTimeout(componentTimer))
+onBeforeUnmount(() => {
+  clearTimeout(componentTimer)
+  cancelPendingUpload()
+})
 </script>
 
 <style scoped>

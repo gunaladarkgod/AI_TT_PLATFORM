@@ -1379,7 +1379,7 @@
         <el-alert v-if="isMMDetSelected" class="single-config-tip" type="info" :closable="false" show-icon
           title="所有参数均从一个完整模板读取，保存后只生成 modelcfg/{任务名称}/config.py" />
         <el-alert v-else-if="isUltralyticsSelected" class="single-config-tip" type="info" :closable="false" show-icon
-          :title="componentTraining ? '统一 Runner 使用所选 B/C 仓库源码训练，训练环境由本任务保存的 Python 决定。' : '官方 Ultralytics 由统一 Runner 调度。'" />
+          :title="componentTraining ? '统一 Runner 使用所选算法方案的源码训练，训练环境由本任务保存的 Python 决定。' : '官方 Ultralytics 由统一 Runner 调度。'" />
         <el-alert v-else class="single-config-tip" type="info" :closable="false" show-icon
           title="自定义任务使用 Runner fixed 模式，按上方选择的训练 Python、执行目录和命令行直接运行。" />
         <div v-if="isUltralyticsSelected" class="ultralytics-task-panel">
@@ -1395,16 +1395,17 @@
                 </el-form-item>
                 <el-form-item label="算法基线" required>
                   <el-select v-model="ultralyticsForm.baselineId" :disabled="isSee || ultraBaselinesLoading"
-                    :placeholder="componentTraining ? '选择已下载的 B/C 方案' : '选择算法基线'" @change="handleUltraBaselineChange">
+                    :placeholder="componentTraining ? '选择已下载或本地上传的算法' : '选择算法基线'" @change="handleUltraBaselineChange">
                     <el-option v-for="item in ultralyticsBaselines" :key="item.id" :label="item.name" :value="item.id" :disabled="item.valid === false" :title="(item.blockers || []).join('；')">
                       <span>{{ item.name }}</span>
+                      <el-tag v-if="item.custom" size="small" type="warning" effect="plain" style="margin-left: 8px">本地算法 · 开发中</el-tag>
                       <span style="float:right;color:var(--el-text-color-secondary);font-size:12px">{{ item.engine_version }}</span>
                     </el-option>
                   </el-select>
                 </el-form-item>
                 <div v-if="componentTraining" class="el-form-item__tip">
-                  <el-button link type="primary" @click="refreshComponentOptions">刷新已下载方案</el-button>
-                  <span v-if="!ultraBaselinesLoading && !ultralyticsBaselines.length">当前方向没有已下载方案，请到组件管理下载。</span>
+                  <el-button link type="primary" @click="refreshComponentOptions">刷新算法方案</el-button>
+                  <span v-if="!ultraBaselinesLoading && !ultralyticsBaselines.length">当前方向没有可选方案，请到组件管理下载或上传。</span>
                   <span v-if="selectedUltraBaseline?.blockers?.length">{{ selectedUltraBaseline.blockers.join('；') }}</span>
                 </div>
                 <el-form-item v-if="!componentTraining" label="叠加改进包">
@@ -4599,7 +4600,11 @@ const resetUltralyticsForm = () => {
 
 const loadResearchDirections = async () => {
   if (componentTraining.value) {
-    researchDirections.value = [{ id: 'small-object', name: '小目标检测' }, { id: 'knowledge-distillation', name: '知识蒸馏' }]
+    researchDirections.value = [
+      { id: 'small-object', name: '小目标检测' },
+      { id: 'knowledge-distillation', name: '知识蒸馏' },
+      { id: 'spatiotemporal', name: '时空融合' },
+    ]
     return
   }
 

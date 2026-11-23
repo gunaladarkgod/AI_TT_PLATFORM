@@ -7,6 +7,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import com.xgls.web.base.AjaxResult;
 import com.xgls.web.base.ErrorCode;
@@ -19,6 +20,11 @@ import lombok.extern.slf4j.Slf4j;
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public AjaxResult maxUploadSizeExceeded() {
+        return AjaxResult.error("上传文件超出大小限制");
+    }
 
 	@ExceptionHandler(RuntimeException.class)
 	public AjaxResult runtimeException(RuntimeException e) {

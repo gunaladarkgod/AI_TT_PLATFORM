@@ -95,6 +95,7 @@ axios.interceptors.response.use(
             return Promise.reject(response.data)
         } else {
             ElMessage.warning('网络连接异常,请稍后再试!')
+            return Promise.reject(error)
         }
     }
 )
@@ -223,6 +224,7 @@ export function uploadRequest(url, formData, onProgress = null) {
         url,
         data: formData,
         token: token, // ← 关键：传给 interceptors
+        responseType: 'json',
         onUploadProgress: onProgress
-    }).then(res => res.data);
+    });
 }

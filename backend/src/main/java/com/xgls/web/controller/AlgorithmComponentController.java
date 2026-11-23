@@ -55,7 +55,39 @@ public class AlgorithmComponentController {
                                             HttpServletRequest request) {
         User user = AuthenticatedUserUtil.current(request, redis, users);
         if (!AuthenticatedUserUtil.canManageResearchComponents(user)) return AjaxResult.error("算法上传需要平台、基线或改进维护权限");
-        try { return AjaxResult.success(custom.upload(direction, baselineId, name, file)); }
+        try { return AjaxResult.success(custom.upload(user.getId(), direction, baselineId, name, file)); }
+        catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
+    }
+
+    @PostMapping("/api/custom-algorithms/upload/complete")
+    public AjaxResult completeCustomUpload(@RequestBody Map<String, String> body, HttpServletRequest request) {
+        User user = AuthenticatedUserUtil.current(request, redis, users);
+        if (!AuthenticatedUserUtil.canManageResearchComponents(user)) return AjaxResult.error("算法上传需要组件维护权限");
+        try { return AjaxResult.success(custom.complete(user.getId(), body.get("token"), body.get("model"), body.get("weight"))); }
+        catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
+    }
+
+    @PostMapping("/api/custom-algorithms/upload/cancel")
+    public AjaxResult cancelCustomUpload(@RequestBody Map<String, String> body, HttpServletRequest request) {
+        User user = AuthenticatedUserUtil.current(request, redis, users);
+        if (!AuthenticatedUserUtil.canManageResearchComponents(user)) return AjaxResult.error("算法上传需要组件维护权限");
+        custom.cancel(user.getId(), body.get("token"));
+        return AjaxResult.success();
+    }
+
+    @GetMapping("/api/custom-algorithms/configuration")
+    public AjaxResult inspectCustomAlgorithm(@RequestParam String id, HttpServletRequest request) {
+        User user = AuthenticatedUserUtil.current(request, redis, users);
+        if (!AuthenticatedUserUtil.canManageResearchComponents(user)) return AjaxResult.error("算法配置需要组件维护权限");
+        try { return AjaxResult.success(custom.inspectExisting(id)); }
+        catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
+    }
+
+    @PostMapping("/api/custom-algorithms/configuration")
+    public AjaxResult configureCustomAlgorithm(@RequestBody Map<String, String> body, HttpServletRequest request) {
+        User user = AuthenticatedUserUtil.current(request, redis, users);
+        if (!AuthenticatedUserUtil.canManageResearchComponents(user)) return AjaxResult.error("算法配置需要组件维护权限");
+        try { return AjaxResult.success(custom.configureExisting(body.get("id"), body.get("model"), body.get("weight"))); }
         catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
     }
 

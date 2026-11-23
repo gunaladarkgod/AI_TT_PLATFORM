@@ -70,6 +70,18 @@ export class CustomAlgorithmService {
     static upload(formData, onProgress) {
         return uploadRequest('/api/custom-algorithms/upload', formData, onProgress);
     }
+    static complete(token, model, weight) {
+        return request('/api/custom-algorithms/upload/complete', { token, model, weight }, 'post', 'application/json', 'json');
+    }
+    static cancel(token) {
+        return request('/api/custom-algorithms/upload/cancel', { token }, 'post', 'application/json', 'json');
+    }
+    static inspect(id) {
+        return request('/api/custom-algorithms/configuration', { id }, 'get', null, 'json');
+    }
+    static configure(id, model, weight) {
+        return request('/api/custom-algorithms/configuration', { id, model, weight }, 'post', 'application/json', 'json');
+    }
     static remove(id) {
         return request('/api/custom-algorithms/remove', { id }, 'post', 'application/json', 'json');
     }

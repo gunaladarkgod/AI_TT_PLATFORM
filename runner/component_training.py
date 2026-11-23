@@ -2,6 +2,8 @@
 import hashlib
 import json
 import math
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -25,11 +27,78 @@ def revision(path):
         raise ValueError("Cannot read repository version") from e
 
 
+_LOCAL_ID = re.compile(r"custom/([a-z0-9-]+)/([a-z0-9-]+)")
+_LOCAL_DIRECTIONS = {"small-object", "knowledge-distillation", "spatiotemporal"}
+_LOCAL_IGNORED = {".git", "__pycache__", "metadata.properties", "training.json"}
+
+
+def local_source_digest(source):
+    """Match the upload service over ordered relative paths and raw file digests."""
+    files = []
+    for directory, subdirs, names in os.walk(source):
+        subdirs[:] = [name for name in subdirs if name not in _LOCAL_IGNORED]
+        for name in subdirs + names:
+            path = Path(directory) / name
+            if name in _LOCAL_IGNORED:
+                continue
+            if path.is_symlink() or not is_within(path, source):
+                raise ValueError("Links are not allowed in local algorithms")
+            if name in names:
+                if not path.is_file():
+                    raise ValueError("Unsupported file type in local algorithm")
+                files.append((path.relative_to(source).as_posix(), path))
+    aggregate = hashlib.sha256()
+    for relative, path in sorted(files, key=lambda entry: entry[0].encode("utf-16-be")):
+        file_digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for block in iter(lambda: stream.read(65536), b""):
+                file_digest.update(block)
+        aggregate.update(relative.encode("utf-8") + b"\0" + file_digest.digest())
+    return aggregate.hexdigest()
+
+
+def resolve_local_component(payload, root, configuration, adapters):
+    match = _LOCAL_ID.fullmatch(payload.get("component_id") or "")
+    if not match or match[1] not in _LOCAL_DIRECTIONS:
+        raise ValueError("Invalid local algorithm ID")
+    base = (root / "local-components/custom-algorithms").resolve()
+    directory = base / match[1] / match[2]
+    config_path = directory / "training.json"
+    if directory != directory.resolve() or config_path.is_symlink() or not config_path.is_file():
+        raise ValueError("Local algorithm is missing or has no training configuration")
+    config_bytes = config_path.read_bytes()
+    if hashlib.sha256(configuration + config_bytes).hexdigest() != payload.get("adapter_digest"):
+        raise ValueError("Local training configuration changed; edit and save the task again")
+    config = json.loads(config_bytes)
+    source = (directory / config["source"]).resolve()
+    if not is_within(source, directory) or not (source / "ultralytics/__init__.py").is_file():
+        raise ValueError("Local Ultralytics source missing or invalid")
+    if config["source_digest"] != payload.get("component_commit") or local_source_digest(source) != config["source_digest"]:
+        raise ValueError("Local algorithm files changed; reconfigure the algorithm and save the task again")
+
+    def resolve_file(field, suffixes):
+        path = (source / config[field]).resolve()
+        if not is_within(path, source) or not path.is_file() or path.suffix.lower() not in suffixes:
+            raise ValueError(f"Local algorithm {field} is missing or invalid")
+        return str(path)
+
+    template = next(item for item in adapters if item["kind"] == "baseline" and item["id"] == "small-object/yolo11")
+    return dict(
+        id=payload["component_id"], kind="custom", direction=match[1],
+        engine="ultralytics", data_format="yolo", engine_version=config["engine_version"],
+        source_root=str(source), model=resolve_file("model", {".yml", ".yaml"}),
+        pretrained=resolve_file("pretrained", {".pt"}) if config.get("pretrained") else None,
+        parameters=template["parameters"],
+    )
+
+
 def resolve_component(payload, root=ROOT):
     configuration = (root / "research-registry/training-adapters.json").read_bytes()
+    adapters = json.loads(configuration)
+    if payload.get("component_kind") == "custom":
+        return resolve_local_component(payload, root, configuration, adapters)
     if hashlib.sha256(configuration).hexdigest() != payload.get("adapter_digest"):
         raise ValueError("Training adapter changed; edit and save the task again")
-    adapters = json.loads(configuration)
     adapter = next((x for x in adapters if x["id"] == payload.get("component_id") and x["kind"] == payload.get("component_kind")), None)
     if not adapter:
         raise ValueError("Unregistered training component")
@@ -79,7 +148,7 @@ def validated_parameters(adapter, values):
 def check_source(python, adapter):
     code = ("import sys,json;sys.path.insert(0,sys.argv[1]);import ultralytics;"
             "print(json.dumps(dict(version=ultralytics.__version__,source=ultralytics.__file__,python=sys.version)))")
-    checked = subprocess.run([python, "-c", code, adapter["source_root"]], capture_output=True, text=True, timeout=45)
+    checked = subprocess.run([python, "-B", "-c", code, adapter["source_root"]], capture_output=True, text=True, timeout=45)
     if checked.returncode:
         raise ValueError("Task Python cannot load component: " + checked.stderr[-1600:])
     info = json.loads(checked.stdout.strip().splitlines()[-1])
@@ -118,9 +187,9 @@ def build_execution(payload, work_dir, root=ROOT):
                 platform_commit=revision(root), training_python=info,
                 dataset=payload.get("dataset"), data=str(data.resolve()), work_dir=str(work_dir.resolve()),
                 parameters=validated_parameters(adapter, payload.get("ultralytics_parameters", {})))
-    spec["command"] = ["<task-python>", "-u", "runner/ultralytics_train_worker.py", "--spec", "<work-dir>/ultralytics_run.json"]
+    spec["command"] = ["<task-python>", "-B", "-u", "runner/ultralytics_train_worker.py", "--spec", "<work-dir>/ultralytics_run.json"]
     spec_path = work_dir / "ultralytics_run.json"
     spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2), encoding="utf-8")
     worker = root / "runner/ultralytics_train_worker.py"
     print(f"[component] {adapter['id']} commit={payload['component_commit']} source={info['source']}", flush=True)
-    return [python, "-u", str(worker), "--spec", str(spec_path)], str(work_dir), str(worker)
+    return [python, "-B", "-u", str(worker), "--spec", str(spec_path)], str(work_dir), str(worker)
