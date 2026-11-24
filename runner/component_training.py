@@ -97,8 +97,6 @@ def resolve_component(payload, root=ROOT):
     adapters = json.loads(configuration)
     if payload.get("component_kind") == "custom":
         return resolve_local_component(payload, root, configuration, adapters)
-    if hashlib.sha256(configuration).hexdigest() != payload.get("adapter_digest"):
-        raise ValueError("Training adapter changed; edit and save the task again")
     adapter = next((x for x in adapters if x["id"] == payload.get("component_id") and x["kind"] == payload.get("component_kind")), None)
     if not adapter:
         raise ValueError("Unregistered training component")
@@ -109,14 +107,36 @@ def resolve_component(payload, root=ROOT):
         raise ValueError("Training component missing or invalid")
     if revision(path) != payload.get("component_commit"):
         raise ValueError("Component version changed; edit and save the task again")
+    config_path = (base / "training-configs" / folder / adapter["id"]).with_suffix(".json")
+    config_bytes = b""
+    if config_path.exists() or config_path.is_symlink():
+        if config_path.is_symlink() or not is_within(config_path, base) or not config_path.is_file():
+            raise ValueError("Component training configuration is invalid")
+        config_bytes = config_path.read_bytes()
+        local_config = json.loads(config_bytes)
+        if local_config.get("component_commit") != payload.get("component_commit"):
+            raise ValueError("Component version changed; reconfigure the training settings")
+        adapter["model"] = local_config.get("model")
+        adapter["pretrained"] = local_config.get("pretrained") or None
+    if hashlib.sha256(configuration + config_bytes).hexdigest() != payload.get("adapter_digest"):
+        raise ValueError("Training adapter or component configuration changed; edit and save the task again")
     if subprocess.run(["git", "-c", f"safe.directory={path.as_posix()}", "diff", "--quiet", "HEAD", "--"], cwd=path, timeout=10).returncode:
         raise ValueError("Component has uncommitted source changes")
     adapter["source_root"] = str(path)
-    if adapter["model"].endswith(".yaml"):
+    if adapter["model"].lower().endswith((".yaml", ".yml")):
         model = (path / adapter["model"]).resolve()
         if not is_within(model, path) or not model.is_file():
             raise ValueError("Component model config missing")
         adapter["model"] = str(model)
+    if config_bytes and adapter.get("pretrained"):
+        pretrained = Path(adapter["pretrained"])
+        if not pretrained.is_absolute():
+            pretrained = (path / pretrained).resolve()
+            if not is_within(pretrained, path):
+                raise ValueError("Component pretrained weight path is invalid")
+        if not pretrained.is_file():
+            raise ValueError("Component pretrained weight missing")
+        adapter["pretrained"] = str(pretrained)
     return adapter
 
 

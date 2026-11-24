@@ -43,6 +43,26 @@ class ComponentTrainingTest(unittest.TestCase):
         run.return_value.returncode = 1
         with self.assertRaises(ValueError): resolve_component(self.payload, self.root)
 
+    @patch('component_training.revision', return_value='abc')
+    @patch('component_training.subprocess.run')
+    def test_local_component_training_configuration_overrides_model_and_weight(self, run, revision):
+        run.return_value.returncode = 0
+        model = 'ultralytics/cfg/models/v8/manual.yaml'
+        (self.path / model).parent.mkdir(parents=True, exist_ok=True)
+        (self.path / model).write_text('manual model')
+        weight = self.path / 'teacher.pt'
+        weight.write_text('teacher')
+        saved = json.dumps(dict(model=model, pretrained='teacher.pt', component_commit='abc')).encode()
+        config_path = self.root / 'local-components/training-configs/algorithms/small-object/tdsc.json'
+        config_path.parent.mkdir(parents=True)
+        config_path.write_bytes(saved)
+        adapter_config = (self.root / 'research-registry/training-adapters.json').read_bytes()
+        payload = dict(self.payload, adapter_digest=hashlib.sha256(adapter_config + saved).hexdigest())
+
+        selected = resolve_component(payload, self.root)
+        self.assertEqual(self.path / model, Path(selected['model']))
+        self.assertEqual(weight, Path(selected['pretrained']))
+
     def test_local_upload_matches_version_and_detects_source_changes(self):
         local = self.root / "local-components/custom-algorithms/small-object/test-1"
         source = local / "source"

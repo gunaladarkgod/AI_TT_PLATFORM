@@ -18,6 +18,7 @@ public class AlgorithmComponentController {
     private final CustomAlgorithmService custom;
     private final RedisService redis;
     private final UserService users;
+    @Autowired private ComponentTrainingService training;
 
     @Autowired
     public AlgorithmComponentController(AlgorithmComponentService service, CustomAlgorithmService custom, RedisService redis, UserService users) {
@@ -42,6 +43,21 @@ public class AlgorithmComponentController {
         if (AuthenticatedUserUtil.current(request, redis, users) == null) return AjaxResult.error("请先登录");
         try { return AjaxResult.success(Map.of("path", SystemDirectoryOpener.openDirectory(service.localPath(kind, body.get("id"))).toString())); }
         catch (IllegalArgumentException | IOException e) { return AjaxResult.error(e.getMessage()); }
+    }
+
+    @GetMapping("/api/component-training/configuration")
+    public AjaxResult componentTrainingConfiguration(@RequestParam String kind, @RequestParam String id, HttpServletRequest request) {
+        if (AuthenticatedUserUtil.current(request, redis, users) == null) return AjaxResult.error("请先登录");
+        try { return AjaxResult.success(training.inspectConfiguration(kind, id)); }
+        catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
+    }
+
+    @PostMapping("/api/component-training/configuration")
+    public AjaxResult saveComponentTrainingConfiguration(@RequestBody Map<String, String> body, HttpServletRequest request) {
+        User user = AuthenticatedUserUtil.current(request, redis, users);
+        if (!AuthenticatedUserUtil.canManageResearchComponents(user)) return AjaxResult.error("训练配置需要组件维护权限");
+        try { return AjaxResult.success(training.saveConfiguration(body.get("kind"), body.get("id"), body.get("model"), body.get("pretrained"))); }
+        catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
     }
 
     @GetMapping("/api/algorithm-components/training-profile")
@@ -105,6 +121,13 @@ public class AlgorithmComponentController {
         if (!AuthenticatedUserUtil.canManageResearchComponents(user)) return AjaxResult.error("算法移除需要平台、基线或改进维护权限");
         try { custom.remove(body.get("id")); return AjaxResult.success(); }
         catch (IllegalArgumentException e) { return AjaxResult.error(e.getMessage()); }
+    }
+
+    @PostMapping("/api/custom-algorithms/open-path")
+    public AjaxResult openCustomAlgorithmPath(@RequestBody Map<String, String> body, HttpServletRequest request) {
+        if (AuthenticatedUserUtil.current(request, redis, users) == null) return AjaxResult.error("请先登录");
+        try { return AjaxResult.success(Map.of("path", SystemDirectoryOpener.openDirectory(custom.localPath(body.get("id"))).toString())); }
+        catch (IllegalArgumentException | IOException e) { return AjaxResult.error(e.getMessage()); }
     }
 
     private AjaxResult mutate(String kind, Map<String, String> body, HttpServletRequest request, boolean install) {

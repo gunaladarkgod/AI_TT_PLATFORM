@@ -211,6 +211,10 @@ public class CustomAlgorithmService {
         }
     }
 
+    public Path localPath(String id) {
+        return existingPath(id);
+    }
+
     JSONObject trainingOption(Map<String, Object> metadata, JSONObject template, byte[] platformConfig) {
         JSONObject option = JSONUtil.parseObj(metadata);
         option.set("kind", KIND);

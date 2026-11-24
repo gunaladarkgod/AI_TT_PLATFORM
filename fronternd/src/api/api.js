@@ -63,6 +63,12 @@ export class AlgorithmComponentService {
     static openPath(kind, id) {
         return request(`/api/${kind}-components/open-path`, { id }, 'post', 'application/json', 'json');
     }
+    static trainingConfiguration(kind, id) {
+        return request('/api/component-training/configuration', { kind, id }, 'get', null, 'json');
+    }
+    static saveTrainingConfiguration(kind, id, model, pretrained) {
+        return request('/api/component-training/configuration', { kind, id, model, pretrained }, 'post', 'application/json', 'json');
+    }
 }
 
 /** 用户上传的本地算法包登记。 */
@@ -84,6 +90,9 @@ export class CustomAlgorithmService {
     }
     static configure(id, model, weight) {
         return request('/api/custom-algorithms/configuration', { id, model, weight }, 'post', 'application/json', 'json');
+    }
+    static openPath(id) {
+        return request('/api/custom-algorithms/open-path', { id }, 'post', 'application/json', 'json');
     }
     static remove(id) {
         return request('/api/custom-algorithms/remove', { id }, 'post', 'application/json', 'json');

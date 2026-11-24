@@ -41,23 +41,37 @@
               <el-table-column label="状态" min-width="135">
                 <template #default="{ row }"><span v-if="row.nodeType === 'group'" class="pending-text">待关联基线</span><el-tag v-else size="small" :type="rowStatusType(row)">{{ rowStatusLabel(row) }}</el-tag></template>
               </el-table-column>
-              <el-table-column label="操作" width="300">
+              <el-table-column label="操作" width="170" fixed="right">
                 <template #default="{ row }">
                   <template v-if="row.nodeType === 'group'"><span class="pending-text">—</span></template>
                   <template v-else-if="row.custom">
-                    <template v-if="canManageComponents">
-                      <el-button size="small" @click="openConfiguration(row)">训练配置</el-button>
-                      <el-button size="small" type="danger" plain @click="removeCustom(row)">移除</el-button>
-                    </template>
+                    <div class="component-actions">
+                      <el-dropdown trigger="click" @command="command => handleCustomAction(command, row)">
+                        <el-button size="small">操作</el-button>
+                        <template #dropdown>
+                          <el-dropdown-menu>
+                            <el-dropdown-item command="configure" :disabled="!canManageComponents">训练配置</el-dropdown-item>
+                            <el-dropdown-item command="open-path">打开路径</el-dropdown-item>
+                          </el-dropdown-menu>
+                        </template>
+                      </el-dropdown>
+                      <el-button v-if="canManageComponents" size="small" type="danger" plain @click="removeCustom(row)">移除</el-button>
+                    </div>
                   </template>
                   <template v-else-if="!row.placeholder">
                     <div class="component-actions">
-                      <el-button v-if="row.localStatus === 'not-downloaded'" size="small" :loading="isTaskRunning(row.id)" @click="installComponent(row)">下载</el-button>
-                      <template v-else>
-                        <el-button size="small" :disabled="row.localStatus !== 'downloaded' || isTaskRunning(row.id)" @click="openComponentPath(row)">打开路径</el-button>
-                        <el-button size="small" type="danger" plain :loading="isTaskRunning(row.id)" @click="removeComponent(row)">{{ row.localStatus === 'partial' ? '清理' : '移除' }}</el-button>
-                      </template>
-                      <el-button v-if="row.nodeType === 'baseline'" size="small" type="primary" plain @click="openUpload(table.id, row.id)">上传算法</el-button>
+                      <el-dropdown trigger="click" @command="command => handleComponentAction(command, row, table.id)">
+                        <el-button size="small">操作</el-button>
+                        <template #dropdown>
+                          <el-dropdown-menu>
+                            <el-dropdown-item v-if="row.localStatus === 'not-downloaded'" command="download">下载</el-dropdown-item>
+                            <el-dropdown-item command="configure" :disabled="row.localStatus !== 'downloaded' || !canManageComponents || isTaskRunning(row.id)">训练配置</el-dropdown-item>
+                            <el-dropdown-item command="open-path" :disabled="row.localStatus !== 'downloaded' || isTaskRunning(row.id)">打开路径</el-dropdown-item>
+                            <el-dropdown-item v-if="row.nodeType === 'baseline'" command="upload-algorithm">上传算法</el-dropdown-item>
+                          </el-dropdown-menu>
+                        </template>
+                      </el-dropdown>
+                      <el-button v-if="row.localStatus === 'downloaded' || row.localStatus === 'partial'" size="small" type="danger" plain :loading="isTaskRunning(row.id)" @click="removeComponent(row)">{{ row.localStatus === 'partial' ? '清理' : '移除' }}</el-button>
                     </div>
                   </template>
                   <span v-else class="pending-text">预留位置</span>
@@ -74,12 +88,13 @@
         </div>
       </section>
 
-      <el-dialog v-model="uploadDialogVisible" :title="legacyAlgorithm ? '本地算法训练配置' : '上传自定义算法'"
+      <el-dialog v-model="uploadDialogVisible" :title="remoteComponent ? '组件训练配置' : legacyAlgorithm ? '本地算法训练配置' : '上传自定义算法'"
         width="640px" destroy-on-close :show-close="!uploadBusy" :close-on-click-modal="false"
         :close-on-press-escape="!uploadBusy" @close="cancelPendingUpload">
         <el-form label-width="105px">
           <el-form-item label="研究方向">{{ uploadDirectionTitle }}</el-form-item>
           <el-form-item v-if="legacyAlgorithm" label="算法名称">{{ legacyAlgorithm.name }}</el-form-item>
+          <el-form-item v-else-if="remoteComponent" label="组件名称">{{ remoteComponent.name }}</el-form-item>
           <template v-else-if="!uploadChoices && uploadTask.status !== 'succeeded'">
             <el-form-item label="关联基线">
               <el-select v-model="uploadForm.baselineId" placeholder="可暂不选择" clearable style="width: 100%" :disabled="uploadBusy">
@@ -109,6 +124,10 @@
                 <el-option v-for="weight in uploadChoices.weights" :key="weight" :label="weight" :value="weight" />
               </el-select>
             </el-form-item>
+            <el-form-item v-else-if="remoteComponent" label="权重路径">
+              <el-input v-model="trainingSelection.weight" clearable placeholder="可选；MGD 可填写教师 .pt 权重的本机路径" :disabled="uploadBusy" />
+            </el-form-item>
+            <div v-if="remoteComponent" class="el-upload__tip">配置保存在平台本机，不会改动 Git 仓库；当前组件版本：{{ uploadChoices.componentCommit || '未知' }}</div>
           </template>
           <el-alert v-if="uploadError" :title="uploadError" type="error" :closable="false" />
           <div v-if="uploadTask.message" class="upload-progress">
@@ -119,7 +138,7 @@
         <template #footer>
           <el-button :disabled="uploadBusy" @click="uploadDialogVisible = false">关闭</el-button>
           <el-button v-if="uploadChoices" type="primary" :loading="uploadBusy" @click="confirmTraining">确认训练配置</el-button>
-          <el-button v-else-if="!legacyAlgorithm && uploadTask.status !== 'succeeded'" type="primary" :loading="uploadBusy" @click="submitUpload">开始上传</el-button>
+          <el-button v-else-if="!legacyAlgorithm && !remoteComponent && uploadTask.status !== 'succeeded'" type="primary" :loading="uploadBusy" @click="submitUpload">开始上传</el-button>
         </template>
       </el-dialog>
     </template>
@@ -158,6 +177,7 @@ const uploadTask = ref({ status: 'idle', progress: 0, message: '' })
 const uploadError = ref('')
 const uploadChoices = ref(null)
 const legacyAlgorithm = ref(null)
+const remoteComponent = ref(null)
 const trainingSelection = ref({ model: '', weight: '' })
 const uploadBusy = computed(() => uploadTask.value.status === 'running')
 let uploadDialogVersion = 0
@@ -235,6 +255,25 @@ const openComponentPath = async row => {
   } catch (error) { componentError.value = error?.msg || error?.message || '打开仓库路径失败' }
 }
 
+const openCustomPath = async row => {
+  try {
+    const response = await CustomAlgorithmService.openPath(row.id)
+    if (response?.code !== 0) throw new Error(response?.msg || '打开算法路径失败')
+  } catch (error) { componentError.value = error?.msg || error?.message || '打开算法路径失败' }
+}
+
+const handleCustomAction = (command, row) => {
+  if (command === 'configure') openConfiguration(row)
+  if (command === 'open-path') openCustomPath(row)
+}
+
+const handleComponentAction = (command, row, direction) => {
+  if (command === 'download') installComponent(row)
+  if (command === 'configure') openRemoteConfiguration(row)
+  if (command === 'open-path') openComponentPath(row)
+  if (command === 'upload-algorithm') openUpload(direction, row.id)
+}
+
 const removeCustom = async row => {
   try {
     await ElMessageBox.confirm(`确定移除本地算法“${row.name}”吗？`, '移除算法', { type: 'warning' })
@@ -252,6 +291,7 @@ const openUpload = (direction, baselineId = '', name = '') => {
   uploadError.value = ''
   uploadChoices.value = null
   legacyAlgorithm.value = null
+  remoteComponent.value = null
   trainingSelection.value = { model: '', weight: '' }
   uploadDialogVisible.value = true
 }
@@ -275,6 +315,20 @@ const openConfiguration = async row => {
     uploadTask.value = { status: 'idle', progress: 0, message: '' }
   } catch (error) {
     showUploadError(error, '无法读取算法配置')
+  }
+}
+
+const openRemoteConfiguration = async row => {
+  openUpload(row.direction, row.baselineId || '', row.name)
+  remoteComponent.value = row
+  uploadTask.value = { status: 'running', progress: 0, message: '正在读取仓库模型配置' }
+  try {
+    const response = await AlgorithmComponentService.trainingConfiguration(row.kind, row.id)
+    if (response?.code !== 0) throw new Error(response?.msg || '无法读取组件训练配置')
+    setChoices(response.data)
+    uploadTask.value = { status: 'idle', progress: 0, message: '' }
+  } catch (error) {
+    showUploadError(error, '无法读取组件训练配置')
   }
 }
 
@@ -354,11 +408,19 @@ const confirmTraining = async () => {
   const token = uploadChoices.value?.uploadToken
   uploadTask.value = { status: 'running', progress: 100, message: '正在保存训练配置' }
   try {
-    const response = token
-      ? await CustomAlgorithmService.complete(token, model, weight)
-      : await CustomAlgorithmService.configure(legacyAlgorithm.value.id, model, weight)
+    const response = remoteComponent.value
+      ? await AlgorithmComponentService.saveTrainingConfiguration(remoteComponent.value.kind, remoteComponent.value.id, model, weight)
+      : token
+        ? await CustomAlgorithmService.complete(token, model, weight)
+        : await CustomAlgorithmService.configure(legacyAlgorithm.value.id, model, weight)
     if (response?.code !== 0) throw new Error(response?.msg || '无法保存训练配置')
-    await onPublished(response.data)
+    if (remoteComponent.value) {
+      uploadChoices.value = null
+      uploadTask.value = { status: 'succeeded', progress: 100, message: '训练配置已保存；任务是否可运行仍取决于该组件的 Runner 适配情况。' }
+      await loadComponents()
+    } else {
+      await onPublished(response.data)
+    }
   } catch (error) {
     if (token) await cancelPendingUpload()
     showUploadError(error, '无法保存训练配置')

@@ -58,6 +58,35 @@ class ComponentTrainingServiceTest {
         assertTrue(service.list("small-object").isEmpty());
     }
 
+    @Test void downloadedComponentTrainingConfigurationUsesRepositoryModelsAndPersistsOutsideCheckout() throws Exception {
+        Path directory = root.resolve("local-components/algorithms/knowledge-distillation/yolov8-mgd");
+        Path model = directory.resolve("ultralytics/cfg/models/v8/yolov8n.yaml");
+        Files.createDirectories(model.getParent());
+        Files.writeString(model, "backbone:\n  - [-1, 1, Conv, [64, 3, 2]]\nhead:\n  - [-1, 1, Detect, [nc]]\n");
+        Files.createDirectories(directory.resolve("ultralytics"));
+        Files.writeString(directory.resolve("ultralytics/__init__.py"), "__version__ = '8.3.171'\n");
+        for (String[] command : List.of(new String[]{"git","init"}, new String[]{"git","add","."},
+                new String[]{"git","-c","user.name=Test","-c","user.email=test@example.invalid","commit","-m","fixture"})) {
+            Process process = new ProcessBuilder(command).directory(directory.toFile()).redirectErrorStream(true).start();
+            process.getInputStream().readAllBytes(); assertEquals(0, process.waitFor());
+        }
+        Path teacher = root.resolve("teacher.pt");
+        Files.writeString(teacher, "fixture weight");
+        AlgorithmComponentService components = mock(AlgorithmComponentService.class);
+        when(components.localPath("algorithm", "knowledge-distillation/yolov8-mgd")).thenReturn(directory);
+        ComponentTrainingService service = new ComponentTrainingService(components, root);
+
+        JSONObject options = service.inspectConfiguration("algorithm", "knowledge-distillation/yolov8-mgd");
+        assertEquals(List.of("ultralytics/cfg/models/v8/yolov8n.yaml"), options.getJSONArray("models").toList(String.class));
+        assertEquals("ultralytics/cfg/models/v8/yolov8n.yaml", options.getStr("model"));
+        service.saveConfiguration("algorithm", "knowledge-distillation/yolov8-mgd",
+                options.getStr("model"), teacher.toString());
+        assertTrue(Files.isRegularFile(root.resolve("local-components/training-configs/algorithm/knowledge-distillation/yolov8-mgd.json")));
+        JSONObject saved = service.inspectConfiguration("algorithm", "knowledge-distillation/yolov8-mgd");
+        assertEquals(teacher.toString(), saved.getStr("pretrained"));
+        assertFalse(Files.exists(directory.resolve("training.json")));
+    }
+
     @Test void queuedTaskPreventsComponentRemoval() throws Exception {
         ResearchRegistryService registry = mock(ResearchRegistryService.class);
         when(registry.load()).thenReturn(Map.of("valid",true,"registry",Map.of("baselines", List.of(Map.of("id","small-object/yolo11")))));
