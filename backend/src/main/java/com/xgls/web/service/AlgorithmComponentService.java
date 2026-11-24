@@ -7,10 +7,13 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.nio.file.*;
 import java.nio.file.attribute.DosFileAttributeView;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.function.Consumer;
 
 /** Manages registered B/C repositories in the ignored local-components directory. */
 @Service
@@ -149,14 +152,18 @@ public class AlgorithmComponentService {
         try {
             stageProgress("正在连接远程仓库", 10);
             stageProgress("正在下载 " + id + "，版本 " + ref, 30);
-            runGit(1200, "clone", "--depth", "1", "--branch", ref, url, target.toString());
+            runGit(1200, line -> stageProgress("Git: " + line, 30), "clone", "--progress", "--depth", "1", "--branch", ref, url, target.toString());
             stageProgress("仓库对象已下载，正在检查清单", 80);
             Map<String, Object> result = component(kind, find(kind, id));
             String message = Boolean.TRUE.equals(result.get("trainingReady"))
                     ? "组件已下载并可用于训练"
                     : "组件已下载，但平台训练清单尚待补齐";
             finish("succeeded", message);
-        } catch (Exception e) { stageProgress(e.getMessage() == null ? "下载失败" : e.getMessage(), 0); finish("failed", "下载失败"); }
+        } catch (Exception e) {
+            String detail = Optional.ofNullable(e.getMessage()).filter(message -> !message.isBlank()).orElse(e.getClass().getSimpleName());
+            stageProgress("下载失败详情：" + detail, 0);
+            finish("failed", "下载失败：" + detail);
+        }
     }
 
     private void removeDirectory(Path target) {
@@ -192,8 +199,38 @@ public class AlgorithmComponentService {
     private synchronized void stageProgress(String message, int progress) { if (task != null) { task.put("message", message); task.put("progress", progress); logs.add(message); } }
     private synchronized void finish(String status, String message) { if (task != null) { task.put("status", status); task.put("message", message); task.put("progress", "succeeded".equals(status) ? 100 : task.getOrDefault("progress", 0)); } }
     public synchronized Map<String, Object> snapshot() { if (task == null) return Map.of(); Map<String, Object> copy = new LinkedHashMap<>(task); copy.put("logs", List.copyOf(logs)); return copy; }
-    private boolean gitAvailable() { try { return runGit(5, "--version").startsWith("git version"); } catch (Exception e) { return false; } }
-    private String runGit(int seconds, String... args) throws Exception { List<String> command = new ArrayList<>(List.of("git", "-c", "credential.interactive=false")); command.addAll(List.of(args)); Process process = new ProcessBuilder(command).directory(root.toFile()).redirectError(ProcessBuilder.Redirect.DISCARD).start(); process.getOutputStream().close(); if (!process.waitFor(seconds, TimeUnit.SECONDS)) { process.destroyForcibly(); throw new IllegalArgumentException("Git 操作超时"); } if (process.exitValue() != 0) throw new IllegalArgumentException("Git 操作失败，请检查网络和仓库权限"); return new String(process.getInputStream().readAllBytes()); }
+    private boolean gitAvailable() { try { return runGit(5, line -> {}, "--version").startsWith("git version"); } catch (Exception e) { return false; } }
+    private String runGit(int seconds, String... args) throws Exception { return runGit(seconds, line -> {}, args); }
+    private String runGit(int seconds, Consumer<String> onOutput, String... args) throws Exception {
+        List<String> command = new ArrayList<>(List.of("git", "-c", "credential.interactive=false"));
+        command.addAll(List.of(args));
+        Process process = new ProcessBuilder(command).directory(root.toFile()).redirectErrorStream(true).start();
+        process.getOutputStream().close();
+        StringBuilder output = new StringBuilder();
+        CompletableFuture<Void> reader = CompletableFuture.runAsync(() -> {
+            try (BufferedReader lines = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = lines.readLine()) != null) {
+                    synchronized (output) { output.append(line).append(System.lineSeparator()); }
+                    if (!line.isBlank()) onOutput.accept(line);
+                }
+            } catch (IOException e) { throw new UncheckedIOException(e); }
+        });
+        if (!process.waitFor(seconds, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            reader.cancel(true);
+            throw new IllegalArgumentException("Git 操作超时（" + seconds + " 秒）");
+        }
+        reader.get(5, TimeUnit.SECONDS);
+        String result;
+        synchronized (output) { result = output.toString(); }
+        if (process.exitValue() != 0) {
+            String detail = result.lines().filter(line -> !line.isBlank()).reduce((first, last) -> last)
+                    .orElse("Git 未返回错误详情");
+            throw new IllegalArgumentException("Git 操作失败（退出码 " + process.exitValue() + "）：" + detail);
+        }
+        return result;
+    }
     private String repositoryUrl(Map<String, Object> item) { String url = string(map(item.get("repository")).get("url")); if (!url.startsWith("https://github.com/") || url.contains("<") || url.contains("@")) throw new IllegalArgumentException("登记仓库地址无效"); return url; }
     private String repositoryRef(Map<String, Object> item) { Map<String, Object> repo = map(item.get("repository")); return Optional.ofNullable(string(repo.get("stable_ref"))).filter(s -> !s.isBlank()).orElseGet(() -> Optional.ofNullable(string(repo.get("default_ref"))).filter(s -> !s.isBlank()).orElse(string(repo.get("ref")))); }
     private String baselineId(Map<String, Object> item) {

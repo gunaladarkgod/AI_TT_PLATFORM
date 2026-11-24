@@ -63,7 +63,7 @@
         <div v-if="componentTask.status" class="component-task">
           <div class="component-task-heading"><strong>{{ componentTask.message }}</strong><el-tag size="small" :type="taskStatusType">{{ taskStatusLabel }}</el-tag></div>
           <el-progress :percentage="Number(componentTask.progress || 0)" :status="taskProgressStatus" :stroke-width="12" />
-          <el-collapse v-if="componentTask.logs?.length" class="component-logs"><el-collapse-item title="查看下载任务日志" name="component-logs"><div v-for="(log, index) in componentTask.logs" :key="`${index}-${log}`">{{ log }}</div></el-collapse-item></el-collapse>
+          <el-collapse v-if="componentTask.logs?.length" class="component-logs"><el-collapse-item title="查看下载任务日志" name="component-logs"><div v-for="(log, index) in componentTask.logs" :key="`${index}-${log}`" class="component-log-line">{{ log }}</div></el-collapse-item></el-collapse>
         </div>
       </section>
 
@@ -243,6 +243,7 @@ onBeforeUnmount(() => clearTimeout(componentTimer))
 .component-task-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .component-logs { margin-top: 10px; }
 .component-logs :deep(.el-collapse-item__content) { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.7; }
+.component-log-line { overflow-wrap: anywhere; white-space: pre-wrap; }
 .el-upload__tip { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
 @media (max-width: 700px) { .direction-table-heading { align-items: flex-start; flex-direction: column; } .section-heading { display: block; } .section-heading span { display: block; margin-top: 5px; } .registry-intro { display: block; } .registry-intro .el-tag { margin-top: 10px; } }
 </style>
