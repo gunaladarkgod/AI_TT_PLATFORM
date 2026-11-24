@@ -48,7 +48,7 @@
 - `POST /api/baseline-components/install`、`POST /api/algorithm-components/install`：按登记 ID 克隆对应 GitHub 仓库。
 - `POST /api/baseline-components/remove`、`POST /api/algorithm-components/remove`：移除对应的本机副本，不影响远程仓库。
 
-下载任务会返回 `progress`、`message` 和 `logs`；页面按“连接仓库、下载对象、检查清单、完成”刷新阶段进度。这个百分比表示任务阶段，不代表远程仓库的精确字节百分比。
+下载任务会返回 `progress`、`message` 和 `logs`；页面按“连接仓库、下载对象、检查清单、完成”刷新阶段进度。这个百分比表示任务阶段，不代表远程仓库的精确字节百分比。开始克隆前，日志会记录后端用户、HOME、工作目录、实际 Git 命令、Git 低速限制、代理配置状态及凭据助手配置状态；代理地址和凭据值会隐藏，便于与终端手动克隆环境对比。
 
 组件管理按方向展示基线树，独立 C 算法和本地上传算法按 `baselineId` 放在对应基线下，点击基线展开箭头查看；未指定基线或关联基线不在该方向登记中的算法保留在“未关联基线”节点。用户可在方向标题处上传 ZIP 算法包，也可从基线行的“上传算法”入口上传并预选该基线。上传内容保存到被 `.gitignore` 忽略的 `local-components/custom-algorithms/`，并记录研究方向、基线（可暂不选择）和算法名称；上传结果状态为“开发中/待登记”，不会自动修改 `research-registry/` 中的仓库登记文件，也不会自动执行算法代码。
 

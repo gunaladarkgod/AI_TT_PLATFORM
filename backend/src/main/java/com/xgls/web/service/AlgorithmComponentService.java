@@ -150,6 +150,7 @@ public class AlgorithmComponentService {
 
     private void cloneRepository(String kind, String id, String url, String ref, Path target) {
         try {
+            logCloneDiagnostics(url, ref, target);
             stageProgress("正在连接远程仓库", 10);
             stageProgress("正在下载 " + id + "，版本 " + ref, 30);
             runGit(1200, line -> stageProgress("Git: " + line, 30), "clone", "--progress", "--depth", "1", "--branch", ref, url, target.toString());
@@ -163,6 +164,39 @@ public class AlgorithmComponentService {
             String detail = Optional.ofNullable(e.getMessage()).filter(message -> !message.isBlank()).orElse(e.getClass().getSimpleName());
             stageProgress("下载失败详情：" + detail, 0);
             finish("failed", "下载失败：" + detail);
+        }
+    }
+
+    private void logCloneDiagnostics(String url, String ref, Path target) {
+        stageProgress("诊断：运行用户=" + System.getProperty("user.name", "未知")
+                + "，HOME=" + Optional.ofNullable(System.getenv("HOME")).orElse("未设置")
+                + "，工作目录=" + root, 0);
+        stageProgress("诊断：目标=" + target + "，仓库=" + url + "，分支=" + ref, 0);
+        stageProgress("诊断：命令=git -c credential.interactive=false clone --progress --depth 1 --branch "
+                + ref + " " + url + " " + target, 0);
+        logGitConfig("http.lowSpeedLimit", null);
+        logGitConfig("http.lowSpeedTime", null);
+        logGitConfig("http.proxy", url);
+        logGitConfig("credential.https://github.com.helper", null);
+        for (String name : List.of("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")) {
+            stageProgress("诊断：环境变量 " + name + (System.getenv(name) == null ? " 未设置" : " 已设置（值隐藏）"), 0);
+        }
+        for (String name : List.of("GH_TOKEN", "GITHUB_TOKEN")) {
+            stageProgress("诊断：环境变量 " + name + (System.getenv(name) == null ? " 未设置" : " 已设置（值隐藏）"), 0);
+        }
+    }
+
+    private void logGitConfig(String key, String url) {
+        List<String> args = new ArrayList<>(List.of("config", "--show-origin"));
+        if (url != null) args.addAll(List.of("--get-urlmatch", key, url));
+        else args.addAll(List.of("--get-all", key));
+        try {
+            String result = runGit(5, args.toArray(String[]::new)).trim();
+            if (key.equals("http.proxy")) result = result.isBlank() ? "未配置" : "已配置（地址隐藏）";
+            else if (key.equals("credential.https://github.com.helper")) result = result.isBlank() ? "未配置" : "已配置（凭据内容不读取）";
+            stageProgress("诊断：Git 配置 " + key + "=" + (result.isBlank() ? "未配置" : result), 0);
+        } catch (Exception e) {
+            stageProgress("诊断：读取 Git 配置 " + key + " 失败：" + e.getClass().getSimpleName(), 0);
         }
     }
 
