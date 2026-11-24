@@ -13,7 +13,7 @@
       </div>
 
       <section class="registry-section">
-        <div class="section-heading"><h3>研究方向</h3><span>展开基线查看关联算法，或上传自己的算法</span></div>
+        <div class="section-heading"><h3>研究方向</h3><div class="section-actions"><span>展开基线查看关联算法，或上传自己的算法</span><el-button size="small" :loading="componentLoading" @click="loadComponents">检查状态</el-button></div></div>
         <el-alert v-if="componentError" :title="componentError" type="warning" :closable="false" show-icon />
         <div v-loading="componentLoading" class="direction-tables">
           <article v-for="table in directionTables" :key="table.id" class="direction-table">
@@ -41,7 +41,7 @@
               <el-table-column label="状态" min-width="135">
                 <template #default="{ row }"><span v-if="row.nodeType === 'group'" class="pending-text">待关联基线</span><el-tag v-else size="small" :type="rowStatusType(row)">{{ rowStatusLabel(row) }}</el-tag></template>
               </el-table-column>
-              <el-table-column label="操作" width="210">
+              <el-table-column label="操作" width="300">
                 <template #default="{ row }">
                   <template v-if="row.nodeType === 'group'"><span class="pending-text">—</span></template>
                   <template v-else-if="row.custom">
@@ -51,9 +51,14 @@
                     </template>
                   </template>
                   <template v-else-if="!row.placeholder">
-                    <el-button v-if="row.localStatus === 'not-downloaded'" size="small" :loading="isTaskRunning(row.id)" @click="installComponent(row)">下载</el-button>
-                    <el-button v-else size="small" type="danger" plain :loading="isTaskRunning(row.id)" @click="removeComponent(row)">移除</el-button>
-                    <el-button v-if="row.nodeType === 'baseline'" size="small" type="primary" plain @click="openUpload(table.id, row.id)">上传算法</el-button>
+                    <div class="component-actions">
+                      <el-button v-if="row.localStatus === 'not-downloaded'" size="small" :loading="isTaskRunning(row.id)" @click="installComponent(row)">下载</el-button>
+                      <template v-else>
+                        <el-button size="small" :disabled="row.localStatus !== 'downloaded' || isTaskRunning(row.id)" @click="openComponentPath(row)">打开路径</el-button>
+                        <el-button size="small" type="danger" plain :loading="isTaskRunning(row.id)" @click="removeComponent(row)">{{ row.localStatus === 'partial' ? '清理' : '移除' }}</el-button>
+                      </template>
+                      <el-button v-if="row.nodeType === 'baseline'" size="small" type="primary" plain @click="openUpload(table.id, row.id)">上传算法</el-button>
+                    </div>
                   </template>
                   <span v-else class="pending-text">预留位置</span>
                 </template>
@@ -65,7 +70,7 @@
         <div v-if="componentTask.status" class="component-task">
           <div class="component-task-heading"><strong>{{ componentTask.message }}</strong><el-tag size="small" :type="taskStatusType">{{ taskStatusLabel }}</el-tag></div>
           <el-progress :percentage="Number(componentTask.progress || 0)" :status="taskProgressStatus" :stroke-width="12" />
-          <el-collapse v-if="componentTask.logs?.length" class="component-logs"><el-collapse-item title="查看下载任务日志" name="component-logs"><div v-for="(log, index) in componentTask.logs" :key="`${index}-${log}`">{{ log }}</div></el-collapse-item></el-collapse>
+          <el-collapse v-if="componentTask.logs?.length" class="component-logs"><el-collapse-item title="查看下载任务日志" name="component-logs"><div v-for="(log, index) in componentTask.logs" :key="`${index}-${log}`" class="component-log-line">{{ log }}</div></el-collapse-item></el-collapse>
         </div>
       </section>
 
@@ -174,11 +179,14 @@ const directionTables = computed(() => directionDefinitions.map(definition => ({
 const rowStatusLabel = row => {
   if (row.custom) return row.trainingReady ? '可创建训练任务' : '待配置训练'
   if (row.localStatus === 'downloaded') return '已下载'
+  if (row.localStatus === 'partial') return '下载不完整'
   if (row.placeholder || row.registrationStatus === '待登记') return '开发中/待登记'
   return '未下载'
 }
-const rowStatusType = row => row.trainingReady || row.localStatus === 'downloaded' ? 'success'
-  : rowStatusLabel(row) === '未下载' ? 'info' : 'warning'
+const rowStatusType = row => row.localStatus === 'partial' ? 'danger'
+  : row.custom ? 'warning'
+    : row.localStatus === 'downloaded' ? 'success'
+      : rowStatusLabel(row) === '未下载' ? 'info' : 'warning'
 const isTaskRunning = componentId => componentTask.value.status === 'running' && componentTask.value.componentId === componentId
 const taskStatusLabel = computed(() => ({ running: '进行中', succeeded: '已完成', failed: '失败' }[componentTask.value.status] || '未开始'))
 const taskStatusType = computed(() => ({ running: 'warning', succeeded: 'success', failed: 'danger' }[componentTask.value.status] || 'info'))
@@ -196,7 +204,8 @@ const loadComponents = async () => {
     algorithmComponents.value = algorithm.data?.components || []
     customAlgorithms.value = custom.data || []
     componentTask.value = baseline.data?.task?.status === 'running' ? baseline.data.task : algorithm.data?.task || {}
-    if (componentTask.value.status === 'running') { clearTimeout(componentTimer); componentTimer = setTimeout(loadComponents, 1500) }
+    clearTimeout(componentTimer)
+    if (componentTask.value.status === 'running') componentTimer = setTimeout(loadComponents, 1500)
   } catch (error) { componentError.value = error?.message || '组件状态读取失败' }
   finally { componentLoading.value = false }
 }
@@ -217,6 +226,13 @@ const removeComponent = async row => {
     if (response?.code !== 0) { componentError.value = response?.msg || '移除启动失败'; return }
     componentTask.value = response.data || {}; clearTimeout(componentTimer); componentTimer = setTimeout(loadComponents, 300)
   } catch (error) { if (error !== 'cancel' && error !== 'close') componentError.value = error?.message || '移除已取消' }
+}
+
+const openComponentPath = async row => {
+  try {
+    const response = await AlgorithmComponentService.openPath(row.kind, row.id)
+    if (response?.code !== 0) throw new Error(response?.msg || '打开仓库路径失败')
+  } catch (error) { componentError.value = error?.msg || error?.message || '打开仓库路径失败' }
 }
 
 const removeCustom = async row => {
@@ -382,10 +398,13 @@ onBeforeUnmount(() => {
 .repository-table a { overflow: hidden; color: var(--el-color-primary); text-overflow: ellipsis; white-space: nowrap; }
 .pending-text { color: var(--el-text-color-secondary); font-size: 12px; }
 .component-blocker { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; }
+.component-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.component-actions .el-button { margin-left: 0; }
 .component-task, .upload-progress { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--el-border-color); border-radius: 6px; background: var(--el-fill-color-lighter); }
 .component-task-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .component-logs { margin-top: 10px; }
 .component-logs :deep(.el-collapse-item__content) { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.7; }
+.component-log-line { overflow-wrap: anywhere; white-space: pre-wrap; }
 .el-upload__tip { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
 @media (max-width: 700px) { .direction-table-heading { align-items: flex-start; flex-direction: column; } .section-heading { display: block; } .section-heading span { display: block; margin-top: 5px; } .registry-intro { display: block; } .registry-intro .el-tag { margin-top: 10px; } }
 </style>

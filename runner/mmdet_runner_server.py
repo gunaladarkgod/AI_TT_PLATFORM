@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 
 from mmdet_config_service import generate_config, list_templates, read_config, template_defaults
 from training_metrics import read_training_metrics
+from proxy_environment import apply_proxy_environment
 
 app = FastAPI(title="Platform Training Runner (sync)")
 
@@ -112,6 +113,7 @@ def make_env(engine: str) -> Dict[str, str]:
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+    apply_proxy_environment(env)
     if engine == "mmdet":
         old_py = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = REPO_ROOT if not old_py else REPO_ROOT + os.pathsep + old_py

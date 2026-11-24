@@ -7,10 +7,13 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.nio.file.*;
 import java.nio.file.attribute.DosFileAttributeView;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.function.Consumer;
 
 /** Manages registered B/C repositories in the ignored local-components directory. */
 @Service
@@ -146,18 +149,65 @@ public class AlgorithmComponentService {
         return target;
     }
 
+    public Path localPath(String kind, String id) {
+        if (!Set.of("baseline", "algorithm").contains(kind) || find(kind, id) == null)
+            throw new IllegalArgumentException("未登记的组件");
+        Path path = target(kind, id);
+        if (!Files.isDirectory(path) || !Files.isDirectory(path.resolve(".git")))
+            throw new IllegalArgumentException("本机仓库不存在或下载不完整，请检查状态");
+        return path;
+    }
+
     private void cloneRepository(String kind, String id, String url, String ref, Path target) {
         try {
+            logCloneDiagnostics(url, ref, target);
             stageProgress("正在连接远程仓库", 10);
             stageProgress("正在下载 " + id + "，版本 " + ref, 30);
-            runGit(1200, "clone", "--depth", "1", "--branch", ref, url, target.toString());
+            runGit(1200, line -> stageProgress("Git: " + line, 30), "clone", "--progress", "--depth", "1", "--branch", ref, url, target.toString());
             stageProgress("仓库对象已下载，正在检查清单", 80);
             Map<String, Object> result = component(kind, find(kind, id));
             String message = Boolean.TRUE.equals(result.get("trainingReady"))
                     ? "组件已下载并可用于训练"
                     : "组件已下载，但平台训练清单尚待补齐";
             finish("succeeded", message);
-        } catch (Exception e) { stageProgress(e.getMessage() == null ? "下载失败" : e.getMessage(), 0); finish("failed", "下载失败"); }
+        } catch (Exception e) {
+            String detail = Optional.ofNullable(e.getMessage()).filter(message -> !message.isBlank()).orElse(e.getClass().getSimpleName());
+            stageProgress("下载失败详情：" + detail, 0);
+            finish("failed", "下载失败：" + detail);
+        }
+    }
+
+    private void logCloneDiagnostics(String url, String ref, Path target) {
+        stageProgress("诊断：运行用户=" + System.getProperty("user.name", "未知")
+                + "，HOME=" + Optional.ofNullable(System.getenv("HOME")).orElse("未设置")
+                + "，工作目录=" + root, 0);
+        stageProgress("诊断：目标=" + target + "，仓库=" + url + "，分支=" + ref, 0);
+        stageProgress("诊断：命令=git -c credential.interactive=false clone --progress --depth 1 --branch "
+                + ref + " " + url + " " + target, 0);
+        logGitConfig("http.lowSpeedLimit", null);
+        logGitConfig("http.lowSpeedTime", null);
+        logGitConfig("http.proxy", url);
+        logGitConfig("credential.https://github.com.helper", null);
+        for (String name : List.of("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")) {
+            stageProgress("诊断：环境变量 " + name + (System.getenv(name) == null ? " 未设置" : " 已设置（值隐藏）"), 0);
+        }
+        for (String name : List.of("GH_TOKEN", "GITHUB_TOKEN")) {
+            stageProgress("诊断：环境变量 " + name + (System.getenv(name) == null ? " 未设置" : " 已设置（值隐藏）"), 0);
+        }
+    }
+
+    private void logGitConfig(String key, String url) {
+        List<String> args = new ArrayList<>(List.of("config", "--show-origin"));
+        if (url != null) args.addAll(List.of("--get-urlmatch", key, url));
+        else args.addAll(List.of("--get-all", key));
+        try {
+            String result = runGit(5, args.toArray(String[]::new)).trim();
+            if (key.equals("http.proxy")) result = result.isBlank() ? "未配置" : "已配置（地址隐藏）";
+            else if (key.equals("credential.https://github.com.helper")) result = result.isBlank() ? "未配置" : "已配置（凭据内容不读取）";
+            stageProgress("诊断：Git 配置 " + key + "=" + (result.isBlank() ? "未配置" : result), 0);
+        } catch (Exception e) {
+            stageProgress("诊断：读取 Git 配置 " + key + " 失败：" + e.getClass().getSimpleName(), 0);
+        }
     }
 
     private void removeDirectory(Path target) {
@@ -179,6 +229,9 @@ public class AlgorithmComponentService {
         if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) throw new IOException("组件目录不存在");
         try (var paths = Files.walk(target)) {
             for (Path path : paths.toList()) {
+                // Linux exposes a DOS view for links, but reading it with NOFOLLOW_LINKS
+                // fails. Delete the link itself later; never change its target's attributes.
+                if (Files.isSymbolicLink(path)) continue;
                 DosFileAttributeView dos = Files.getFileAttributeView(
                         path, DosFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
                 if (dos != null && dos.readAttributes().isReadOnly()) dos.setReadOnly(false);
@@ -190,8 +243,38 @@ public class AlgorithmComponentService {
     private synchronized void stageProgress(String message, int progress) { if (task != null) { task.put("message", message); task.put("progress", progress); logs.add(message); } }
     private synchronized void finish(String status, String message) { if (task != null) { task.put("status", status); task.put("message", message); task.put("progress", "succeeded".equals(status) ? 100 : task.getOrDefault("progress", 0)); } }
     public synchronized Map<String, Object> snapshot() { if (task == null) return Map.of(); Map<String, Object> copy = new LinkedHashMap<>(task); copy.put("logs", List.copyOf(logs)); return copy; }
-    private boolean gitAvailable() { try { return runGit(5, "--version").startsWith("git version"); } catch (Exception e) { return false; } }
-    private String runGit(int seconds, String... args) throws Exception { List<String> command = new ArrayList<>(List.of("git", "-c", "credential.interactive=false")); command.addAll(List.of(args)); Process process = new ProcessBuilder(command).directory(root.toFile()).redirectError(ProcessBuilder.Redirect.DISCARD).start(); process.getOutputStream().close(); if (!process.waitFor(seconds, TimeUnit.SECONDS)) { process.destroyForcibly(); throw new IllegalArgumentException("Git 操作超时"); } if (process.exitValue() != 0) throw new IllegalArgumentException("Git 操作失败，请检查网络和仓库权限"); return new String(process.getInputStream().readAllBytes()); }
+    private boolean gitAvailable() { try { return runGit(5, line -> {}, "--version").startsWith("git version"); } catch (Exception e) { return false; } }
+    private String runGit(int seconds, String... args) throws Exception { return runGit(seconds, line -> {}, args); }
+    private String runGit(int seconds, Consumer<String> onOutput, String... args) throws Exception {
+        List<String> command = new ArrayList<>(List.of("git", "-c", "credential.interactive=false"));
+        command.addAll(List.of(args));
+        Process process = new ProcessBuilder(command).directory(root.toFile()).redirectErrorStream(true).start();
+        process.getOutputStream().close();
+        StringBuilder output = new StringBuilder();
+        CompletableFuture<Void> reader = CompletableFuture.runAsync(() -> {
+            try (BufferedReader lines = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = lines.readLine()) != null) {
+                    synchronized (output) { output.append(line).append(System.lineSeparator()); }
+                    if (!line.isBlank()) onOutput.accept(line);
+                }
+            } catch (IOException e) { throw new UncheckedIOException(e); }
+        });
+        if (!process.waitFor(seconds, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            reader.cancel(true);
+            throw new IllegalArgumentException("Git 操作超时（" + seconds + " 秒）");
+        }
+        reader.get(5, TimeUnit.SECONDS);
+        String result;
+        synchronized (output) { result = output.toString(); }
+        if (process.exitValue() != 0) {
+            String detail = result.lines().filter(line -> !line.isBlank()).reduce((first, last) -> last)
+                    .orElse("Git 未返回错误详情");
+            throw new IllegalArgumentException("Git 操作失败（退出码 " + process.exitValue() + "）：" + detail);
+        }
+        return result;
+    }
     private String repositoryUrl(Map<String, Object> item) { String url = string(map(item.get("repository")).get("url")); if (!url.startsWith("https://github.com/") || url.contains("<") || url.contains("@")) throw new IllegalArgumentException("登记仓库地址无效"); return url; }
     private String repositoryRef(Map<String, Object> item) { Map<String, Object> repo = map(item.get("repository")); return Optional.ofNullable(string(repo.get("stable_ref"))).filter(s -> !s.isBlank()).orElseGet(() -> Optional.ofNullable(string(repo.get("default_ref"))).filter(s -> !s.isBlank()).orElse(string(repo.get("ref")))); }
     private String baselineId(Map<String, Object> item) {
