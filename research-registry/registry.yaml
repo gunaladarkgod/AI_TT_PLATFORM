@@ -21,6 +21,15 @@ baselines:
     data_format: yolo
     repository: { url: https://github.com/gunaladarkgod/AI_TT_BASELINE_SMALL_OBJECT_YOLO11.git, ref: main }
     description: 官方 Ultralytics YOLO11 基线仓库；平台训练清单尚待补齐。
+  - id: knowledge-distillation/yolov8-baseline
+    code: B2
+    direction: knowledge-distillation
+    name: YOLOv8 知识蒸馏基线
+    status: draft
+    engine: { id: ultralytics, version: unverified }
+    data_format: yolo
+    repository: { url: https://github.com/lfei31482-sketch/knowledge-distillation-yolov8-baseline, ref: main }
+    description: YOLOv8 知识蒸馏基线仓库；默认分支、引擎版本和平台训练清单尚未验证。
 platform_engines:
   description: A 层提供公共引擎接入、版本约束、环境检查和统一 Runner 调度；不要求将第三方框架源码复制进平台仓库。
   supported:

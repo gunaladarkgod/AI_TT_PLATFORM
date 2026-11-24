@@ -1,0 +1,26 @@
+schema_version: 1
+id: knowledge-distillation/yolov8-mgd
+code: C1
+kind: standalone-algorithm
+name: YOLOv8 知识蒸馏 MGD 算法
+direction: knowledge-distillation
+status: draft
+source:
+  type: external-git
+  repository: https://github.com/lfei31482-sketch/knowledge-distillation-yolov8-improve
+  default_ref: main
+  stable_ref: null
+  manifest: algorithm.yaml
+  derived_manifest: derived-from.yaml
+derived_from:
+  baseline:
+    id: knowledge-distillation/yolov8-baseline
+    repository: https://github.com/lfei31482-sketch/knowledge-distillation-yolov8-baseline
+    ref: main
+    commit: null
+platform: { min_version: null }
+engine: { id: ultralytics, version: unverified }
+data_format: yolo
+algorithm_manifest: algorithm.yaml
+derived_manifest: derived-from.yaml
+description: YOLOv8 知识蒸馏 MGD 独立算法仓库；默认分支、基线派生提交、引擎版本和平台训练清单尚未验证。

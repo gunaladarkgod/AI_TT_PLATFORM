@@ -70,7 +70,15 @@ class ResearchRegistryServiceTest {
                     Map<?, ?> direction = (Map<?, ?>) value;
                     return direction.get("code") + ":" + direction.get("id");
                 }).collect(java.util.stream.Collectors.toSet()));
-        assertEquals(13, ((List<?>) result.get("algorithms")).size());
+        assertEquals(14, ((List<?>) result.get("algorithms")).size());
+        Map<?, ?> kdBaseline = ((List<Map<?, ?>>) ((Map<?, ?>) result.get("registry")).get("baselines")).stream()
+                .filter(item -> "knowledge-distillation/yolov8-baseline".equals(item.get("id"))).findFirst().orElseThrow();
+        assertEquals("draft", kdBaseline.get("status"));
+        Map<?, ?> mgd = ((List<Map<?, ?>>) result.get("algorithms")).stream()
+                .filter(item -> "knowledge-distillation/yolov8-mgd".equals(item.get("id"))).findFirst().orElseThrow();
+        assertEquals("standalone-algorithm", mgd.get("kind"));
+        Map<?, ?> mgdBaseline = (Map<?, ?>) ((Map<?, ?>) mgd.get("derived_from")).get("baseline");
+        assertEquals("knowledge-distillation/yolov8-baseline", mgdBaseline.get("id"));
         Map<?, ?> tdsc = ((List<Map<?, ?>>) result.get("algorithms")).stream()
                 .filter(item -> "small-object/tdsc".equals(item.get("id"))).findFirst().orElseThrow();
         assertEquals("standalone-algorithm", tdsc.get("kind"));
